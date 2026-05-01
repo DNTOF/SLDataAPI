@@ -9,7 +9,7 @@ public class Plugin : Plugin<Config>
 
     public override string Name => "SLDataAPI";
     public override string Author => "DNT_OF";
-    public override Version Version => new Version(1, 5, 0);
+    public override Version Version => new Version(1, 0, 0);
 
     public override void OnEnabled()
     {

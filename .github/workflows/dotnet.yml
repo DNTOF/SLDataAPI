@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-      
+
 permissions:
   contents: write
 
@@ -37,14 +37,24 @@ jobs:
       - name: 🏷 获取版本号
         id: version
         run: |
-          $version = "v1.0.$(Get-Date -Format yyyyMMddHHmmss)"
+          # ★ 修复：从 Plugin.cs 读取源代码版本号，保证与源代码对齐
+          $content = Get-Content Plugin.cs -Raw
+          if ($content -match 'new Version\((\d+)\s*,\s*(\d+)\s*,\s*(\d+)\)') {
+              $ver = "$($Matches[1]).$($Matches[2]).$($Matches[3])"
+          } else {
+              $ver = "0.0.0"
+          }
+          # ★ 构建时间：年月日时分 (YYMMDDHHmm)，用全角括号追加在版本号后
+          $buildTime = Get-Date -Format "yyMMddHHmm"
+          $version = "v${ver}（${buildTime}）"
           echo "version=$version" >> $env:GITHUB_OUTPUT
+          echo "Resolved release version: $version"
 
       - name: 🚀 创建 Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.version }}
-          name: DeepSeekBot ${{ steps.version.outputs.version }}
+          name: SLDataAPI ${{ steps.version.outputs.version }}
           files: ${{ steps.find_dll.outputs.dll_path }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

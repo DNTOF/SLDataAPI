@@ -1,6 +1,6 @@
 # SLDataAPI
 
-**版本：** 1.0.0  
+**版本：** 2.0.0  
 **依赖：** EXILED 9.x · MEC · Newtonsoft.Json  
 **用途：** 在 SCP:SL 游戏服务器上暴露一个轻量 HTTP 接口，供 AstrBot 等外部程序主动轮询实时服务器数据。
 

@@ -1,0 +1,50 @@
+name: Build & Release SLDataAPI
+
+on:
+  push:
+    branches:
+      - main
+      
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: 📥 Checkout 仓库
+        uses: actions/checkout@v4
+
+      - name: 🧰 设置 MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: 📦 安装 NuGet
+        uses: NuGet/setup-nuget@v2
+
+      - name: 📦 还原依赖
+        run: dotnet restore
+
+      - name: 🛠 编译项目
+        run: msbuild SLDataAPI.csproj /p:Configuration=Release
+
+      - name: 📂 查找 DLL
+        id: find_dll
+        run: |
+          $dll = Get-ChildItem -Recurse -Filter "*.dll" | Where-Object { $_.Name -eq "SLDataAPI.dll" } | Select-Object -First 1
+          echo "dll_path=$($dll.FullName)" >> $env:GITHUB_OUTPUT
+
+      - name: 🏷 获取版本号
+        id: version
+        run: |
+          $version = "v1.0.$(Get-Date -Format yyyyMMddHHmmss)"
+          echo "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: 🚀 创建 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          name: DeepSeekBot ${{ steps.version.outputs.version }}
+          files: ${{ steps.find_dll.outputs.dll_path }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

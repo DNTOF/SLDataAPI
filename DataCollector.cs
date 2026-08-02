@@ -8,21 +8,22 @@ public static class DataCollector
 {
     public static ServerData CachedData = new ServerData();
     public static bool IsRoundActive = false;
+
     private static CoroutineHandle _handle;
 
     private static readonly Dictionary<Team, int> TeamOrder = new()
     {
-        { Team.SCPs,              0 },
-        { Team.FoundationForces,  1 },
-        { Team.ClassD,            2 },
-        { Team.ChaosInsurgency,   2 },
-        { Team.Dead,              3 }
+        { Team.SCPs, 0 },
+        { Team.FoundationForces, 1 },
+        { Team.ClassD, 2 },
+        { Team.ChaosInsurgency, 2 },
+        { Team.Dead, 3 }
     };
 
     // ★ 修复：插件启用时调用此方法，立刻采集一次并启动循环
     public static void InitData(int intervalSeconds)
     {
-        UpdateData();           // 立即填充真实数据
+        UpdateData(); // 立即填充真实数据
         StartTimer(intervalSeconds);
     }
 
@@ -55,8 +56,9 @@ public static class DataCollector
     // ★ 修复2：核弹倒计时实时读取，不用缓存值（避免最多差 8 秒的误差）
     public static string BuildJson()
     {
-        CachedData.nuke_status    = GetNukeStatus();
+        CachedData.nuke_status = GetNukeStatus();
         CachedData.nuke_countdown = GetNukeCountdown();
+
         return Newtonsoft.Json.JsonConvert.SerializeObject(CachedData);
     }
 
@@ -66,40 +68,63 @@ public static class DataCollector
         {
             var players = Player.List?.ToList() ?? new List<Player>();
 
-            CachedData.success        = true;
-            CachedData.server_name    = Server.Name ?? "Unknown";
-            CachedData.online         = true;
-            CachedData.players_count  = players.Count;
-            CachedData.max_players    = Server.MaxPlayerCount;
-            CachedData.round_started  = Round.IsStarted;
+            CachedData.success = true;
+            CachedData.server_name = Server.Name ?? "Unknown";
+            CachedData.online = true;
+            CachedData.players_count = players.Count;
+            CachedData.max_players = Server.MaxPlayerCount;
+            CachedData.round_started = Round.IsStarted;
             CachedData.round_duration = Round.IsStarted ? (int)Round.ElapsedTime.TotalSeconds : 0;
-            CachedData.current_phase  = Round.IsStarted ? "进行中" : "等待开始";
+            CachedData.current_phase = Round.IsStarted ? "进行中" : "等待开始";
 
             // ★ 修复：Warhead 在地图加载前是 null，用 try-catch 单独保护
-            CachedData.nuke_status    = GetNukeStatus();
+            CachedData.nuke_status = GetNukeStatus();
             CachedData.nuke_countdown = GetNukeCountdown();
 
             // ★ 修复：排除 Dummy/NPC 玩家（手动添加的 dummy 会混入 Player.List 导致数据污染）
             var realPlayers = players.Where(p => p != null && !p.IsNPC).ToList();
 
-            CachedData.players_count    = realPlayers.Count;
-            CachedData.d_count          = realPlayers.Count(p => p.Role.Team == Team.ClassD || p.Role.Team == Team.ChaosInsurgency);
+            CachedData.players_count = realPlayers.Count;
+            CachedData.d_count = realPlayers.Count(p => p.Role.Team == Team.ClassD || p.Role.Team == Team.ChaosInsurgency);
             CachedData.foundation_count = realPlayers.Count(p => p.Role.Team == Team.FoundationForces);
-            CachedData.scp_count        = realPlayers.Count(p => p.Role.Team == Team.SCPs);
-            CachedData.spectator_count  = realPlayers.Count(p => p.Role.Team == Team.Dead);
-            CachedData.ping             = realPlayers.Any() ? (int)realPlayers.Average(p => p.Ping) : 0;
+            CachedData.scp_count = realPlayers.Count(p => p.Role.Team == Team.SCPs);
+            CachedData.spectator_count = realPlayers.Count(p => p.Role.Team == Team.Dead);
+
+            CachedData.ping = realPlayers.Any() ? (int)realPlayers.Average(p => p.Ping) : 0;
+
+            // ★ 诊断：ping 长期反馈为 0 时，打开配置里的 debug 开关，
+            //   重启服务器后在控制台核对这里打印出的每个玩家原始 Ping 值。
+            //   如果这里打出来的原始值本身就是 0，说明问题在 EXILED Player.Ping
+            //   （LiteNetLib4MirrorServer.GetPing）这个上游 API 本身，不在本插件的计算逻辑里；
+            //   如果这里打出来的是非 0 正常值，但最终 JSON 里 ping 还是 0，
+            //   那问题出在别处，请把这段日志发给开发者进一步排查。
+            if (Plugin.Instance?.Config.Debug == true && realPlayers.Count > 0)
+            {
+                string pingDump = string.Join(", ", realPlayers.Select(p => $"{p.Nickname}={p.Ping}ms"));
+                Log.Debug($"[SLDataAPI] Ping 原始值采样: {pingDump}");
+            }
 
             CachedData.players = realPlayers
-                .Where(p => p.Role.Type != RoleTypeId.None)   // 排除尚未分配职业的玩家
+                .Where(p => p.Role.Type != RoleTypeId.None) // 排除尚未分配职业的玩家
                 .OrderBy(p => TeamOrder.ContainsKey(p.Role.Team) ? TeamOrder[p.Role.Team] : 99)
                 .ThenBy(p => p.Role.Type.ToString())
                 .Select(p => new PlayerInfo
                 {
                     nickname = Sanitize(p.Nickname),
-                    role     = GetRoleCN(p.Role.Type),
-                    team     = GetTeamCN(p.Role.Team)
+                    steam_id = p.UserId ?? "",
+                    role = GetRoleCN(p.Role.Type),
+                    team = GetTeamCN(p.Role.Team),
+                    x = p.Position.x,
+                    y = p.Position.y,
+                    z = p.Position.z
                 })
                 .ToList();
+
+            // ★ 新增：探测 DNT_OF 系列插件（SLPlayer / OmegaWarhead）。
+            //   必须放在这里（MEC 协程 = 主线程），不能放进 BuildJson()——
+            //   BuildJson() 是被 HttpServer 的后台线程直接调用的，
+            //   在后台线程里访问 Player.Position 等游戏对象存在线程安全风险。
+            CachedData.dntof_plugins = DntofDetector.Collect();
         }
         catch (System.Exception ex)
         {
@@ -112,7 +137,7 @@ public static class DataCollector
     {
         try
         {
-            if (Warhead.IsDetonated)  return "已爆炸";
+            if (Warhead.IsDetonated) return "已爆炸";
             if (Warhead.IsInProgress) return $"倒计时:{(int)Warhead.RealDetonationTimer}秒";
         }
         catch { }
@@ -130,40 +155,41 @@ public static class DataCollector
 
     private static string GetRoleCN(RoleTypeId role) => role switch
     {
-        RoleTypeId.ClassD           => "D级人员",
-        RoleTypeId.Scientist        => "科学家",
-        RoleTypeId.FacilityGuard    => "保安",
-        RoleTypeId.NtfPrivate       => "九尾狐-士兵",
-        RoleTypeId.NtfSergeant      => "九尾狐-中士",
-        RoleTypeId.NtfCaptain       => "九尾狐-指挥官",
-        RoleTypeId.ChaosConscript   => "混沌-征召兵",
-        RoleTypeId.ChaosRifleman    => "混沌-步枪手",
-        RoleTypeId.ChaosMarauder    => "混沌-掠夺者",
-        RoleTypeId.ChaosRepressor   => "混沌-镇压者",
-        RoleTypeId.Scp173           => "SCP-173",
-        RoleTypeId.Scp049           => "SCP-049",
-        RoleTypeId.Scp096           => "SCP-096",
-        RoleTypeId.Scp106           => "SCP-106",
-        RoleTypeId.Scp939           => "SCP-939",
-        RoleTypeId.Scp079           => "SCP-079",
-        RoleTypeId.Scp3114          => "SCP-3114",
-        RoleTypeId.Scp0492          => "SCP-049-2",
-        RoleTypeId.Spectator        => "观察者",
-        RoleTypeId.Tutorial         => "教程",
-        RoleTypeId.None             => "未分配",
+        RoleTypeId.ClassD => "D级人员",
+        RoleTypeId.Scientist => "科学家",
+        RoleTypeId.FacilityGuard => "保安",
+        RoleTypeId.NtfPrivate => "九尾狐-士兵",
+        RoleTypeId.NtfSergeant => "九尾狐-中士",
+        RoleTypeId.NtfCaptain => "九尾狐-指挥官",
+        RoleTypeId.ChaosConscript => "混沌-征召兵",
+        RoleTypeId.ChaosRifleman => "混沌-步枪手",
+        RoleTypeId.ChaosMarauder => "混沌-掠夺者",
+        RoleTypeId.ChaosRepressor => "混沌-镇压者",
+        RoleTypeId.Scp173 => "SCP-173",
+        RoleTypeId.Scp049 => "SCP-049",
+        RoleTypeId.Scp096 => "SCP-096",
+        RoleTypeId.Scp106 => "SCP-106",
+        RoleTypeId.Scp939 => "SCP-939",
+        RoleTypeId.Scp079 => "SCP-079",
+        RoleTypeId.Scp3114 => "SCP-3114",
+        RoleTypeId.Scp0492 => "SCP-049-2",
+        RoleTypeId.Spectator => "观察者",
+        RoleTypeId.Tutorial => "教程",
+        RoleTypeId.None => "未分配",
+
         // ★ 诊断用：如果仍然出现未知职业，HTTP 返回值会显示 "未知(数字)"
         // 把这个数字告诉开发者，就能知道是哪个 RoleTypeId 枚举值缺失了
-        _                           => $"未知({(int)role})"
+        _ => $"未知({(int)role})"
     };
 
     private static string GetTeamCN(Team team) => team switch
     {
-        Team.SCPs             => "SCP",
+        Team.SCPs => "SCP",
         Team.FoundationForces => "基金会",
-        Team.ClassD           => "D级",
-        Team.ChaosInsurgency  => "混沌",
-        Team.Dead             => "观察者",
-        Team.OtherAlive       => "其他",   // ★ 修复1：Tutorial 等非标准职业会落入此枚举值
-        _                     => "未知"
+        Team.ClassD => "D级",
+        Team.ChaosInsurgency => "混沌",
+        Team.Dead => "观察者",
+        Team.OtherAlive => "其他", // ★ 修复1：Tutorial 等非标准职业会落入此枚举值
+        _ => "未知"
     };
 }

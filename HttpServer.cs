@@ -1,37 +1,35 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Exiled.API.Features;
 
 public class HttpServer
 {
     private readonly int _port;
-    private readonly string _token;
+    private readonly Config _config;
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
     private Task? _acceptTask;
 
-    // ★ 修复：串行化 JSON 构建，避免并发请求同时写 CachedData 造成字段错乱
+    // ★ 串行化 JSON 构建，避免并发请求同时写 CachedData 造成字段错乱
     private static readonly object _jsonLock = new object();
 
-    public HttpServer(int port, string token)
+    public HttpServer(int port, Config config)
     {
         _port = port;
-        _token = token ?? "";
+        _config = config;
     }
 
     public void Start()
     {
         _cts = new CancellationTokenSource();
 
-        // ★ 修复1：用 TcpListener 绑定 0.0.0.0 替代 HttpListener
-        //   - HttpListener 的 http://*:{port}/ 在 Windows 依赖 http.sys，
-        //     需要 netsh urlacl 预留，否则 Start() 抛 "拒绝访问(5)"，
-        //     导致公网根本连不上。TcpListener 直接监听所有网卡，无需任何预留。
-        //   - 跨平台行为一致（Windows / Linux 服务器皆可）。
+        // TcpListener 绑定 0.0.0.0，避免 HttpListener 在 Windows 上依赖 http.sys / netsh urlacl。
         _listener = new TcpListener(IPAddress.Any, _port);
         _listener.Start();
 
@@ -47,28 +45,29 @@ public class HttpServer
         _cts = null;
     }
 
-    // ★ 修复2：accept 循环对单连接异常免疫
-    //   旧实现中 GetContextAsync 抛任何异常都会 break 退出循环，
-    //   导致监听器永久停摆（表现为"套接字报错，重启服务端就好"）。
-    //   现在仅在监听器真正停止时退出，其余异常一律继续 accept。
     private async Task AcceptLoop(CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
         {
+            TcpListener? listener = _listener;
+            if (listener == null)
+            {
+                // Start() 尚未调用或已 Stop()
+                await Task.Delay(100, ct);
+                continue;
+            }
+
             TcpClient client;
             try
             {
-                client = await _listener!.AcceptTcpClientAsync();
+                client = await listener.AcceptTcpClientAsync();
             }
             catch
             {
                 if (ct.IsCancellationRequested) break;
-                // 监听器仍在运行时的偶发 accept 异常，忽略后继续
                 continue;
             }
 
-            // 每个连接独立处理；连接内的任何异常都隔离在此任务内，
-            // 绝不会传播回 accept 循环。
             var _ = Task.Run(() => HandleClient(client));
         }
     }
@@ -80,44 +79,42 @@ public class HttpServer
             try
             {
                 client.NoDelay = true;
-                client.ReceiveTimeout = 5000;
-                client.SendTimeout = 5000;
+                client.ReceiveTimeout = 8000;
+                client.SendTimeout = 8000;
+
+                string remoteIp = "unknown";
+                try { remoteIp = ((IPEndPoint)client.Client.RemoteEndPoint)?.Address.ToString() ?? "unknown"; }
+                catch { }
 
                 using (var stream = client.GetStream())
                 using (var reader = new StreamReader(stream, Encoding.UTF8, false, 4096, leaveOpen: true))
                 {
-                    // 请求行，形如: GET /get_sl_data?token=xxx HTTP/1.1
-                    string? requestLine = reader.ReadLine();
+                    string requestLine = reader.ReadLine();
                     if (string.IsNullOrWhiteSpace(requestLine))
                     {
-                        SendResponse(stream, 400, "Bad Request", "");
+                        SendJson(stream, 400, Err("bad request"));
                         return;
                     }
 
                     var parts = requestLine.Split(' ');
                     if (parts.Length < 2)
                     {
-                        SendResponse(stream, 400, "Bad Request", "");
+                        SendJson(stream, 400, Err("bad request"));
                         return;
                     }
 
                     string method = parts[0];
                     string rawTarget = parts[1];
 
-                    // 读掉请求头直到空行（本接口仅处理 GET，无请求体）
-                    while (true)
+                    var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                    string headerLine;
+                    while (!string.IsNullOrEmpty(headerLine = reader.ReadLine()))
                     {
-                        var header = reader.ReadLine();
-                        if (header == null || header.Length == 0) break;
+                        int idx = headerLine.IndexOf(':');
+                        if (idx <= 0) continue;
+                        headers[headerLine.Substring(0, idx).Trim()] = headerLine.Substring(idx + 1).Trim();
                     }
 
-                    if (method != "GET")
-                    {
-                        SendResponse(stream, 405, "Method Not Allowed", "");
-                        return;
-                    }
-
-                    // 拆分路径与查询串
                     string path = rawTarget;
                     string query = "";
                     int qIdx = rawTarget.IndexOf('?');
@@ -127,27 +124,29 @@ public class HttpServer
                         query = rawTarget.Substring(qIdx + 1);
                     }
 
-                    if (path != "/get_sl_data")
+                    string body = "";
+                    if (headers.TryGetValue("Content-Length", out var clStr) &&
+                        int.TryParse(clStr, out int contentLength) && contentLength > 0)
                     {
-                        SendResponse(stream, 404, "Not Found", "");
-                        return;
+                        // 限制请求体大小（64KB 足够容纳所有控制类请求），防止恶意超大 body 占内存
+                        if (contentLength > 65536)
+                        {
+                            SendJson(stream, 413, Err("payload too large"));
+                            return;
+                        }
+
+                        var buf = new char[contentLength];
+                        int readTotal = 0;
+                        while (readTotal < contentLength)
+                        {
+                            int n = reader.Read(buf, readTotal, contentLength - readTotal);
+                            if (n <= 0) break;
+                            readTotal += n;
+                        }
+                        body = new string(buf, 0, readTotal);
                     }
 
-                    string reqToken = ExtractQueryValue(query, "token");
-                    if (reqToken != _token)
-                    {
-                        SendResponse(stream, 403, "Forbidden", "");
-                        return;
-                    }
-
-                    // ★ 实时构建 JSON：核弹倒计时与游戏内同步，
-                    //   字段格式与原实现完全一致（由 DataCollector.BuildJson 决定）。
-                    string json;
-                    lock (_jsonLock)
-                    {
-                        json = DataCollector.BuildJson();
-                    }
-                    SendResponse(stream, 200, "OK", json);
+                    Route(stream, remoteIp, method, path, query, headers, body);
                 }
             }
             catch
@@ -157,14 +156,81 @@ public class HttpServer
         }
     }
 
-    private static void SendResponse(Stream stream, int code, string reason, string body)
+    private void Route(Stream stream, string remoteIp, string method, string path, string query,
+        Dictionary<string, string> headers, string body)
     {
-        byte[] bodyBytes = string.IsNullOrEmpty(body)
+        try
+        {
+            // ---- 只读数据接口（原有行为不变） ----
+            if (path == "/get_sl_data")
+            {
+                if (method != "GET")
+                {
+                    SendJson(stream, 405, Err("Method Not Allowed"));
+                    return;
+                }
+
+                string reqToken = ExtractQueryValue(query, "token");
+                if (!ControlAuth.SecureEquals(reqToken, _config.VerifyToken ?? ""))
+                {
+                    SendJson(stream, 403, Err("token 错误或缺失"));
+                    return;
+                }
+
+                string json;
+                lock (_jsonLock) { json = DataCollector.BuildJson(); }
+                SendJson(stream, 200, json);
+                return;
+            }
+
+            // ---- 控制接口 ----
+            if (path.StartsWith("/control/"))
+            {
+                if (!_config.ControlEnabled)
+                {
+                    SendJson(stream, 404, Err("控制接口未启用"));
+                    return;
+                }
+
+                string reqToken = headers.TryGetValue("X-Control-Token", out var h)
+                    ? h
+                    : ExtractQueryValue(query, "token");
+
+                if (!ControlAuth.TryAuthenticate(remoteIp, reqToken, _config.ControlToken, out string authErr))
+                {
+                    Log.Warn($"[SLDataAPI][Control] 鉴权失败 from {remoteIp}: {authErr}");
+                    SendJson(stream, 403, Err(authErr));
+                    return;
+                }
+
+                if (method != "POST")
+                {
+                    SendJson(stream, 405, Err("控制接口仅支持 POST"));
+                    return;
+                }
+
+                var (status, json) = ControlController.Handle(path, body);
+                SendJson(stream, status, json);
+                return;
+            }
+
+            SendJson(stream, 404, Err("路径不存在"));
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"[SLDataAPI] 路由处理异常: {ex}");
+            try { SendJson(stream, 500, Err("内部错误")); } catch { }
+        }
+    }
+
+    private static void SendJson(Stream stream, int code, string jsonBody)
+    {
+        byte[] bodyBytes = string.IsNullOrEmpty(jsonBody)
             ? Array.Empty<byte>()
-            : Encoding.UTF8.GetBytes(body);
+            : Encoding.UTF8.GetBytes(jsonBody);
 
         var sb = new StringBuilder();
-        sb.Append("HTTP/1.1 ").Append(code).Append(' ').Append(reason).Append("\r\n");
+        sb.Append("HTTP/1.1 ").Append(code).Append(' ').Append(ReasonPhrase(code)).Append("\r\n");
         sb.Append("Content-Type: application/json; charset=utf-8\r\n");
         sb.Append("Content-Length: ").Append(bodyBytes.Length).Append("\r\n");
         sb.Append("Connection: close\r\n");
@@ -176,6 +242,25 @@ public class HttpServer
             stream.Write(bodyBytes, 0, bodyBytes.Length);
         stream.Flush();
     }
+
+    private static string ReasonPhrase(int code)
+    {
+        switch (code)
+        {
+            case 200: return "OK";
+            case 400: return "Bad Request";
+            case 403: return "Forbidden";
+            case 404: return "Not Found";
+            case 405: return "Method Not Allowed";
+            case 413: return "Payload Too Large";
+            case 500: return "Internal Server Error";
+            case 501: return "Not Implemented";
+            default: return "Unknown";
+        }
+    }
+
+    private static string Err(string message) =>
+        Newtonsoft.Json.JsonConvert.SerializeObject(new ControlResponse { success = false, message = message });
 
     private static string ExtractQueryValue(string query, string key)
     {

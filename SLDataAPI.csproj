@@ -5,11 +5,19 @@
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <OutputType>Library</OutputType>
+
+    <!-- 强名称签名：本地存在 key.snk（不入库）时启用；
+         CI 不依赖此条件，由 dotnet.yml 显式传 /p:SignAssembly 等参数签名 -->
+    <SignAssembly Condition="Exists('key.snk')">true</SignAssembly>
+    <AssemblyOriginatorKeyFile Condition="Exists('key.snk')">key.snk</AssemblyOriginatorKeyFile>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="ExMod.Exiled" Version="9.0.0" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="System.Net.Http" Version="4.3.4" />
+    <!-- 仅编译期引用：patch ServerConsole.AddLog 捕获命令输出。运行时服务器自带 HarmonyLib，不打包。 -->
+    <PackageReference Include="Lib.Harmony" Version="2.3.3" PrivateAssets="all" />
   </ItemGroup>
 
   <ItemGroup>
@@ -23,6 +31,14 @@
 
     <Reference Include="UnityEngine.CoreModule">
       <HintPath>dependencies\UnityEngine.CoreModule.dll</HintPath>
+    </Reference>
+
+    <Reference Include="UnityEngine.PhysicsModule">
+      <HintPath>dependencies\UnityEngine.PhysicsModule.dll</HintPath>
+    </Reference>
+
+    <Reference Include="Mirror">
+      <HintPath>dependencies\Mirror.dll</HintPath>
     </Reference>
 
     <Reference Include="UnityEngine">

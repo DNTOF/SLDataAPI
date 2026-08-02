@@ -9,7 +9,7 @@ public class Plugin : Plugin<Config>
 
     public override string Name => "SLDataAPI";
     public override string Author => "DNT_OF";
-    public override Version Version => new Version(2, 0, 0);
+    public override Version Version => new Version(2, 1, 0);
 
     public override void OnEnabled()
     {
@@ -21,15 +21,22 @@ public class Plugin : Plugin<Config>
         Exiled.Events.Handlers.Server.RoundStarted    += OnRoundStarted;
         Exiled.Events.Handlers.Server.RoundEnded      += OnRoundEnded;
 
-        server = new HttpServer(Config.HttpPort, Config.VerifyToken);
+        // 命令输出捕获（patch ServerConsole.AddLog）
+        CommandOutputCapture.Init();
+
+        ValidateControlConfig();
+
+        server = new HttpServer(Config.HttpPort, Config);
         server.Start();
 
-        // ★ 修复：插件启用时立即采集一次真实数据，并启动定时循环
-        // 不再依赖 RoundStarted 事件触发——加载时若回合已在进行中同样能正常工作
+        // 插件启用时立即采集一次真实数据，并启动定时循环
         DataCollector.IsRoundActive = Round.IsStarted;
         DataCollector.InitData(Config.PushIntervalSeconds);
 
-        Log.Info($"SLDataAPI v{Version} enabled. HTTP on port {Config.HttpPort}.");
+        if (Config.AutoUpdateCheck)
+            UpdateChecker.CheckAsync(Version);
+
+        Log.Info($"SLDataAPI v{Version} enabled. HTTP on port {Config.HttpPort}. Control API: {(Config.ControlEnabled ? "启用" : "关闭")}.");
     }
 
     public override void OnDisabled()
@@ -42,15 +49,35 @@ public class Plugin : Plugin<Config>
 
         server?.Stop();
         DataCollector.StopTimer();
+        CommandOutputCapture.Shutdown();
 
         Instance = null;
     }
 
-    // ★ 新增：等待玩家阶段也更新数据（大厅状态）
+    /// <summary>
+    /// 启动时校验控制接口 token 格式。格式不合法则强制在本次运行中禁用控制接口，
+    /// 而不是带着一个不合规（弱）的 token 裸奔——这只影响运行时状态，不会改写配置文件。
+    /// </summary>
+    private void ValidateControlConfig()
+    {
+        if (!Config.ControlEnabled)
+            return;
+
+        if (!ControlAuth.IsValidTokenFormat(Config.ControlToken))
+        {
+            Log.Error(
+                "[SLDataAPI] ControlEnabled=true 但 ControlToken 格式不合法" +
+                "（要求长度不少于8，且同时包含大写字母/小写字母/数字/特殊符号）。" +
+                "本次运行将强制禁用控制接口，请修正配置后重启服务器。");
+            Config.ControlEnabled = false;
+        }
+    }
+
     private void OnWaitingForPlayers()
     {
         DataCollector.IsRoundActive = false;
         DataCollector.UpdateDataNow();
+        MapLayoutService.Clear(); // 上一回合的地图布局失效
         Log.Info("SLDataAPI: Waiting for players.");
     }
 
@@ -58,6 +85,7 @@ public class Plugin : Plugin<Config>
     {
         DataCollector.IsRoundActive = true;
         DataCollector.UpdateDataNow();
+        MapLayoutService.CaptureLayout(); // 采集本回合随机布局（LCZ/HCZ 每回合不同）
         Log.Info("SLDataAPI: Round started.");
     }
 

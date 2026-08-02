@@ -1,4 +1,11 @@
 bin/
 obj/
 *.user
+*.log
 .vs/
+.zcode/
+# 地图导出归档（运行时通过 /control/map/export 重新生成，不入库）
+mapdata/
+# 强名称签名密钥（本地私有，绝不可入库；CI 通过 GitHub Secret SNK_HEX 还原）
+key.snk
+.DS_Store

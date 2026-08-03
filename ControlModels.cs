@@ -143,11 +143,30 @@ public class BanAddRequest
 /// <summary>POST /control/logs —— 读取服务器日志尾部。</summary>
 public class LogsRequest
 {
+    /// <summary>"list" = 列出所有可用日志文件；空 = 尾部读取。</summary>
+    public string action { get; set; } = "";
+
+    /// <summary>可选：指定要读取的日志文件绝对路径（必须位于服务器日志目录内且为 .log/.txt）。</summary>
+    public string path { get; set; } = "";
+
     /// <summary>读取的末尾行数，默认 200，上限 2000。</summary>
     public int lines { get; set; } = 200;
 
     /// <summary>可选：仅返回包含该关键词的行（大小写不敏感）。</summary>
     public string filter { get; set; } = "";
+}
+
+/// <summary>POST /control/plugins —— 插件列表 / 重载 / 启停。</summary>
+public class PluginsRequest
+{
+    /// <summary>空 = 列表；"reload" = 重载全部插件；"set" = 启用/禁用单个插件。</summary>
+    public string action { get; set; } = "";
+
+    /// <summary>set 用：插件名（Name，大小写不敏感）。</summary>
+    public string name { get; set; } = "";
+
+    /// <summary>set 用：true=启用，false=禁用（写入插件配置的 is_enabled 后全局重载）。</summary>
+    public bool enabled { get; set; }
 }
 
 /// <summary>POST /control/files/list|read|write —— 文件管理。</summary>

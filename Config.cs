@@ -29,6 +29,13 @@ public class Config : IConfig
     public bool AutoUpdateCheck { get; set; } = true;
 
     /// <summary>
+    /// 检测到新版本时是否自动下载并替换插件 DLL（覆盖后下次重启游戏服务器生效，旧版备份为 .bak）。
+    /// 校验：下载文件必须是合法程序集、名称一致；当前版本已强名称签名时还要求签名一致（防篡改）。
+    /// 关闭时仅日志提示，需手动更新。
+    /// </summary>
+    public bool AutoUpdateInstall { get; set; } = true;
+
+    /// <summary>
     /// 文件管理端点（/control/files/*）的根目录（绝对路径）。
     /// 留空 = 禁用文件端点（默认）。建议指向服务器的 SCPSL_Data 目录或某个只读配置目录；
     /// 所有文件操作都会被限制在该目录内（防路径穿越）。

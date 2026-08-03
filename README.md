@@ -1,6 +1,6 @@
 # SLDataAPI
 
-**版本：** 2.1.0  
+**版本：** 2.2.0  
 **依赖：** EXILED 9.x · MEC · Newtonsoft.Json · Harmony（服务器自带，不打包）  
 **用途：** 在 SCP:SL 游戏服务器上暴露一个轻量 HTTP 接口，供 WebUI / AstrBot 等外部程序轮询实时服务器数据，并通过 `/control/*` 控制接口远程执行管理操作。
 
@@ -11,10 +11,12 @@
 | 能力 | 说明 |
 |------|------|
 | 实时数据查询 | `GET /get_sl_data`：人数、回合、核弹、玩家列表（含 SteamID / 坐标）、DNT_OF 系列插件状态 |
-| 控制接口 | `POST /control/*`：命令执行、玩家管理、回合控制、CASSIE、核弹、地图、封禁、日志、文件（默认关闭，需显式开启） |
+| 控制接口 | `POST /control/*`：命令执行、玩家管理、回合控制、CASSIE、核弹、地图、封禁、日志（任意文件选择）、文件（默认关闭，需显式开启） |
 | 命令输出捕获 | Harmony 补丁捕获 `ServerConsole.AddLog` 输出，`/control/command` 可拿到插件命令（如 SLPlayer `.m`）的完整回显 |
 | 地图数据 | 按 seed 提供本回合布局（LCZ/HCZ 每回合随机），可导出 atlas 等原始数据供外部重建地图 |
-| 版本检查 | 可选：启动时检查 GitHub Releases 是否有新版本（仅日志提示，不自动更新） |
+| 插件管理 | 列表读取配置文件启停状态；启停走"暂存 → 保存并重载"批量模式（SLDataAPI 自身禁止禁用） |
+| 文件防线 | 文件端点四重防线：路径白名单 / Windows 目录禁写 / 仅配置文件扩展名 / 游戏数据与自身配置目录禁访问 |
+| 自动更新 | 启动时检查 GitHub Releases；检测到新版本自动下载并替换 DLL（程序集/名称/强名称签名三重校验，重启游戏服生效，旧版备份 .bak） |
 
 ---
 
@@ -47,7 +49,8 @@ s_l_data_a_p_i:
   # ===== 控制接口（v2.1）=====
   control_enabled: false              # 是否启用 /control/*（默认关闭；关闭时一律 404）
   control_token: ""                   # 控制接口专用 token，与 verify_token 分离
-  auto_update_check: true             # 启动时检查 GitHub Releases 新版本（仅日志提示）
+  auto_update_check: true             # 启动时检查 GitHub Releases 新版本
+  auto_update_install: true           # 检测到新版本时自动下载并替换 DLL（重启游戏服生效，旧版备份 .bak）
   file_root: ""                       # /control/files/* 根目录（绝对路径）；留空=禁用文件端点
   log_directory: ""                   # 服务器日志目录；留空=自动探测
 ```
@@ -57,6 +60,7 @@ s_l_data_a_p_i:
 | 字段 | 说明 |
 |------|------|
 | `control_token` | 控制接口专用 token。要求长度 ≥ 8，且同时包含大写字母、小写字母、数字、特殊符号；格式不合法时本次运行会**强制禁用控制接口**并在日志报错 |
+| `auto_update_install` | 检测到新版本时自动下载并替换 `SLDataAPI.dll`（覆盖后重启游戏服生效；旧版备份 `.bak`）。校验：下载文件必须为合法程序集、名称一致；当前已强名称签名时还要求签名一致（防篡改）。关闭则仅日志提示 |
 | `file_root` | 文件管理端点的根目录（绝对路径），所有文件操作被限制在该目录内（防 `..` 路径穿越）；留空 = 禁用。建议指向 `SCPSL_Data` 或某个只读配置目录 |
 | `log_directory` | `/control/logs` 读取的日志目录。留空自动探测：`%AppData%/SCP Secret Laboratory/ServerLogs`（含端口子目录）→ `SCPSL_Data/Logs` |
 
@@ -162,11 +166,11 @@ s_l_data_a_p_i:
 | `/control/map` | `action`: `seed` / `layout` / `doors` / `lights` | 地图信息与控制（seed 每回合固定，同 seed 布局恒定） |
 | `/control/map/export` | — | 导出地图原始数据（atlas RGBA base64、glyph_pairs、zone_candidates 等），供外部重建 |
 | `/control/slplayer` | `action`: `status` / `list` / `play` / `next` / `stop` / `volume` / `shuffle` / `reload` | 控制 SLPlayer 音乐（需服务器装有 SLPlayer 插件） |
-| `/control/plugins` | — | 已加载插件列表（名称/版本/作者/启用状态） |
+| `/control/plugins` | `action`?: `stage`/`clear`/`apply`/`reload`（空=列表） | 插件管理。列表的 `enabled` 读**配置文件**的 is_enabled；`stage` 暂存启停（不写文件，SLDataAPI 自身禁止禁用）；`apply` 一次性写入全部暂存并重载插件 |
 | `/control/ban_list` | — | 游戏封禁列表 |
 | `/control/ban/add` | `userId`?, `reason`, `duration` | 添加封禁 |
 | `/control/ban/revoke` | `userId` | 解除封禁 |
-| `/control/logs` | `lines`?（默认 200）, `filter`? | 读取服务器日志尾部（自动探测日志目录） |
+| `/control/logs` | `lines`?（默认 200）, `filter`?, `path`?, `action`? | 读取服务器日志尾部（自动探测日志目录）。`action=list` 列出全部可用日志文件（名称/大小/时间）；`path` 指定读取某个日志文件（仅限日志目录内 .log/.txt，防任意文件读取） |
 | `/control/files/list` | `path` | 列出目录（受 `file_root` 白名单限制） |
 | `/control/files/read` | `path` | 读取文件内容 |
 | `/control/files/write` | `path`, `content` | 写入文件 |
@@ -197,6 +201,11 @@ Content-Type: application/json
 - `/control/command` **等价于本机控制台权限**：大多数 RA 命令通过 `GameConsoleCommandHandler` 同时注册，可在此执行。`control_token` 一旦泄露即完全沦陷——务必只通过受信内网或反向代理白名单暴露，`control_enabled` 默认关闭是有意为之。
 - `control_token` 与 `verify_token` 分离：只读查询可以放心交给监控/机器人，控制权限单独保管。
 - 文件端点默认关闭；开启后所有操作都被限制在 `file_root` 内（路径规范化 + 前缀校验，防 `..` 穿越）。
+- **文件端点四重防线**（任何角色一视同仁，读/写同规则）：
+  1. 路径白名单：仅 `file_root` 内（防 `..` 穿越）
+  2. 系统目录保护：**Windows 目录及其子目录禁止浏览/读取/写入**
+  3. 扩展名白名单：**只允许操作配置文件**（`yml/yaml/txt/json/cfg/ini/conf/config/xml/properties`），exe/dll/bat/ps1 等一律拒绝（列表中以黄色标记且无法打开）
+  4. 顶级防线：**游戏数据目录**（`%AppData%/SCP Secret Laboratory`）与 **SLDataAPI 自身配置目录**（`%AppData%/SCP Secret Laboratory/EXILED/Configs/Plugins/s_l_data_a_p_i`）禁止读/写/访问（列表中以黄色标记且无法打开）——防止篡改游戏配置/管理员名单实现提权，或改写插件自身配置
 
 ---
 

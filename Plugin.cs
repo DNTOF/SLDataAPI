@@ -9,7 +9,7 @@ public class Plugin : Plugin<Config>
 
     public override string Name => "SLDataAPI";
     public override string Author => "DNT_OF";
-    public override Version Version => new Version(2, 1, 0);
+    public override Version Version => new Version(2, 2, 0);
 
     public override void OnEnabled()
     {
@@ -34,7 +34,7 @@ public class Plugin : Plugin<Config>
         DataCollector.InitData(Config.PushIntervalSeconds);
 
         if (Config.AutoUpdateCheck)
-            UpdateChecker.CheckAsync(Version);
+            UpdateChecker.CheckAsync(Version, Config.AutoUpdateInstall);
 
         Log.Info($"SLDataAPI v{Version} enabled. HTTP on port {Config.HttpPort}. Control API: {(Config.ControlEnabled ? "启用" : "关闭")}.");
     }

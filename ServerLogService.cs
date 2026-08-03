@@ -29,11 +29,109 @@ public static class ServerLogService
             "SCP Secret Laboratory",
             "ServerLogs");
 
-    public static object Tail(int lines, string filter)
+    /// <summary>收集所有候选日志目录（显式配置 + AppData/ServerLogs 根与端口子目录 + SCPSL_Data/Logs）。</summary>
+    private static List<string> GetLogDirs()
     {
-        string file = FindLatestLogFile()
-            ?? throw new InvalidOperationException(
-                "找不到服务器日志文件（已探测 %AppData%/SCP Secret Laboratory/ServerLogs 与 SCPSL_Data/Logs）");
+        var dirs = new List<string>();
+
+        string? configured = Plugin.Instance?.Config.LogDirectory;
+        if (!string.IsNullOrWhiteSpace(configured) && Directory.Exists(configured))
+            dirs.Add(configured!);
+
+        if (Directory.Exists(AppDataLogsRoot))
+        {
+            dirs.Add(AppDataLogsRoot);
+            foreach (string sub in Directory.GetDirectories(AppDataLogsRoot))
+                dirs.Add(sub);
+        }
+
+        dirs.AddRange(CandidateDirs.Where(Directory.Exists));
+        return dirs;
+    }
+
+    /// <summary>列出所有可用日志文件（按修改时间倒序）。</summary>
+    public static object ListLogFiles()
+    {
+        // (修改时间, 路径, 名称, 大小, 修改时间文本) —— 避免 dynamic 依赖 Microsoft.CSharp
+        var files = new List<(DateTime time, string path, string name, long size, string modified)>();
+        foreach (string dir in GetLogDirs())
+        {
+            IEnumerable<string> found;
+            try
+            {
+                found = Directory.GetFiles(dir, "*.log").Concat(Directory.GetFiles(dir, "*.txt"));
+            }
+            catch
+            {
+                continue; // 无权限等异常跳过该目录
+            }
+            foreach (string f in found)
+            {
+                try
+                {
+                    var info = new FileInfo(f);
+                    files.Add((info.LastWriteTimeUtc, f, info.Name, info.Length,
+                        info.LastWriteTimeUtc.ToString("yyyy-MM-dd HH:mm:ss")));
+                }
+                catch { /* 单个文件异常不影响其他 */ }
+            }
+        }
+
+        return new
+        {
+            count = files.Count,
+            files = files
+                .OrderByDescending(x => x.time)
+                .Select(x => new
+                {
+                    path = x.path,
+                    name = x.name,
+                    size = x.size,
+                    modified = x.modified,
+                })
+                .ToList(),
+        };
+    }
+
+    /// <summary>
+    /// 读取日志尾部。path 为空时自动取最新日志文件；
+    /// path 非空时必须位于候选日志目录内且扩展名为 .log/.txt，否则拒绝（防任意文件读取）。
+    /// </summary>
+    public static object Tail(int lines, string filter, string? path = null)
+    {
+        string file;
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            file = FindLatestLogFile()
+                ?? throw new InvalidOperationException(
+                    "找不到服务器日志文件（已探测 %AppData%/SCP Secret Laboratory/ServerLogs 与 SCPSL_Data/Logs）");
+        }
+        else
+        {
+            // 安全校验：规范化后必须位于候选日志目录内 + 扩展名白名单（.log/.txt）
+            string full;
+            try { full = Path.GetFullPath(path); }
+            catch { throw new ArgumentException("日志路径非法"); }
+
+            string ext = Path.GetExtension(full);
+            if (!string.Equals(ext, ".log", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(ext, ".txt", StringComparison.OrdinalIgnoreCase))
+                throw new ArgumentException($"日志接口只允许读取 .log/.txt 文件（收到 {ext}）");
+
+            bool inside = GetLogDirs().Any(dir =>
+            {
+                string prefix;
+                try { prefix = Path.GetFullPath(dir).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar; }
+                catch { return false; }
+                return full.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
+            });
+            if (!inside)
+                throw new ArgumentException("日志路径不在服务器日志目录内，拒绝读取");
+
+            if (!File.Exists(full))
+                throw new ArgumentException($"日志文件不存在: {path}");
+            file = full;
+        }
 
         // net48 没有 Math.Clamp
         int n = Math.Max(1, Math.Min(2000, lines <= 0 ? 200 : lines));

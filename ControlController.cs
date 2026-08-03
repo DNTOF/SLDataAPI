@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Text;
 using Exiled.API.Enums;
 using Exiled.API.Features;
 using Exiled.API.Features.Doors;
@@ -40,7 +42,7 @@ public static class ControlController
                 "/control/cassie" => CassieAction(body),
                 "/control/warhead" => WarheadAction(body),
                 "/control/slplayer" => SlPlayerAction(body),
-                "/control/plugins" => PluginsAction(),
+                "/control/plugins" => PluginsAction(body),
                 "/control/ban_list" => BanListAction(),
                 "/control/ban/revoke" => BanRevokeAction(body),
                 "/control/ban/add" => BanAddAction(body),
@@ -351,10 +353,100 @@ public static class ControlController
     // ------------------------------------------------------------------
     // /control/plugins —— EXILED 插件列表
     // ------------------------------------------------------------------
-    private static (int, string) PluginsAction()
+    // 插件启停暂存（内存态，重启清零）：name -> 目标 enabled
+    // 设计：点击启用/禁用只暂存（不写文件），全部设置好后点"保存并重载"统一写入 + ReloadPlugins
+    private static readonly Dictionary<string, bool> PluginStaged = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>是否 SLDataAPI 自身（禁止禁用）。</summary>
+    private static bool IsSelfPlugin(Exiled.API.Interfaces.IPlugin<Exiled.API.Interfaces.IConfig> p) =>
+        p.Assembly == typeof(ControlController).Assembly;
+
+    private static Exiled.API.Interfaces.IPlugin<Exiled.API.Interfaces.IConfig>? FindPlugin(string name) =>
+        Exiled.Loader.Loader.Plugins.FirstOrDefault(p =>
+            string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase));
+
+    private static (int, string) PluginsAction(string body)
     {
+        // 支持：
+        //   {}                          → 列表（enabled 读配置文件 is_enabled）
+        //   { action: "reload" }        → 重载全部插件
+        //   { action: "stage", name, enabled }  → 暂存启停（不写文件）
+        //   { action: "clear" }         → 清空暂存
+        //   { action: "apply" }         → 一次性写入全部暂存配置 + ReloadPlugins
+        var req = Parse<PluginsRequest>(body);
+
         string json = MainThreadExecutor.RunOnMainThread(() =>
         {
+            if (req?.action == "reload")
+            {
+                Exiled.Loader.Loader.ReloadPlugins();
+                return Json(true, "插件已全部重载");
+            }
+
+            if (req?.action == "stage")
+            {
+                if (string.IsNullOrWhiteSpace(req.name))
+                    throw new InvalidOperationException("缺少 name 字段");
+                var plugin = FindPlugin(req.name)
+                    ?? throw new InvalidOperationException($"未找到插件: {req.name}");
+                if (IsSelfPlugin(plugin))
+                    throw new InvalidOperationException("禁止禁用 SLDataAPI 自身");
+                if (plugin.Config == null)
+                    throw new InvalidOperationException($"插件 {req.name} 没有配置文件，无法启停");
+                PluginStaged[plugin.Name] = req.enabled;
+                return Json(true,
+                    $"已暂存{(req.enabled ? "启用" : "禁用")}插件 {plugin.Name}（点\"保存并重载\"统一生效）",
+                    new { staged = StagedSnapshot() });
+            }
+
+            if (req?.action == "clear")
+            {
+                PluginStaged.Clear();
+                return Json(true, "已清空暂存", new { staged = StagedSnapshot() });
+            }
+
+            if (req?.action == "apply")
+            {
+                var applied = new List<object>();
+                var failed = new List<object>();
+                foreach (var kv in PluginStaged)
+                {
+                    var plugin = FindPlugin(kv.Key);
+                    if (plugin == null || IsSelfPlugin(plugin))
+                    {
+                        failed.Add(new { name = kv.Key, reason = "插件不存在或为 SLDataAPI 自身" });
+                        continue;
+                    }
+                    try
+                    {
+                        if (plugin.Config == null)
+                            throw new InvalidOperationException("没有配置文件");
+                        if (string.IsNullOrEmpty(plugin.ConfigPath))
+                            throw new InvalidOperationException("未暴露 ConfigPath");
+                        // 改配置里的 is_enabled 并写回（用 EXILED 自己的序列化器保证格式兼容）
+                        plugin.Config.IsEnabled = kv.Value;
+                        File.WriteAllText(plugin.ConfigPath,
+                            Exiled.Loader.Loader.Serializer.Serialize(plugin.Config), Encoding.UTF8);
+                        applied.Add(new { name = kv.Key, enabled = kv.Value });
+                    }
+                    catch (Exception ex)
+                    {
+                        failed.Add(new { name = kv.Key, reason = ex.Message });
+                    }
+                }
+                PluginStaged.Clear();
+                if (applied.Count > 0)
+                    Exiled.Loader.Loader.ReloadPlugins();
+                return Json(true,
+                    $"已保存 {applied.Count} 个插件并重载" + (failed.Count > 0 ? $"（{failed.Count} 个失败）" : ""),
+                    new { applied, failed });
+            }
+
+            if (!string.IsNullOrEmpty(req?.action) && req.action != "list")
+                throw new InvalidOperationException($"未知 action: {req.action}");
+
+            // 列表：enabled 读【配置文件】的 is_enabled（EXILED 加载配置时写入 Config.IsEnabled），
+            // 而非运行时状态 —— 运行时可能被全局禁用/重载中，不代表配置文件里的启停设置
             var plugins = Exiled.Loader.Loader.Plugins
                 .Select(p => new
                 {
@@ -363,8 +455,11 @@ public static class ControlController
                     version = p.Version.ToString(),
                     prefix = p.Prefix,
                     priority = p.Priority.ToString(),
-                    // IPlugin 接口没有 IsEnabled，反射取 Plugin 基类上的属性
-                    enabled = p.GetType().GetProperty("IsEnabled")?.GetValue(p) is true
+                    enabled = p.Config?.IsEnabled ?? true,
+                    // SLDataAPI 自身：前端禁用启停按钮
+                    self = IsSelfPlugin(p),
+                    // 该插件是否有暂存的启停改动
+                    staged = PluginStaged.TryGetValue(p.Name, out bool target) ? target : (bool?)null,
                 })
                 .OrderBy(p => p.name)
                 .ToList();
@@ -373,7 +468,7 @@ public static class ControlController
         }, out var err);
 
         if (err != null)
-            return (500, Json(false, $"插件枚举失败: {err.Message}"));
+            return (500, Json(false, $"插件操作失败: {err.Message}"));
 
         return (200, json);
     }
@@ -492,7 +587,14 @@ public static class ControlController
         var req = Parse<LogsRequest>(body);
         try
         {
-            object data = ServerLogService.Tail(req?.lines ?? 200, req?.filter ?? "");
+            // action=list → 列出所有可用日志文件（前端选择器用）
+            if (req?.action == "list")
+            {
+                object list = ServerLogService.ListLogFiles();
+                return (200, Json(true, "ok", list));
+            }
+            // 其余：尾部读取（path 非空时读取指定日志文件，路径经白名单校验）
+            object data = ServerLogService.Tail(req?.lines ?? 200, req?.filter ?? "", req?.path);
             return (200, Json(true, "ok", data));
         }
         catch (Exception ex)
@@ -652,4 +754,8 @@ public static class ControlController
 
     private static string Json(bool success, string message, object data = null!) =>
         JsonConvert.SerializeObject(new ControlResponse { success = success, message = message, data = data });
+
+    /// <summary>暂存清单快照（name → 目标 enabled）。</summary>
+    private static object StagedSnapshot() =>
+        PluginStaged.Select(kv => new { name = kv.Key, enabled = kv.Value }).ToList();
 }

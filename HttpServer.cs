@@ -79,8 +79,11 @@ public class HttpServer
             try
             {
                 client.NoDelay = true;
-                client.ReceiveTimeout = 8000;
-                client.SendTimeout = 8000;
+                // Socket 超时：必须大于控制接口的主线程派发超时（5s）+ 网络余量。
+                // 旧版 8s 时主线程操作（effect/state 等）处理稍慢就直接断连，
+                // 客户端（webui 代理）表现为"代理转发失败 / 502"。
+                client.ReceiveTimeout = 30000;
+                client.SendTimeout = 30000;
 
                 string remoteIp = "unknown";
                 try { remoteIp = ((IPEndPoint)client.Client.RemoteEndPoint)?.Address.ToString() ?? "unknown"; }

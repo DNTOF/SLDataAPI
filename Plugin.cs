@@ -9,7 +9,7 @@ public class Plugin : Plugin<Config>
 
     public override string Name => "SLDataAPI";
     public override string Author => "DNT_OF";
-    public override Version Version => new Version(2, 2, 0);
+    public override Version Version => new Version(2, 2, 1);
 
     public override void OnEnabled()
     {
@@ -78,6 +78,7 @@ public class Plugin : Plugin<Config>
         DataCollector.IsRoundActive = false;
         DataCollector.UpdateDataNow();
         MapLayoutService.Clear(); // 上一回合的地图布局失效
+        MapLayoutService.CaptureLayout(); // 等待玩家时地图已生成，立即采集（失败自动重试）
         Log.Info("SLDataAPI: Waiting for players.");
     }
 

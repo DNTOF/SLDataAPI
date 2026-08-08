@@ -19,6 +19,7 @@ public static class MapLayoutService
 {
     private static readonly object Lock = new object();
     private static object? _cachedLayout;
+    private static int _captureFailures;
 
     // WorldspaceBounds / Name / Zone / Shape 在游戏程序集里是 internal 成员，
     // 编译期不可直接访问，用反射读取（运行时可用，字段/属性名随游戏版本兜底）。
@@ -38,19 +39,27 @@ public static class MapLayoutService
     private static readonly FieldInfo? MainCoordsBackingField =
         RoomIdType.GetField("<MainCoords>k__BackingField", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
 
-    /// <summary>回合开始事件调用（主线程）：重新采集本回合布局。</summary>
-    public static void CaptureLayout()
+    /// <summary>回合开始/等待玩家事件调用（主线程）：采集本回合布局。
+    /// 失败时自动重试（每 5 秒，最多 12 次）——新装服务器/自定义地图下
+    /// 反射读取偶发失败时不再整回合无布局可用；外部调用重置重试计数。</summary>
+    public static void CaptureLayout() => CaptureLayoutInternal(false);
+
+    private static void CaptureLayoutInternal(bool fromRetry)
     {
         lock (Lock)
         {
             try
             {
                 _cachedLayout = BuildLayout();
+                _captureFailures = 0;
             }
             catch (Exception ex)
             {
-                Exiled.API.Features.Log.Debug($"[SLDataAPI] 地图布局采集失败: {ex.Message}");
+                _captureFailures = fromRetry ? _captureFailures + 1 : 1;
+                Exiled.API.Features.Log.Warn($"[SLDataAPI] 地图布局采集失败（第 {_captureFailures} 次）: {ex}");
                 _cachedLayout = null;
+                if (_captureFailures <= 12)
+                    MEC.Timing.CallDelayed(5f, () => CaptureLayoutInternal(true));
             }
         }
     }

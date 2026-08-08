@@ -1,6 +1,6 @@
 # SLDataAPI
 
-**版本：** 2.2.0  
+**版本：** 2.2.1  
 **依赖：** EXILED 9.x · MEC · Newtonsoft.Json · Harmony（服务器自带，不打包）  
 **用途：** 在 SCP:SL 游戏服务器上暴露一个轻量 HTTP 接口，供 WebUI / AstrBot 等外部程序轮询实时服务器数据，并通过 `/control/*` 控制接口远程执行管理操作。
 

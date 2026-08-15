@@ -1,6 +1,7 @@
 using System;
 using Exiled.API.Features;
 using Exiled.Events.EventArgs.Server;
+using Exiled.Events.EventArgs.Player;
 
 public class Plugin : Plugin<Config>
 {
@@ -9,7 +10,7 @@ public class Plugin : Plugin<Config>
 
     public override string Name => "SLDataAPI";
     public override string Author => "DNT_OF";
-    public override Version Version => new Version(2, 2, 1);
+    public override Version Version => new Version(2, 3, 0);
 
     public override void OnEnabled()
     {
@@ -26,8 +27,20 @@ public class Plugin : Plugin<Config>
 
         ValidateControlConfig();
 
+        // 安全提示：VerifyToken 仍是出厂默认值时，数据接口相当于裸奔
+        if (string.Equals(Config.VerifyToken, "your_secret_token", StringComparison.Ordinal))
+            Log.Warn("[SLDataAPI] VerifyToken 仍为出厂默认值 your_secret_token，请尽快修改为强随机值！");
+
         server = new HttpServer(Config.HttpPort, Config);
         server.Start();
+
+        // 语音转发（v2.3）：独立 WebSocket 端口，ControlToken 鉴权
+        if (Config.VoiceEnabled)
+        {
+            Exiled.Events.Handlers.Player.VoiceChatting += OnVoiceChatting;
+            Exiled.Events.Handlers.Player.Transmitting  += OnTransmitting;
+            VoiceService.Start(Config.VoicePort);
+        }
 
         // 插件启用时立即采集一次真实数据，并启动定时循环
         DataCollector.IsRoundActive = Round.IsStarted;
@@ -36,7 +49,7 @@ public class Plugin : Plugin<Config>
         if (Config.AutoUpdateCheck)
             UpdateChecker.CheckAsync(Version, Config.AutoUpdateInstall);
 
-        Log.Info($"SLDataAPI v{Version} enabled. HTTP on port {Config.HttpPort}. Control API: {(Config.ControlEnabled ? "启用" : "关闭")}.");
+        Log.Info($"SLDataAPI v{Version} enabled. HTTP on port {Config.HttpPort}. Control API: {(Config.ControlEnabled ? "启用" : "关闭")}. Voice: {(Config.VoiceEnabled ? $"启用(端口 {Config.VoicePort})" : "关闭")}.");
     }
 
     public override void OnDisabled()
@@ -46,12 +59,25 @@ public class Plugin : Plugin<Config>
         Exiled.Events.Handlers.Server.WaitingForPlayers -= OnWaitingForPlayers;
         Exiled.Events.Handlers.Server.RoundStarted    -= OnRoundStarted;
         Exiled.Events.Handlers.Server.RoundEnded      -= OnRoundEnded;
+        Exiled.Events.Handlers.Player.VoiceChatting   -= OnVoiceChatting;
+        Exiled.Events.Handlers.Player.Transmitting    -= OnTransmitting;
 
+        VoiceService.Stop();
         server?.Stop();
         DataCollector.StopTimer();
         CommandOutputCapture.Shutdown();
 
         Instance = null;
+    }
+
+    private void OnVoiceChatting(VoiceChattingEventArgs ev)
+    {
+        if (ev.IsAllowed) VoiceService.HandleIncoming(ev.Player, ev.VoiceMessage);
+    }
+
+    private void OnTransmitting(TransmittingEventArgs ev)
+    {
+        if (ev.IsAllowed) VoiceService.HandleIncoming(ev.Player, ev.VoiceMessage);
     }
 
     /// <summary>

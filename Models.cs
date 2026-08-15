@@ -25,6 +25,9 @@ public class ServerData
     public string current_phase { get; set; } = "";
     public string nuke_status { get; set; } = "";
     public int nuke_countdown { get; set; }
+
+    /// <summary>语音转发端口（VoiceEnabled=true 时非 0；前端据此建立 WebSocket）。</summary>
+    public int voice_port { get; set; }
     public int d_count { get; set; }
     public int foundation_count { get; set; }
     public int scp_count { get; set; }

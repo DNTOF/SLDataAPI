@@ -47,4 +47,17 @@ public class Config : IConfig
     /// 探测顺序：%AppData%/SCP Secret Laboratory/ServerLogs（含端口子目录）→ SCPSL_Data/Logs。
     /// </summary>
     public string LogDirectory { get; set; } = "";
+
+    // ================== 语音转发（v2.3 新增） ==================
+
+    /// <summary>
+    /// 是否启用游戏内语音转发（WebSocket 实时语音流）。默认关闭。
+    /// 启用时 WebUI 可实时收听服务器内所有语音（近距离/对讲机/Intercom 等全部频道）。
+    /// </summary>
+    public bool VoiceEnabled { get; set; } = false;
+
+    /// <summary>
+    /// 语音转发 WebSocket 服务的监听端口（独立于 HttpPort，默认 8082）。
+    /// </summary>
+    public int VoicePort { get; set; } = 8082;
 }

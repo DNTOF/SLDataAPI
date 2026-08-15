@@ -58,6 +58,9 @@ public static class DataCollector
     {
         CachedData.nuke_status = GetNukeStatus();
         CachedData.nuke_countdown = GetNukeCountdown();
+        CachedData.voice_port = Plugin.Instance?.Config != null && Plugin.Instance.Config.VoiceEnabled
+            ? Plugin.Instance.Config.VoicePort
+            : 0;
 
         return Newtonsoft.Json.JsonConvert.SerializeObject(CachedData);
     }

@@ -16,6 +16,12 @@ public class HttpServer
     private CancellationTokenSource? _cts;
     private Task? _acceptTask;
 
+    // 并发连接上限：超出直接拒绝（快速失败），防止恶意连接风暴耗尽线程池
+    private static readonly SemaphoreSlim Gate = new SemaphoreSlim(64, 64);
+
+    // 请求头（请求行+头部）读取上限：防止无换行的超长头行造成内存 DoS
+    private const int MaxHeaderBytes = 16384;
+
     // ★ 串行化 JSON 构建，避免并发请求同时写 CachedData 造成字段错乱
     private static readonly object _jsonLock = new object();
 
@@ -74,89 +80,146 @@ public class HttpServer
 
     private void HandleClient(TcpClient client)
     {
-        using (client)
+        // 连接数饱和时立即拒绝，不排队（避免线程池被慢连接拖垮）
+        if (!Gate.Wait(0))
         {
-            try
+            try { client.Close(); } catch { /* 忽略 */ }
+            return;
+        }
+
+        try
+        {
+            using (client)
             {
-                client.NoDelay = true;
-                // Socket 超时：必须大于控制接口的主线程派发超时（5s）+ 网络余量。
-                // 旧版 8s 时主线程操作（effect/state 等）处理稍慢就直接断连，
-                // 客户端（webui 代理）表现为"代理转发失败 / 502"。
-                client.ReceiveTimeout = 30000;
-                client.SendTimeout = 30000;
-
-                string remoteIp = "unknown";
-                try { remoteIp = ((IPEndPoint)client.Client.RemoteEndPoint)?.Address.ToString() ?? "unknown"; }
-                catch { }
-
-                using (var stream = client.GetStream())
-                using (var reader = new StreamReader(stream, Encoding.UTF8, false, 4096, leaveOpen: true))
+                try
                 {
-                    string requestLine = reader.ReadLine();
-                    if (string.IsNullOrWhiteSpace(requestLine))
-                    {
-                        SendJson(stream, 400, Err("bad request"));
-                        return;
-                    }
+                    client.NoDelay = true;
+                    // Socket 超时：必须大于控制接口的主线程派发超时（5s）+ 网络余量。
+                    // 旧版 8s 时主线程操作（effect/state 等）处理稍慢就直接断连，
+                    // 客户端（webui 代理）表现为"代理转发失败 / 502"。
+                    client.ReceiveTimeout = 30000;
+                    client.SendTimeout = 30000;
 
-                    var parts = requestLine.Split(' ');
-                    if (parts.Length < 2)
-                    {
-                        SendJson(stream, 400, Err("bad request"));
-                        return;
-                    }
+                    string remoteIp = "unknown";
+                    try { remoteIp = ((IPEndPoint)client.Client.RemoteEndPoint)?.Address.ToString() ?? "unknown"; }
+                    catch { }
 
-                    string method = parts[0];
-                    string rawTarget = parts[1];
-
-                    var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                    string headerLine;
-                    while (!string.IsNullOrEmpty(headerLine = reader.ReadLine()))
+                    using (var stream = client.GetStream())
                     {
-                        int idx = headerLine.IndexOf(':');
-                        if (idx <= 0) continue;
-                        headers[headerLine.Substring(0, idx).Trim()] = headerLine.Substring(idx + 1).Trim();
-                    }
+                        // ---- 读请求头（请求行+头部），上限 16KB ----
+                        byte[] headBuf = new byte[MaxHeaderBytes];
+                        int headLen = 0;
+                        int headEnd = -1;
+                        while (headLen < headBuf.Length)
+                        {
+                            int n = stream.Read(headBuf, headLen, headBuf.Length - headLen);
+                            if (n <= 0) break;
+                            headLen += n;
+                            headEnd = FindHeaderEnd(headBuf, headLen);
+                            if (headEnd >= 0) break;
+                        }
+                        if (headEnd < 0)
+                        {
+                            SendJson(stream, 431, Err("请求头过大或格式非法"));
+                            return;
+                        }
 
-                    string path = rawTarget;
-                    string query = "";
-                    int qIdx = rawTarget.IndexOf('?');
-                    if (qIdx >= 0)
-                    {
-                        path = rawTarget.Substring(0, qIdx);
-                        query = rawTarget.Substring(qIdx + 1);
-                    }
+                        string headText = Encoding.ASCII.GetString(headBuf, 0, headEnd);
+                        string[] headLines = headText.Split('\n');
+                        if (headLines.Length == 0)
+                        {
+                            SendJson(stream, 400, Err("bad request"));
+                            return;
+                        }
 
-                    string body = "";
-                    if (headers.TryGetValue("Content-Length", out var clStr) &&
-                        int.TryParse(clStr, out int contentLength) && contentLength > 0)
-                    {
-                        // 限制请求体大小（64KB 足够容纳所有控制类请求），防止恶意超大 body 占内存
+                        string requestLine = headLines[0].TrimEnd('\r');
+                        var parts = requestLine.Split(' ');
+                        if (parts.Length < 2)
+                        {
+                            SendJson(stream, 400, Err("bad request"));
+                            return;
+                        }
+
+                        string method = parts[0];
+                        string rawTarget = parts[1];
+
+                        var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                        for (int i = 1; i < headLines.Length; i++)
+                        {
+                            string line = headLines[i].TrimEnd('\r');
+                            if (line.Length == 0) continue;
+                            int idx = line.IndexOf(':');
+                            if (idx <= 0) continue;
+                            headers[line.Substring(0, idx).Trim()] = line.Substring(idx + 1).Trim();
+                        }
+
+                        string path = rawTarget;
+                        string query = "";
+                        int qIdx = rawTarget.IndexOf('?');
+                        if (qIdx >= 0)
+                        {
+                            path = rawTarget.Substring(0, qIdx);
+                            query = rawTarget.Substring(qIdx + 1);
+                        }
+
+                        // ---- 读请求体（Content-Length，上限 64KB） ----
+                        int contentLength = 0;
+                        if (headers.TryGetValue("Content-Length", out var clStr) &&
+                            int.TryParse(clStr, out int cl) && cl > 0)
+                            contentLength = cl;
+
                         if (contentLength > 65536)
                         {
                             SendJson(stream, 413, Err("payload too large"));
                             return;
                         }
 
-                        var buf = new char[contentLength];
-                        int readTotal = 0;
-                        while (readTotal < contentLength)
+                        string body = "";
+                        if (contentLength > 0)
                         {
-                            int n = reader.Read(buf, readTotal, contentLength - readTotal);
-                            if (n <= 0) break;
-                            readTotal += n;
+                            // 头缓冲里可能已读入了部分 body 前缀，先接上再补读
+                            var bodyBuf = new byte[contentLength];
+                            int total = 0;
+                            int prefixLen = headLen - headEnd;
+                            if (prefixLen > 0)
+                            {
+                                int copy = Math.Min(prefixLen, contentLength);
+                                Array.Copy(headBuf, headEnd, bodyBuf, 0, copy);
+                                total = copy;
+                            }
+                            while (total < contentLength)
+                            {
+                                int n = stream.Read(bodyBuf, total, contentLength - total);
+                                if (n <= 0) break;
+                                total += n;
+                            }
+                            body = Encoding.UTF8.GetString(bodyBuf, 0, total);
                         }
-                        body = new string(buf, 0, readTotal);
-                    }
 
-                    Route(stream, remoteIp, method, path, query, headers, body);
+                        Route(stream, remoteIp, method, path, query, headers, body);
+                    }
+                }
+                catch
+                {
+                    // 单个连接出错不影响其他连接，也不影响 accept 循环
                 }
             }
-            catch
-            {
-                // 单个连接出错不影响其他连接，也不影响 accept 循环
-            }
         }
+        finally
+        {
+            Gate.Release();
+        }
+    }
+
+    /// <summary>在缓冲区内找 \r\n\r\n（请求头结束标记），找不到返回 -1。</summary>
+    private static int FindHeaderEnd(byte[] buf, int len)
+    {
+        for (int i = 0; i + 3 < len; i++)
+        {
+            if (buf[i] == '\r' && buf[i + 1] == '\n' && buf[i + 2] == '\r' && buf[i + 3] == '\n')
+                return i + 4;
+        }
+        return -1;
     }
 
     private void Route(Stream stream, string remoteIp, string method, string path, string query,
@@ -174,9 +237,11 @@ public class HttpServer
                 }
 
                 string reqToken = ExtractQueryValue(query, "token");
-                if (!ControlAuth.SecureEquals(reqToken, _config.VerifyToken ?? ""))
+                // 与控制接口共用同一套防爆破锁定（常量时间比较 + 按 IP 锁定）
+                if (!ControlAuth.TryAuthenticate(remoteIp, reqToken, _config.VerifyToken ?? "", out string readErr))
                 {
-                    SendJson(stream, 403, Err("token 错误或缺失"));
+                    Log.Warn($"[SLDataAPI] 数据接口鉴权失败 from {remoteIp}: {readErr}");
+                    SendJson(stream, 403, Err(readErr));
                     return;
                 }
 
@@ -256,6 +321,7 @@ public class HttpServer
             case 404: return "Not Found";
             case 405: return "Method Not Allowed";
             case 413: return "Payload Too Large";
+            case 431: return "Request Header Fields Too Large";
             case 500: return "Internal Server Error";
             case 501: return "Not Implemented";
             default: return "Unknown";

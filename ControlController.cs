@@ -56,7 +56,8 @@ public static class ControlController
         catch (Exception ex)
         {
             Log.Error($"[SLDataAPI][Control] 顶层异常: {ex}");
-            return (500, Json(false, $"内部错误: {ex.Message}"));
+            // 不向客户端回显异常细节（可能含服务器路径等敏感信息），细节只进服务器日志
+            return (500, Json(false, "内部错误"));
         }
     }
 
@@ -222,7 +223,7 @@ public static class ControlController
 
         MainThreadExecutor.RunOnMainThread(() =>
         {
-            Cassie.Message(req.message, req.isHeld, req.isNoisy, req.isSubtitles);
+            Exiled.API.Features.Cassie.Message(req.message, req.isHeld, req.isNoisy, req.isSubtitles);
         }, out var err);
 
         if (err != null)
@@ -282,11 +283,19 @@ public static class ControlController
         {
             if (string.IsNullOrWhiteSpace(req.url))
                 return (400, Json(false, "缺少 url 字段"));
-            if (!req.url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) &&
-                !req.url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
-                return (400, Json(false, "url 必须以 http:// 或 https:// 开头"));
+            // 防命令注入：URL 会拼进控制台命令，必须是合法 http(s) 绝对地址，
+            // 且不含任何空白/控制字符（空格、换行等可被控制台解析成多条命令或参数）
+            string url = req.url.Trim();
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
+                (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+                return (400, Json(false, "url 必须是合法的 http:// 或 https:// 绝对地址"));
+            foreach (char c in url)
+            {
+                if (char.IsWhiteSpace(c) || char.IsControl(c))
+                    return (400, Json(false, "url 不能包含空白或控制字符"));
+            }
 
-            return RunConsoleCommand($".m fetch {req.url.Trim()}", "正在拉取云端歌单...");
+            return RunConsoleCommand($".m fetch {url}", "正在拉取云端歌单...");
         }
 
         return MainThreadExecutor.RunOnMainThread(() =>

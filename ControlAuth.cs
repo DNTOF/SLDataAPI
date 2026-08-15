@@ -68,7 +68,7 @@ public static class ControlAuth
 
         if (string.IsNullOrEmpty(configuredToken))
         {
-            error = "服务端未配置 ControlToken";
+            error = "服务端未配置访问令牌";
             return false;
         }
 

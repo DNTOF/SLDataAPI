@@ -1,8 +1,8 @@
 # SLDataAPI
 
-**版本：** 2.2.1  
+**版本：** 2.3.0（代号 SPY）  
 **依赖：** EXILED 9.x · MEC · Newtonsoft.Json · Harmony（服务器自带，不打包）  
-**用途：** 在 SCP:SL 游戏服务器上暴露一个轻量 HTTP 接口，供 WebUI / AstrBot 等外部程序轮询实时服务器数据，并通过 `/control/*` 控制接口远程执行管理操作。
+**用途：** 在 SCP:SL 游戏服务器上暴露一个轻量 HTTP 接口，供 WebUI / AstrBot 等外部程序轮询实时服务器数据，并通过 `/control/*` 控制接口远程执行管理操作；v2.3 起内置**语音转发**（WebSocket 实时收听全频道语音，代号 SPY）。
 
 ---
 
@@ -17,6 +17,7 @@
 | 插件管理 | 列表读取配置文件启停状态；启停走"暂存 → 保存并重载"批量模式（SLDataAPI 自身禁止禁用） |
 | 文件防线 | 文件端点四重防线：路径白名单 / Windows 目录禁写 / 仅配置文件扩展名 / 游戏数据与自身配置目录禁访问 |
 | 自动更新 | 启动时检查 GitHub Releases；检测到新版本自动下载并替换 DLL（程序集/名称/强名称签名三重校验，重启游戏服生效，旧版备份 .bak） |
+| 语音转发（SPY） | WebSocket 实时推送全频道语音（近距离/对讲机/Intercom/SCP 频道等），Opus 解码为 48kHz float32 PCM，含说话者信息帧与 `/status` 状态查询，ControlToken 鉴权 |
 
 ---
 
@@ -53,6 +54,10 @@ s_l_data_a_p_i:
   auto_update_install: true           # 检测到新版本时自动下载并替换 DLL（重启游戏服生效，旧版备份 .bak）
   file_root: ""                       # /control/files/* 根目录（绝对路径）；留空=禁用文件端点
   log_directory: ""                   # 服务器日志目录；留空=自动探测
+
+  # ===== 语音转发（v2.3 / SPY）=====
+  voice_enabled: false                # 是否启用语音转发 WebSocket（默认关闭）
+  voice_port: 8082                    # 语音 WebSocket 监听端口（独立于 http_port）
 ```
 
 **字段说明：**
@@ -75,9 +80,9 @@ s_l_data_a_p_i:
 | Token | 用途 | 传入方式 | 强度要求 |
 |-------|------|----------|----------|
 | `verify_token` | 只读数据接口 `/get_sl_data` | URL 查询参数 `?token=` | 无强制要求（建议复杂化） |
-| `control_token` | 所有 `/control/*` 控制接口 | `X-Control-Token` 请求头（也兼容 `?token=`） | 启动时强制校验格式 |
+| `control_token` | 所有 `/control/*` 控制接口 **和语音转发 WebSocket** | `X-Control-Token` 请求头（也兼容 `?token=`）；语音 WS 用 `?key=` | 启动时强制校验格式 |
 
-**控制接口暴力破解防护**（`ControlAuth.cs`）：同一 IP 在 5 分钟窗口内失败 10 次即锁定 5 分钟；token 比较使用常量时间算法，避免时序侧信道。
+**暴力破解防护**（`ControlAuth.cs`）：三个入口（数据接口、控制接口、语音 WS）共用同一套防护——同一 IP 在 5 分钟窗口内失败 10 次即锁定 5 分钟；token 比较使用常量时间算法，避免时序侧信道。语音 WS 未配置 `control_token` 时一律拒绝（不开放匿名监听）。
 
 ---
 
@@ -196,6 +201,32 @@ Content-Type: application/json
 
 ---
 
+## 语音转发（v2.3 / 代号 SPY）
+
+启用 `voice_enabled` 后，插件在独立端口（默认 8082）上提供语音 WebSocket，实时推送服务器内**所有频道**的语音（近距离、对讲机、Intercom 全局广播、SCP 频道、旁观者等），解码为 48kHz 单声道 float32 PCM。
+
+**端点：**
+
+| 端点 | 说明 |
+|------|------|
+| `GET /ws?key=control_token` | WebSocket 升级，实时语音流（需要 `control_token` 鉴权） |
+| `GET /status?key=control_token` | JSON：当前正在说话的玩家（昵称/UserID/角色/频道，1.5s 无新包视为停止） |
+
+**帧格式：**
+
+- 连接成功：文本帧 `{"type":"hello","sampleRate":48000,"channels":1,"format":"float32"}`
+- 说话者信息（新一轮讲话 / 频道或角色变化时推送）：文本帧 `{"type":"speaker","nickname":"...","userid":"...","playerid":n,"role":"...","channel":n}`
+- 语音帧（二进制）：`[0]=0x01 [1]=channel [2-3]=playerId(LE) [4-7]=seq(LE) [8..]=float32 PCM`，每包为 10ms Opus 帧（480 样本，约 100 包/秒）
+
+**实现要点：**
+
+- 基于 EXILED `VoiceChatting` / `Transmitting` 事件（二者挂在同一个 `VoiceTransceiver.ServerReceiveMessage` 补丁上，每包各触发一次——按内容哈希去重，避免重复解码破坏 Opus 解码器状态）
+- 解码器按说话者（netId）分开维护；解码异常时自动重建自愈
+- 所有状态以 netId 为键，不用 ReferenceHub（玩家断开后 Hub 销毁会抛 NRE）
+- 主循环 MEC 协程内全程 try/catch 保护，任何异常都不会杀死转发管道
+
+---
+
 ## 安全注意事项
 
 - `/control/command` **等价于本机控制台权限**：大多数 RA 命令通过 `GameConsoleCommandHandler` 同时注册，可在此执行。`control_token` 一旦泄露即完全沦陷——务必只通过受信内网或反向代理白名单暴露，`control_enabled` 默认关闭是有意为之。
@@ -268,6 +299,7 @@ SLDataAPI/
 ├── MapExportService.cs     # 导出地图原始数据（atlas / glyph / zone 候选等，/control/map/export）
 ├── ServerLogService.cs     # 服务器日志尾部读取（自动探测日志目录，支持过滤）
 ├── FileService.cs          # 文件端点：FileRoot 白名单、路径规范化防穿越
+├── VoiceService.cs         # 语音转发（SPY）：WebSocket 服务、Opus 解码、PCM 推送
 ├── UpdateChecker.cs        # 启动时检查 GitHub Releases 新版本（仅日志提示）
 └── SLDataAPI.csproj        # net48；引用游戏程序集（dependencies/）+ ExMod.Exiled 9.0.0
 ```

@@ -31,7 +31,13 @@ dotnet build -c Release
 3. 启动服务器，EXILED 会自动生成配置文件
 4. 按需修改配置（见下方），重启服务器生效
 
-> 编译需要游戏程序集（`dependencies/` 下：`Assembly-CSharp.dll`、`Mirror.dll`、`UnityEngine*.dll` 等），仓库已内置，可直接构建；CI（GitHub Actions）同样依赖这些文件。
+> ⚠️ 许可证说明：游戏程序集（`Assembly-CSharp.dll` 等）与 EXILED 组件均**禁止二次分发**，仓库不携带这些 DLL。编译要求本机已安装 SCP:SL 专用服务器与 EXILED/LabAPI，程序集默认按下列路径引用（其它机器可用 MSBuild 参数覆盖）：
+>
+> ```
+> -p:SCPSL_DIR="D:\...\SCP Secret Laboratory Dedicated Server\SCPSL_Data\Managed"
+> -p:LABAPI_DIR="C:\Users\...\AppData\Roaming\SCP Secret Laboratory\LabAPI"
+> -p:EXILED_PLUGINS_DIR="C:\Users\...\AppData\Roaming\EXILED\Plugins"
+> ```
 
 ---
 
@@ -301,5 +307,5 @@ SLDataAPI/
 ├── FileService.cs          # 文件端点：FileRoot 白名单、路径规范化防穿越
 ├── VoiceService.cs         # 语音转发（SPY）：WebSocket 服务、Opus 解码、PCM 推送
 ├── UpdateChecker.cs        # 启动时检查 GitHub Releases 新版本（仅日志提示）
-└── SLDataAPI.csproj        # net48；引用游戏程序集（dependencies/）+ ExMod.Exiled 9.0.0
+└── SLDataAPI.csproj        # net48；引用本机安装的游戏程序集 + EXILED 9.14.2（路径可用 -p: 参数覆盖）
 ```

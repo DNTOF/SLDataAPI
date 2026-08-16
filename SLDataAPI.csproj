@@ -7,10 +7,23 @@
     <OutputType>Library</OutputType>
     <NoWarn>CS0618;CS1591</NoWarn>
 
-    <!-- 强名称签名：本地存在 key.snk（不入库）时启用；
-         CI 不依赖此条件，由 dotnet.yml 显式传 /p:SignAssembly 等参数签名 -->
+    <!-- 强名称签名：本地存在 key.snk（不入库）时启用 -->
     <SignAssembly Condition="Exists('key.snk')">true</SignAssembly>
     <AssemblyOriginatorKeyFile Condition="Exists('key.snk')">key.snk</AssemblyOriginatorKeyFile>
+
+    <!--
+      编译期引用路径（默认指向本机安装目录；其它机器用 -p: 覆盖）：
+        -p:SCPSL_DIR="D:\...\SCP Secret Laboratory Dedicated Server\SCPSL_Data\Managed"
+        -p:LABAPI_DIR="C:\Users\...\AppData\Roaming\SCP Secret Laboratory\LabAPI"
+        -p:EXILED_PLUGINS_DIR="C:\Users\...\AppData\Roaming\EXILED\Plugins"
+
+      ⚠️ 许可证说明：游戏程序集（Assembly-CSharp 等）与 EXILED 组件
+      均禁止二次分发，因此仓库不携带这些 DLL；编译需要本机已安装
+      SCP:SL 专用服务器与 EXILED/LabAPI。
+    -->
+    <SCPSL_DIR Condition="'$(SCPSL_DIR)' == ''">D:\SteamLibrary\steamapps\common\SCP Secret Laboratory Dedicated Server\SCPSL_Data\Managed</SCPSL_DIR>
+    <LABAPI_DIR Condition="'$(LABAPI_DIR)' == ''">$(USERPROFILE)\AppData\Roaming\SCP Secret Laboratory\LabAPI</LABAPI_DIR>
+    <EXILED_PLUGINS_DIR Condition="'$(EXILED_PLUGINS_DIR)' == ''">$(USERPROFILE)\AppData\Roaming\EXILED\Plugins</EXILED_PLUGINS_DIR>
   </PropertyGroup>
 
   <ItemGroup>
@@ -18,78 +31,78 @@
     <PackageReference Include="System.Net.Http" Version="4.3.4" />
   </ItemGroup>
 
-  <!-- 游戏 + EXILED 9.14.2 程序集：编译期引用（本地 dependencies\），运行时由游戏/EXILED 提供，不打包 -->
+  <!-- 游戏 + EXILED 9.14.2 程序集：编译期引用本机安装目录，运行时由游戏/EXILED 提供，不打包 -->
   <ItemGroup>
     <Reference Include="Assembly-CSharp">
-      <HintPath>dependencies\Assembly-CSharp.dll</HintPath>
+      <HintPath>$(SCPSL_DIR)\Assembly-CSharp.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="Assembly-CSharp-firstpass">
-      <HintPath>dependencies\Assembly-CSharp-firstpass.dll</HintPath>
+      <HintPath>$(SCPSL_DIR)\Assembly-CSharp-firstpass.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="Mirror">
-      <HintPath>dependencies\Mirror.dll</HintPath>
+      <HintPath>$(SCPSL_DIR)\Mirror.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="Mirror.Components">
-      <HintPath>dependencies\Mirror.Components.dll</HintPath>
+      <HintPath>$(SCPSL_DIR)\Mirror.Components.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine">
-      <HintPath>dependencies\UnityEngine.dll</HintPath>
+      <HintPath>$(SCPSL_DIR)\UnityEngine.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine.CoreModule">
-      <HintPath>dependencies\UnityEngine.CoreModule.dll</HintPath>
+      <HintPath>$(SCPSL_DIR)\UnityEngine.CoreModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine.AudioModule">
-      <HintPath>dependencies\UnityEngine.AudioModule.dll</HintPath>
+      <HintPath>$(SCPSL_DIR)\UnityEngine.AudioModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine.PhysicsModule">
-      <HintPath>dependencies\UnityEngine.PhysicsModule.dll</HintPath>
+      <HintPath>$(SCPSL_DIR)\UnityEngine.PhysicsModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="CommandSystem.Core">
-      <HintPath>dependencies\CommandSystem.Core.dll</HintPath>
+      <HintPath>$(SCPSL_DIR)\CommandSystem.Core.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="LabApi">
-      <HintPath>dependencies\LabApi.dll</HintPath>
+      <HintPath>$(SCPSL_DIR)\LabApi.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="NorthwoodLib">
-      <HintPath>dependencies\NorthwoodLib.dll</HintPath>
+      <HintPath>$(SCPSL_DIR)\NorthwoodLib.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="Pooling">
-      <HintPath>dependencies\Pooling.dll</HintPath>
+      <HintPath>$(SCPSL_DIR)\Pooling.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="YamlDotNet">
-      <HintPath>dependencies\YamlDotNet.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="SemanticVersioning">
-      <HintPath>dependencies\SemanticVersioning.dll</HintPath>
+      <HintPath>$(SCPSL_DIR)\YamlDotNet.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="0Harmony">
-      <HintPath>dependencies\0Harmony.dll</HintPath>
+      <HintPath>$(LABAPI_DIR)\dependencies\global\0Harmony.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="Exiled.API">
-      <HintPath>dependencies\Exiled.API.dll</HintPath>
+      <HintPath>$(LABAPI_DIR)\dependencies\global\Exiled.API.dll</HintPath>
       <Private>false</Private>
     </Reference>
-    <Reference Include="Exiled.Events">
-      <HintPath>dependencies\Exiled.Events.dll</HintPath>
+    <Reference Include="SemanticVersioning">
+      <HintPath>$(LABAPI_DIR)\dependencies\global\SemanticVersioning.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="Exiled.Loader">
-      <HintPath>dependencies\Exiled.Loader.dll</HintPath>
+      <HintPath>$(LABAPI_DIR)\plugins\global\Exiled.Loader.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Exiled.Events">
+      <HintPath>$(EXILED_PLUGINS_DIR)\Exiled.Events.dll</HintPath>
       <Private>false</Private>
     </Reference>
   </ItemGroup>

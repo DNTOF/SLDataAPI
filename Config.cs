@@ -1,8 +1,12 @@
-using Exiled.API.Interfaces;
+namespace SLDataAPI;
 
-public class Config : IConfig
+/// <summary>
+/// 插件配置。LabAPI 会在 Enable() 前自动加载：
+///   %AppData%\SCP Secret Laboratory\LabAPI\configs\&lt;端口或 global&gt;\SLDataAPI\config.yml
+/// 插件本身的启停由 LabAPI 的 properties.yml 管理（/control/plugins 端点可代写），这里不再提供 IsEnabled。
+/// </summary>
+public class Config
 {
-    public bool IsEnabled { get; set; } = true;
     public bool Debug { get; set; } = false;
     public string VerifyToken { get; set; } = "your_secret_token";
     public int HttpPort { get; set; } = 8081;

@@ -1,8 +1,15 @@
 # SLDataAPI
 
-**版本：** 2.3.0（代号 SPY）  
-**依赖：** EXILED 9.x · MEC · Newtonsoft.Json · Harmony（服务器自带，不打包）  
-**用途：** 在 SCP:SL 游戏服务器上暴露一个轻量 HTTP 接口，供 WebUI / AstrBot 等外部程序轮询实时服务器数据，并通过 `/control/*` 控制接口远程执行管理操作；v2.3 起内置**语音转发**（WebSocket 实时收听全频道语音，代号 SPY）。
+**版本：** 2.4.0（开发代号 **Rebirth**）  
+**架构：** **LabAPI 原生插件**（v2.4 起脱离 EXILED，运行于 Northwood 官方 LabAPI 框架）  
+**依赖：** LabAPI（游戏服务器自带） · MEC · Newtonsoft.Json · Harmony（服务器自带，不打包）  
+**用途：** 在 SCP:SL 游戏服务器上暴露一个轻量 HTTP 接口，供 WebUI / AstrBot 等外部程序轮询实时服务器数据，并通过 `/control/*` 控制接口远程执行管理操作；内置**语音转发**（WebSocket 实时收听全频道语音，代号 SPY）。
+
+> **v2.4.0 Rebirth —— 架构迁移说明：** 本插件已从 EXILED 插件迁移为 **LabAPI 原生插件**（不再依赖 EXILED），并完成源码目录/命名空间分类重构。
+> - 安装位置变更：`LabAPI/plugins/global/`（不再是 `EXILED/Plugins/`）
+> - 配置位置变更：`LabAPI/configs/<端口>/SLDataAPI/config.yml`（旧 EXILED 配置不会被读取，需重新配置）
+> - 插件启停由 LabAPI 的 `properties.yml` 管理（`/control/plugins` 可代写）
+> - 若服务器同时装有 EXILED，SLPlayer / OmegaWarhead 等 EXILED 插件的探测与控制、以及 `/control/plugins` 对它们的列表/启停依然可用（运行时反射桥，未装 EXILED 时自动降级）
 
 ---
 
@@ -14,7 +21,7 @@
 | 控制接口 | `POST /control/*`：命令执行、玩家管理、回合控制、CASSIE、核弹、地图、封禁、日志（任意文件选择）、文件（默认关闭，需显式开启） |
 | 命令输出捕获 | Harmony 补丁捕获 `ServerConsole.AddLog` 输出，`/control/command` 可拿到插件命令（如 SLPlayer `.m`）的完整回显 |
 | 地图数据 | 按 seed 提供本回合布局（LCZ/HCZ 每回合随机），可导出 atlas 等原始数据供外部重建地图 |
-| 插件管理 | 列表读取配置文件启停状态；启停走"暂存 → 保存并重载"批量模式（SLDataAPI 自身禁止禁用） |
+| 插件管理 | 列表读取配置文件启停状态（LabAPI 插件 + 同服 EXILED 插件）；启停走"暂存 → 保存"批量模式，LabAPI 插件重启生效（SLDataAPI 自身禁止禁用） |
 | 文件防线 | 文件端点四重防线：路径白名单 / Windows 目录禁写 / 仅配置文件扩展名 / 游戏数据与自身配置目录禁访问 |
 | 自动更新 | 启动时检查 GitHub Releases；检测到新版本自动下载并替换 DLL（程序集/名称/强名称签名三重校验，重启游戏服生效，旧版备份 .bak） |
 | 语音转发（SPY） | WebSocket 实时推送全频道语音（近距离/对讲机/Intercom/SCP 频道等），Opus 解码为 48kHz float32 PCM，含说话者信息帧与 `/status` 状态查询，ControlToken 鉴权 |
@@ -27,44 +34,44 @@
 ```
 dotnet build -c Release
 ```
-2. 将 `SLDataAPI.dll` 放入 `EXILED/Plugins/` 目录
-3. 启动服务器，EXILED 会自动生成配置文件
+2. 将 `SLDataAPI.dll` 放入服务器的 `LabAPI/plugins/global/` 目录（`%AppData%/SCP Secret Laboratory/LabAPI/plugins/global/`）
+3. 启动服务器，LabAPI 会自动生成配置文件
 4. 按需修改配置（见下方），重启服务器生效
 
-> ⚠️ 许可证说明：游戏程序集（`Assembly-CSharp.dll` 等）与 EXILED 组件均**禁止二次分发**，仓库不携带这些 DLL。编译要求本机已安装 SCP:SL 专用服务器与 EXILED/LabAPI，程序集默认按下列路径引用（其它机器可用 MSBuild 参数覆盖）：
+> ⚠️ 许可证说明：游戏程序集（`Assembly-CSharp.dll` 等）禁止二次分发，仓库不携带这些 DLL。编译要求本机已安装 SCP:SL 专用服务器（自带 `LabApi.dll`），程序集默认按下列路径引用（其它机器可用 MSBuild 参数覆盖）：
 >
 > ```
 > -p:SCPSL_DIR="D:\...\SCP Secret Laboratory Dedicated Server\SCPSL_Data\Managed"
 > -p:LABAPI_DIR="C:\Users\...\AppData\Roaming\SCP Secret Laboratory\LabAPI"
-> -p:EXILED_PLUGINS_DIR="C:\Users\...\AppData\Roaming\EXILED\Plugins"
 > ```
 
 ---
 
 ## 配置
 
-配置文件路径：`EXILED/Configs/Plugins/s_l_data_a_p_i/7777.yml`
+配置文件路径（LabAPI 首次启动时自动生成，键名与属性一一对应）：
+`%AppData%/SCP Secret Laboratory/LabAPI/configs/<端口或 global>/SLDataAPI/config.yml`
 
 ```yaml
-s_l_data_a_p_i:
-  is_enabled: true
-  debug: false
-  verify_token: "your_secret_token"   # 只读接口鉴权 token（/get_sl_data）
-  http_port: 8081                     # HTTP 监听端口
-  push_interval_seconds: 8            # 后台数据刷新间隔（秒）
+debug: false
+verifyToken: "your_secret_token"     # 只读接口鉴权 token（/get_sl_data）
+httpPort: 8081                       # HTTP 监听端口
+pushIntervalSeconds: 8               # 后台数据刷新间隔（秒）
 
-  # ===== 控制接口（v2.1）=====
-  control_enabled: false              # 是否启用 /control/*（默认关闭；关闭时一律 404）
-  control_token: ""                   # 控制接口专用 token，与 verify_token 分离
-  auto_update_check: true             # 启动时检查 GitHub Releases 新版本
-  auto_update_install: true           # 检测到新版本时自动下载并替换 DLL（重启游戏服生效，旧版备份 .bak）
-  file_root: ""                       # /control/files/* 根目录（绝对路径）；留空=禁用文件端点
-  log_directory: ""                   # 服务器日志目录；留空=自动探测
+# ===== 控制接口（v2.1）=====
+controlEnabled: false                # 是否启用 /control/*（默认关闭；关闭时一律 404）
+controlToken: ""                     # 控制接口专用 token，与 verifyToken 分离
+autoUpdateCheck: true                # 启动时检查 GitHub Releases 新版本
+autoUpdateInstall: true              # 检测到新版本时自动下载并替换 DLL（重启游戏服生效，旧版备份 .bak）
+fileRoot: ""                         # /control/files/* 根目录（绝对路径）；留空=禁用文件端点
+logDirectory: ""                     # 服务器日志目录；留空=自动探测
 
-  # ===== 语音转发（v2.3 / SPY）=====
-  voice_enabled: false                # 是否启用语音转发 WebSocket（默认关闭）
-  voice_port: 8082                    # 语音 WebSocket 监听端口（独立于 http_port）
+# ===== 语音转发（v2.3 / SPY）=====
+voiceEnabled: false                  # 是否启用语音转发 WebSocket（默认关闭）
+voicePort: 8082                      # 语音 WebSocket 监听端口（独立于 httpPort）
 ```
+
+> 插件本身的启停开关不再出现在此文件中：LabAPI 用插件目录下的 `properties.yml`（`is_enabled`）管理插件加载与否，可通过 `/control/plugins` 端点修改。
 
 **字段说明：**
 
@@ -164,7 +171,7 @@ s_l_data_a_p_i:
 |------|----------|------|
 | `/control/command` | `command` | 执行服务器控制台命令（等价本机控制台权限，见安全警告） |
 | `/control/player/kick` | `target`, `reason` | 踢出玩家（target 支持昵称/ID/SteamID） |
-| `/control/player/ban` | `target`, `reason`, `duration` | 封禁玩家（duration 单位：天） |
+| `/control/player/ban` | `target`, `reason`, `duration` | 封禁玩家（duration 单位：分钟，0=永久） |
 | `/control/player/role` | `target`, `role` | 设置玩家角色 |
 | `/control/player/teleport` | `target`, `x`, `y`, `z` | 传送玩家到指定坐标 |
 | `/control/player/mute` | `target`, `mute` | 语音禁言/解除（bool） |
@@ -172,12 +179,12 @@ s_l_data_a_p_i:
 | `/control/player/effect` | `target`, `effect`, `effect_duration` | 施加状态效果 |
 | `/control/player/state` | `target`, `godmode`?, `bypass`?, `health`?, `intercom`? | 查询/设置玩家状态（均为可选字段） |
 | `/control/round` | `action`: `restart` / `end` / `start` | 回合控制 |
-| `/control/cassie` | `message`, `isHeld`?, `isNoisy`?, `isSubtitles`? | CASSIE 播报 |
+| `/control/cassie` | `message`, `isNoisy`? | CASSIE 播报（LabAPI 新版 TTS 体系不再细分 isHeld/isSubtitles，传入会被忽略） |
 | `/control/warhead` | `action`: `start` / `stop` / `detonate` | 核弹控制 |
 | `/control/map` | `action`: `seed` / `layout` / `doors` / `lights` | 地图信息与控制（seed 每回合固定，同 seed 布局恒定） |
 | `/control/map/export` | — | 导出地图原始数据（atlas RGBA base64、glyph_pairs、zone_candidates 等），供外部重建 |
 | `/control/slplayer` | `action`: `status` / `list` / `play` / `next` / `stop` / `volume` / `shuffle` / `reload` | 控制 SLPlayer 音乐（需服务器装有 SLPlayer 插件） |
-| `/control/plugins` | `action`?: `stage`/`clear`/`apply`/`reload`（空=列表） | 插件管理。列表的 `enabled` 读**配置文件**的 is_enabled；`stage` 暂存启停（不写文件，SLDataAPI 自身禁止禁用）；`apply` 一次性写入全部暂存并重载插件 |
+| `/control/plugins` | `action`?: `stage`/`clear`/`apply`/`reload`（空=列表） | 插件管理。列表同时列出 **LabAPI 原生插件**（`source: labapi`）与同服 **EXILED 插件**（`source: exiled`，需装有 EXILED）；`enabled` 读配置文件；`stage` 暂存启停（不写文件，SLDataAPI 自身禁止禁用）；`apply` 统一写入——LabAPI 插件写 `properties.yml` 后**重启服务器生效**，EXILED 插件立即重载生效；`reload` 仅热重载各插件**配置文件**（等价控制台 `reload configs`，不重载插件本体） |
 | `/control/ban_list` | — | 游戏封禁列表 |
 | `/control/ban/add` | `userId`?, `reason`, `duration` | 添加封禁 |
 | `/control/ban/revoke` | `userId` | 解除封禁 |
@@ -226,7 +233,7 @@ Content-Type: application/json
 
 **实现要点：**
 
-- 基于 EXILED `VoiceChatting` / `Transmitting` 事件（二者挂在同一个 `VoiceTransceiver.ServerReceiveMessage` 补丁上，每包各触发一次——按内容哈希去重，避免重复解码破坏 Opus 解码器状态）
+- 基于 LabAPI `PlayerEvents.SendingVoiceMessage` 事件（挂在 `VoiceTransceiver.ServerReceiveMessage` 上，服务器收到的每个语音包都会触发；保留按内容哈希去重的纵深防御，避免重复解码破坏 Opus 解码器状态）
 - 解码器按说话者（netId）分开维护；解码异常时自动重建自愈
 - 所有状态以 netId 为键，不用 ReferenceHub（玩家断开后 Hub 销毁会抛 NRE）
 - 主循环 MEC 协程内全程 try/catch 保护，任何异常都不会杀死转发管道
@@ -242,7 +249,7 @@ Content-Type: application/json
   1. 路径白名单：仅 `file_root` 内（防 `..` 穿越）
   2. 系统目录保护：**Windows 目录及其子目录禁止浏览/读取/写入**
   3. 扩展名白名单：**只允许操作配置文件**（`yml/yaml/txt/json/cfg/ini/conf/config/xml/properties`），exe/dll/bat/ps1 等一律拒绝（列表中以黄色标记且无法打开）
-  4. 顶级防线：**游戏数据目录**（`%AppData%/SCP Secret Laboratory`）与 **SLDataAPI 自身配置目录**（`%AppData%/SCP Secret Laboratory/EXILED/Configs/Plugins/s_l_data_a_p_i`）禁止读/写/访问（列表中以黄色标记且无法打开）——防止篡改游戏配置/管理员名单实现提权，或改写插件自身配置
+  4. 顶级防线：**游戏数据目录**（`%AppData%/SCP Secret Laboratory`，LabAPI 的插件/依赖/配置目录都在其中）与 **SLDataAPI 自身配置目录**（`LabAPI/configs/<端口>/SLDataAPI/`）禁止读/写/访问（列表中以黄色标记且无法打开）——防止篡改游戏配置/管理员名单实现提权，或改写插件自身配置
 
 ---
 
@@ -260,7 +267,7 @@ Content-Type: application/json
 
 以下类型的玩家对象会被排除在数据之外，不计入人数也不出现在玩家列表：
 
-- 通过 `dummy` 命令或插件创建的 **NPC/Dummy 玩家**（`p.IsNPC == true`）
+- 通过 `dummy` 命令或插件创建的 **NPC/Dummy 玩家**（`p.IsNpc == true`）与服务器主机（`p.IsHost == true`）
 - `RoleTypeId.None` 的玩家（回合开始瞬间尚未完成职业分配，下一个刷新周期会正常出现）
 
 ---
@@ -285,27 +292,36 @@ SCP阵营: 3
 
 ---
 
-## 源文件结构
+## 源文件结构（v2.4.0：LabAPI 架构 + 命名空间分类）
 
 ```
 SLDataAPI/
-├── Plugin.cs               # 插件入口，事件注册，HTTP 服务器生命周期，控制 token 启动校验
-├── Config.cs               # EXILED 配置类（只读接口 + 控制接口全部配置项）
-├── HttpServer.cs           # TcpListener HTTP 实现（0.0.0.0 绑定，不依赖 http.sys），路由与鉴权
-├── DataCollector.cs        # 数据采集、缓存、定时刷新逻辑
-├── Models.cs               # ServerData / PlayerInfo / DntofInfo 数据模型
-├── ControlAuth.cs          # 控制接口鉴权：token 格式校验、常量时间比较、按 IP 失败锁定
-├── ControlController.cs    # /control/* 端点业务逻辑（所有游戏调用经主线程派发）
-├── ControlModels.cs        # 控制接口请求/响应 DTO
-├── MainThreadExecutor.cs   # 将游戏/Mirror 调用派发到主线程执行并同步等待结果
-├── CommandOutputCapture.cs # Harmony 补丁：捕获 ServerConsole.AddLog / CommandSender 输出
-├── DntofDetector.cs        # 探测 DNT_OF 系列插件（SLPlayer / OmegaWarhead）运行时状态
-├── SlPlayerController.cs   # 反射控制 SLPlayer 音乐控制器（list/play/next/volume 等）
-├── MapLayoutService.cs     # 本回合房间布局采集（RoomIdentifier，LCZ/HCZ 每回合随机）
-├── MapExportService.cs     # 导出地图原始数据（atlas / glyph / zone 候选等，/control/map/export）
-├── ServerLogService.cs     # 服务器日志尾部读取（自动探测日志目录，支持过滤）
-├── FileService.cs          # 文件端点：FileRoot 白名单、路径规范化防穿越
-├── VoiceService.cs         # 语音转发（SPY）：WebSocket 服务、Opus 解码、PCM 推送
-├── UpdateChecker.cs        # 启动时检查 GitHub Releases 新版本（仅日志提示）
-└── SLDataAPI.csproj        # net48；引用本机安装的游戏程序集 + EXILED 9.14.2（路径可用 -p: 参数覆盖）
+├── Plugin.cs                       # [SLDataAPI] 插件入口：LabAPI 生命周期（Enable/Disable）、事件注册、服务编排
+├── Config.cs                       # [SLDataAPI] LabAPI 配置类（config.yml）
+├── Log.cs                          # [SLDataAPI] 日志门面（LabAPI Logger + Debug 开关门控）
+├── Data/
+│   ├── Models.cs                   # [SLDataAPI.Data] ServerData / PlayerInfo / DntofInfo 数据模型
+│   └── ControlModels.cs            # [SLDataAPI.Data] 控制接口请求/响应 DTO
+├── Control/
+│   ├── ControlAuth.cs              # [SLDataAPI.Control] 鉴权：token 格式校验、常量时间比较、按 IP 失败锁定
+│   └── ControlController.cs        # [SLDataAPI.Control] /control/* 端点业务逻辑（游戏调用经主线程派发）
+├── Services/
+│   ├── HttpServer.cs               # [SLDataAPI.Services] TcpListener HTTP 实现（0.0.0.0 绑定，不依赖 http.sys）
+│   ├── DataCollector.cs            # [SLDataAPI.Services] 数据采集、缓存、定时刷新
+│   ├── MainThreadExecutor.cs       # [SLDataAPI.Services] 游戏调用主线程派发 + 同步等待
+│   ├── FileService.cs              # [SLDataAPI.Services] 文件端点：FileRoot 白名单、路径防穿越
+│   ├── ServerLogService.cs         # [SLDataAPI.Services] 服务器日志尾部读取（自动探测日志目录）
+│   └── UpdateChecker.cs            # [SLDataAPI.Services] GitHub Releases 自动更新检查/替换
+├── Voice/
+│   └── VoiceService.cs             # [SLDataAPI.Voice] 语音转发（SPY）：WebSocket、Opus 解码、PCM 推送
+├── Map/
+│   ├── MapLayoutService.cs         # [SLDataAPI.Map] 本回合房间布局采集（RoomIdentifier 反射）
+│   └── MapExportService.cs         # [SLDataAPI.Map] 地图原始数据导出（atlas / glyph / 候选权重）
+├── Integrations/
+│   ├── ExiledInterop.cs            # [SLDataAPI.Integrations] EXILED 运行时反射桥（零编译期依赖，未装时安全降级）
+│   ├── DntofDetector.cs            # [SLDataAPI.Integrations] 探测 SLPlayer / OmegaWarhead 运行时状态
+│   └── SlPlayerController.cs       # [SLDataAPI.Integrations] 反射控制 SLPlayer 音乐控制器
+├── Capture/
+│   └── CommandOutputCapture.cs     # [SLDataAPI.Capture] Harmony 补丁：捕获 ServerConsole.AddLog / CommandSender 输出
+└── SLDataAPI.csproj                # net48；引用本机游戏程序集 + LabApi.dll（路径可用 -p: 参数覆盖）
 ```

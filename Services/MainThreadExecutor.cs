@@ -2,6 +2,8 @@ using System;
 using System.Threading;
 using MEC;
 
+namespace SLDataAPI.Services;
+
 /// <summary>
 /// HttpServer 的连接处理在线程池线程上运行，但游戏 / Mirror 网络相关的 API
 /// （踢人、传送、执行控制台命令等）必须在 Unity 主线程调用，否则有崩服风险。

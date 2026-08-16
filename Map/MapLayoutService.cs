@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Reflection;
 using UnityEngine;
 
+namespace SLDataAPI.Map;
+
 /// <summary>
 /// 地图布局采集与缓存。
 ///
@@ -56,7 +58,7 @@ public static class MapLayoutService
             catch (Exception ex)
             {
                 _captureFailures = fromRetry ? _captureFailures + 1 : 1;
-                Exiled.API.Features.Log.Warn($"[SLDataAPI] 地图布局采集失败（第 {_captureFailures} 次）: {ex}");
+                Log.Warn($"[SLDataAPI] 地图布局采集失败（第 {_captureFailures} 次）: {ex}");
                 _cachedLayout = null;
                 if (_captureFailures <= 12)
                     MEC.Timing.CallDelayed(5f, () => CaptureLayoutInternal(true));

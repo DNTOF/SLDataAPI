@@ -5,6 +5,8 @@ using System.Linq;
 using System.Reflection;
 using UnityEngine;
 
+namespace SLDataAPI.Map;
+
 /// <summary>
 /// 地图生成数据导出（seed 重建方案的前置数据采集）。
 ///

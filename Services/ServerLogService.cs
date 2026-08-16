@@ -4,6 +4,8 @@ using System.IO;
 using System.Linq;
 using System.Text;
 
+namespace SLDataAPI.Services;
+
 /// <summary>
 /// 读取 SCP:SL 服务器自己的日志文件。
 /// 探测顺序：

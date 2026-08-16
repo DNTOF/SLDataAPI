@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Concurrent;
 
+namespace SLDataAPI.Control;
+
 /// <summary>
 /// 控制接口鉴权：token 格式校验、常量时间比较、按 IP 的暴力破解锁定。
 /// </summary>

@@ -2,6 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using LabApi.Loader;
+using LabApi.Loader.Features.Paths;
+
+namespace SLDataAPI.Services;
 
 /// <summary>
 /// /control/files/* 端点背后的文件系统操作。
@@ -53,9 +57,9 @@ public static class FileService
 
     /// <summary>游戏数据目录（%AppData%/SCP Secret Laboratory）—— 禁止浏览/读取/写入。</summary>
     /// <remarks>防止篡改游戏配置（管理员名单、服务器配置等）实现"原地加冕"。
-    /// ⚠️ 注意：必须精确到 "SCP Secret Laboratory"，不能直接用
-    /// Exiled.API.Features.Paths.AppData —— 那是整个 %AppData%，会把用户的全部应用数据
-    /// （浏览器、其他软件配置等）一并封死。</remarks>
+    /// ⚠️ 注意：必须精确到 "SCP Secret Laboratory"，不能直接用整个 %AppData% ——
+    /// 那会把用户的全部应用数据（浏览器、其他软件配置等）一并封死。
+    /// LabAPI 的插件/依赖/配置目录（...\SCP Secret Laboratory\LabAPI）也在本目录内，一并受保护。</remarks>
     private static string GameDataDir()
     {
         if (gameDataDirCache != null) return gameDataDirCache;
@@ -76,7 +80,7 @@ public static class FileService
     public static bool IsEnabled(string root) => !string.IsNullOrWhiteSpace(root);
 
     // ================= 顶级防线：SLDataAPI 自身配置目录 =================
-    // %AppData%\SCP Secret Laboratory\EXILED\Configs\Plugins\s_l_data_a_p_i
+    // %AppData%\SCP Secret Laboratory\LabAPI\configs\<端口或 global>\SLDataAPI\
     // 任何人（任何角色）都禁止修改/读取该目录 —— 与 FileRoot 是否覆盖无关，绝对路径级保护。
     // 防止通过文件端点改写插件自身配置（ControlToken / FileRoot 等）实现提权。
     private static string? protectedDirCache;
@@ -85,22 +89,24 @@ public static class FileService
     {
         if (protectedDirCache != null) return protectedDirCache;
 
-        // 优先用插件自身 ConfigPath 推导（最准确，随 EXILED 版本自动适配）
-        string? cfgPath = Plugin.Instance?.ConfigPath;
-        if (!string.IsNullOrWhiteSpace(cfgPath))
+        // 优先用 LabAPI 的配置目录 API 推导（最准确，含端口子目录，随 LabAPI 版本自动适配）
+        try
         {
-            string? dir = Path.GetDirectoryName(cfgPath);
-            if (!string.IsNullOrWhiteSpace(dir))
+            var plugin = Plugin.Instance;
+            if (plugin != null)
             {
-                protectedDirCache = Path.GetFullPath(dir);
-                return protectedDirCache;
+                var dir = ConfigurationLoader.GetConfigDirectory(plugin)?.FullName;
+                if (!string.IsNullOrWhiteSpace(dir))
+                {
+                    protectedDirCache = Path.GetFullPath(dir);
+                    return protectedDirCache;
+                }
             }
         }
+        catch { /* LabAPI 路径不可用时走回退 */ }
 
-        // 回退：按 EXILED 约定路径硬编码推导
-        protectedDirCache = Path.GetFullPath(Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "SCP Secret Laboratory", "EXILED", "Configs", "Plugins", "s_l_data_a_p_i"));
+        // 回退：保护整个 LabAPI configs 目录（所有插件的配置都在其中）
+        protectedDirCache = Path.GetFullPath(PathManager.Configs.FullName);
         return protectedDirCache;
     }
 

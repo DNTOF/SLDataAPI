@@ -6,17 +6,19 @@ using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
-using Exiled.API.Features;
-using Exiled.Events.EventArgs.Player;
 using MEC;
 using PlayerRoles;
+using SLDataAPI.Control;
 using VoiceChat;
 using VoiceChat.Networking;
+using Player = LabApi.Features.Wrappers.Player;
+
+namespace SLDataAPI.Voice;
 
 /// <summary>
 /// 游戏内语音转发服务（v2.3 新增）。
 ///
-/// 原理：EXILED 的 VoiceChatting / Transmitting 事件打在
+/// 原理：LabAPI 的 SendingVoiceMessage 事件打在
 /// VoiceTransceiver.ServerReceiveMessage 上——服务器端收到的所有语音
 /// （近距离/对讲机/Intercom/SCP 频道…）都经过这里。每个包是独立的
 /// Opus 帧（10ms @48kHz = 480 样本，约 100 包/秒——实测 Decode 返回 480），
@@ -44,11 +46,11 @@ public static class VoiceService
     private static readonly Dictionary<uint, VoiceChat.Codec.OpusDecoder> Decoders = new();
     private static readonly Dictionary<uint, VoiceActivity> Activities = new();
     private static readonly Dictionary<uint, float> _lastPacketTime = new();
-    // 每个说话者最近一个包的 FNV 哈希：VoiceChatting 与 Transmitting 挂在同一个
-    // Harmony patch 上，每个包会各触发一次事件；只有字节完全相同（同一包）才跳过。
-    // 绝不能用 (帧号,频道,长度) 判重——本作语音是 10ms Opus 帧（480 样本，约 100 包/秒），
-    // 同一帧内常有两个长度相同的不同包，误删会丢掉一半音频（听着"混乱"的元凶）。
-    private static readonly Dictionary<uint, ulong> _dupSeen = new();
+        // 每个说话者最近一个包的 FNV 哈希：LabAPI 的 SendingVoiceMessage 每个语音包
+        // 只触发一次，这里按内容哈希判重属于纵深防御（防止未来事件源叠加导致重复入队）。
+        // 绝不能用 (帧号,频道,长度) 判重——本作语音是 10ms Opus 帧（480 样本，约 100 包/秒），
+        // 同一帧内常有两个长度相同的不同包，误删会丢掉一半音频（听着"混乱"的元凶）。
+        private static readonly Dictionary<uint, ulong> _dupSeen = new();
     private const int MaxQueuedPackets = 4096;
     private const int MaxSamplesPerPacket = 48000 * 120 / 1000;
 
@@ -104,7 +106,7 @@ public static class VoiceService
         _dupSeen.Clear();
     }
 
-    // ────────────── 语音事件入口（EXILED 主线程） ──────────────
+    // ────────────── 语音事件入口（主线程事件回调） ──────────────
 
     /// <summary>语音事件入口：解码 Opus → 入队推送 + 更新说话状态。</summary>
     public static void HandleIncoming(Player? player, VoiceMessage msg)
@@ -132,8 +134,7 @@ public static class VoiceService
             return;
         }
 
-        // 同一包去重：VoiceChatting 与 Transmitting 对同一个包各触发一次，
-        // 重复解码会破坏有状态的 Opus 解码器。只按内容哈希判重，
+        // 同一包去重：按内容哈希判重，
         // 两个不同的真实语音包（即使同帧同频道同长度）绝不会被误删。
         ulong hash = FnvHash(msg.Data, msg.DataLength);
         if (_dupSeen.TryGetValue(netId, out ulong prevHash) && prevHash == hash)
@@ -167,15 +168,15 @@ public static class VoiceService
 
         // 说话状态（/status 用）：角色实时读
         string roleCn = "未知";
-        try { roleCn = GetRoleCN(player.Role.Type); }
+        try { roleCn = GetRoleCN(player.Role); }
         catch { /* 忽略 */ }
 
         float now = UnityEngine.Time.time;
         Activities[netId] = new VoiceActivity
         {
-            PlayerId = player.Id,
+            PlayerId = player.PlayerId,
             Nickname = player.Nickname ?? "?",
-            UserId = player.RawUserId ?? "?",
+            UserId = player.UserId ?? "?",
             Role = roleCn,
             Channel = (byte)msg.Channel,
             LastSeen = now
@@ -208,9 +209,9 @@ public static class VoiceService
         var pkt = new PcmPacket
         {
             Channel = (byte)msg.Channel,
-            PlayerId = (ushort)(player.Id & 0xFFFF),
+            PlayerId = (ushort)(player.PlayerId & 0xFFFF),
             Nickname = player.Nickname ?? "?",
-            UserId = player.RawUserId ?? "?",
+            UserId = player.UserId ?? "?",
             Role = roleCn,
             NewBurst = newBurst,
             Samples = new float[samples]

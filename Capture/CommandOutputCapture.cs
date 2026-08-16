@@ -3,10 +3,12 @@ using System.Reflection;
 using System.Text;
 using HarmonyLib;
 
+namespace SLDataAPI.Capture;
+
 /// <summary>
 /// 捕获服务器控制台输出（命令执行的"回显"）。
 ///
-/// 背景：Server.ExecuteCommand 只返回命令的直接返回值，而插件注册的命令
+/// 背景：Server.RunCommand 只返回命令的直接返回值，而插件注册的命令
 /// （如 SLPlayer 的 .m 系列、游戏内控制台命令）通过 CommandSender 消息通道
 /// 输出 —— 最终都汇聚到 ServerConsole.AddLog（LocalAdmin 上看到的就是它）。
 /// 这里用 Harmony Postfix patch AddLog，在命令执行窗口内把日志行追加到缓冲，
@@ -23,7 +25,7 @@ public static class CommandOutputCapture
 
     private static Harmony? _harmony;
 
-    /// <summary>服务器启动时调用一次（Plugin.OnEnabled）。任何失败只警告，不影响插件其他功能。</summary>
+    /// <summary>服务器启动时调用一次（Plugin.Enable）。任何失败只警告，不影响插件其他功能。</summary>
     public static void Init()
     {
         if (_harmony != null)
@@ -58,14 +60,14 @@ public static class CommandOutputCapture
             }
 
             if (patched == 0)
-                Exiled.API.Features.Log.Warn("[SLDataAPI] 命令输出捕获 patch 全部失败，控制台回显不可用");
+                Log.Warn("[SLDataAPI] 命令输出捕获 patch 全部失败，控制台回显不可用");
             else
-                Exiled.API.Features.Log.Debug($"[SLDataAPI] 命令输出捕获已就绪（{patched} 个 patch）");
+                Log.Debug($"[SLDataAPI] 命令输出捕获已就绪（{patched} 个 patch）");
         }
         catch (Exception ex)
         {
             // 捕获初始化失败绝不能让插件 enable 崩溃
-            Exiled.API.Features.Log.Error($"[SLDataAPI] 命令输出捕获初始化失败（不影响其他功能）: {ex.Message}");
+            Log.Error($"[SLDataAPI] 命令输出捕获初始化失败（不影响其他功能）: {ex.Message}");
             _harmony = null;
         }
     }
@@ -90,12 +92,12 @@ public static class CommandOutputCapture
         catch (Exception ex)
         {
             // 单个方法 patch 失败不影响其他通道
-            Exiled.API.Features.Log.Warn($"[SLDataAPI] patch {method} 失败（忽略）: {ex.Message}");
+            Log.Warn($"[SLDataAPI] patch {method} 失败（忽略）: {ex.Message}");
             return false;
         }
     }
 
-    /// <summary>服务器关闭时调用（Plugin.OnDisabled）。</summary>
+    /// <summary>服务器关闭时调用（Plugin.Disable）。</summary>
     public static void Shutdown()
     {
         if (_harmony == null)

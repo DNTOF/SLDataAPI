@@ -1,5 +1,7 @@
 using System.Collections.Generic;
 
+namespace SLDataAPI.Data;
+
 public class ControlResponse
 {
     public bool success { get; set; }
@@ -23,7 +25,7 @@ public class PlayerActionRequest
     /// <summary>kick / ban 用的理由。</summary>
     public string reason { get; set; } = "";
 
-    /// <summary>ban 用，单位：分钟（Exiled 的 Player.Ban 按分钟计），0 表示永久。</summary>
+    /// <summary>ban 用，单位：分钟，0 表示永久。</summary>
     public int duration { get; set; } = 0;
 
     /// <summary>role 用，RoleTypeId 的字符串名（如 "Scp173"、"ClassD"）。</summary>

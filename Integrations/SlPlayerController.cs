@@ -3,8 +3,10 @@ using System.Collections;
 using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
-using Exiled.API.Features;
+using LabApi.Loader;
 using Newtonsoft.Json;
+
+namespace SLDataAPI.Integrations;
 
 /// <summary>
 /// /control/slplayer 端点的业务实现 —— 直接调用 SLPlayer_GUI（DNT_OF 的 player_gui 项目）
@@ -13,6 +15,8 @@ using Newtonsoft.Json;
 /// 设计原则（与 DntofDetector 一致）：
 /// - 不对 SLPlayer.dll 建立编译期引用（可选依赖），全部反射按属性/方法名调用；
 ///   SLPlayer 未加载 / 版本属性名变动时返回明确错误而不是崩服。
+///   SLPlayer 目前是 EXILED 插件，经 ExiledInterop 反射桥定位实例；
+///   若其将来迁移为 LabAPI 原生插件，LabAPI 注册表查找同样能命中。
 /// - 所有播放操作必须在 Unity 主线程执行（触碰 AudioPlayer），由调用方包在
 ///   MainThreadExecutor.RunOnMainThread 里。
 /// - fetch（拉取云端 YAML 歌单）走服务器命令通道 .m fetch —— 复用命令输出捕获，
@@ -21,7 +25,8 @@ using Newtonsoft.Json;
 public static class SlPlayerController
 {
     private static object? FindPlugin() =>
-        Exiled.Loader.Loader.Plugins.FirstOrDefault(p => p.Name == "SLPlayer");
+        ExiledInterop.FindPlugin("SLPlayer")
+        ?? PluginLoader.Plugins.Keys.FirstOrDefault(p => p.Name == "SLPlayer") as object;
 
     /// <summary>获取 SLPlayer 插件的 MusicController 实例；未加载/未就绪时抛异常。</summary>
     public static object GetController()

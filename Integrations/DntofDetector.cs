@@ -2,7 +2,10 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
-using Exiled.API.Features;
+using LabApi.Loader;
+using SLDataAPI.Data;
+
+namespace SLDataAPI.Integrations;
 
 /// <summary>
 /// 反射探测 DNT_OF 系列插件（SLPlayer / OmegaWarhead）是否已加载，
@@ -12,6 +15,9 @@ using Exiled.API.Features;
 /// - 不对 SLPlayer.dll / OmegaWarhead.dll 建立编译期引用（它们是可选依赖）。
 ///   全部通过反射按插件名 + 属性名查找，任意一方缺失/未加载都只是探测不到，
 ///   不会导致 SLDataAPI 编译失败或运行时崩溃。
+/// - SLPlayer / OmegaWarhead 目前是 EXILED 插件：通过 ExiledInterop 反射桥
+///   在 EXILED 与之共存的部署下找到实例；若它们将来迁移为 LabAPI 原生插件，
+///   这里的 LabAPI 注册表查找同样能命中（探测逻辑只依赖属性名，与框架无关）。
 /// - 必须在主线程调用（在 DataCollector.UpdateData 的 MEC 协程里调用），
 ///   因为要读取 Player.Position / Player.Nickname 等触及游戏对象的属性。
 ///   不要在 HttpServer 的请求处理线程里调用这个类。
@@ -33,8 +39,10 @@ public static class DntofDetector
         return info;
     }
 
+    /// <summary>按名称查找目标插件：先 EXILED（反射桥），再 LabAPI 注册表。</summary>
     private static object? FindPlugin(string name) =>
-        Exiled.Loader.Loader.Plugins.FirstOrDefault(p => p.Name == name);
+        ExiledInterop.FindPlugin(name)
+        ?? PluginLoader.Plugins.Keys.FirstOrDefault(p => p.Name == name) as object;
 
     // ===================== SLPlayer =====================
 

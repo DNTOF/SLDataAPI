@@ -2,18 +2,35 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Text;
-using Exiled.API.Enums;
-using Exiled.API.Features;
-using Exiled.API.Features.Doors;
+using LabApi.Features.Enums;
+using LabApi.Loader;
+using LabApi.Loader.Features.Plugins;
+using LabApi.Loader.Features.Plugins.Configuration;
+using LabApi.Loader.Features.Yaml;
 using Newtonsoft.Json;
 using PlayerRoles;
+using SLDataAPI.Capture;
+using SLDataAPI.Data;
+using SLDataAPI.Integrations;
+using SLDataAPI.Map;
+using SLDataAPI.Services;
 using UnityEngine;
-// 游戏原生的封禁系统（全局命名空间的类型，与 EXILED 的 Exiled.API.Features.BanHandler
-// 重名，必须用别名区分：GetBans/RemoveBan 只在游戏原生类上）
+using VoiceChat;
+// 游戏原生的封禁系统（全局命名空间的类型）
 using GameBanHandler = global::BanHandler;
 using GameBanDetails = global::BanDetails;
 using GameBanType = global::BanHandler.BanType;
+using LabPlugin = LabApi.Loader.Features.Plugins.Plugin;
+using Player = LabApi.Features.Wrappers.Player;
+using Door = LabApi.Features.Wrappers.Door;
+using Room = LabApi.Features.Wrappers.Room;
+using Server = LabApi.Features.Wrappers.Server;
+using Round = LabApi.Features.Wrappers.Round;
+using Warhead = LabApi.Features.Wrappers.Warhead;
+
+namespace SLDataAPI.Control;
 
 /// <summary>
 /// 控制接口的业务逻辑层。所有会触碰游戏 / Mirror 网络状态的调用
@@ -76,14 +93,14 @@ public static class ControlController
         Log.Info($"[SLDataAPI][Control] 执行服务器命令: {req.command}");
 
         // 命令执行窗口内捕获控制台输出（插件命令如 SLPlayer .m 的输出
-        // 走 AddLog 管线，Server.ExecuteCommand 返回值里没有）
+        // 走 AddLog 管线，Server.RunCommand 返回值里没有）
         CommandOutputCapture.BeginCapture();
         string output;
         string consoleOutput;
         try
         {
             output = MainThreadExecutor.RunOnMainThread(
-                () => Server.ExecuteCommand(req.command),
+                () => Server.RunCommand(req.command),
                 out var err);
             if (err != null)
                 return (500, Json(false, $"命令执行失败: {err.Message}"));
@@ -99,6 +116,30 @@ public static class ControlController
     // ------------------------------------------------------------------
     // /control/player/{kick|ban|role|teleport}
     // ------------------------------------------------------------------
+
+    /// <summary>
+    /// 多方式解析玩家标识（与旧 EXILED Player.Get 的行为对齐）：
+    /// 数字 PlayerId → UserId 精确 → IP 精确 → 昵称（先精确后包含）。
+    /// </summary>
+    private static Player? FindPlayer(string target)
+    {
+        if (string.IsNullOrWhiteSpace(target))
+            return null;
+
+        if (int.TryParse(target.Trim(), out int playerId))
+        {
+            var byId = Player.Get(playerId);
+            if (byId != null) return byId;
+        }
+
+        return Player.List.FirstOrDefault(p =>
+                   string.Equals(p.UserId, target, StringComparison.OrdinalIgnoreCase))
+               ?? Player.List.FirstOrDefault(p =>
+                   string.Equals(p.IpAddress, target, StringComparison.OrdinalIgnoreCase))
+               ?? Player.GetByNickname(target, requireFullMatch: true)
+               ?? Player.GetByNickname(target);
+    }
+
     private static (int, string) PlayerAction(string body, string kind)
     {
         var req = Parse<PlayerActionRequest>(body);
@@ -107,7 +148,7 @@ public static class ControlController
 
         MainThreadExecutor.RunOnMainThread(() =>
         {
-            var player = Player.Get(req.target);
+            var player = FindPlayer(req.target);
             if (player == null)
                 throw new InvalidOperationException($"找不到玩家: {req.target}");
 
@@ -118,24 +159,27 @@ public static class ControlController
                     break;
 
                 case "ban":
-                    player.Ban(req.duration, string.IsNullOrWhiteSpace(req.reason) ? "由管理端封禁" : req.reason);
+                    // 请求单位是分钟；LabAPI 的 Ban 按秒计，0 = 永久
+                    player.Ban(
+                        string.IsNullOrWhiteSpace(req.reason) ? "由管理端封禁" : req.reason,
+                        (long)req.duration * 60);
                     break;
 
                 case "role":
                     if (!Enum.TryParse<RoleTypeId>(req.role, true, out var roleId))
                         throw new InvalidOperationException($"无效角色名: {req.role}");
-                    player.Role.Set(roleId);
+                    player.SetRole(roleId);
                     break;
 
                 case "teleport":
-                    player.Teleport(new Vector3(req.x, req.y, req.z));
+                    player.Position = new Vector3(req.x, req.y, req.z);
                     break;
 
                 case "mute":
                     if (req.mute == true)
-                        player.Mute();
+                        player.Mute(isTemporary: false);
                     else if (req.mute == false)
-                        player.UnMute();
+                        player.Unmute(revokeMute: false);
                     else
                         throw new InvalidOperationException("缺少 mute 字段（true=语音禁言 / false=解除）");
                     break;
@@ -145,28 +189,25 @@ public static class ControlController
                         throw new InvalidOperationException("缺少 message 字段");
                     float dur = req.duration_seconds <= 0 ? 5f : Math.Min(req.duration_seconds, 60f);
                     if (req.msg_type == "broadcast")
-                        player.Broadcast((ushort)Math.Ceiling(dur), req.message);
+                        player.SendBroadcast(req.message, (ushort)Math.Ceiling(dur));
                     else
-                        player.ShowHint(req.message, dur);
+                        player.SendHint(req.message, dur);
                     break;
 
                 case "effect":
-                    if (!Enum.TryParse<EffectType>(req.effect, true, out var effectType))
+                    if (!TryEnableEffect(player, req.effect, Math.Max(0.1f, req.effect_duration)))
                         throw new InvalidOperationException($"无效效果名: {req.effect}");
-                    player.EnableEffect(effectType, Math.Max(0.1f, req.effect_duration));
                     break;
 
                 case "state":
                     if (req.godmode.HasValue)
                         player.IsGodModeEnabled = req.godmode.Value;
                     if (req.bypass.HasValue)
-                        player.IsBypassModeEnabled = req.bypass.Value;
+                        player.IsBypassEnabled = req.bypass.Value;
                     if (req.health.HasValue)
                         player.Health = Math.Max(0f, req.health.Value);
                     if (req.intercom.HasValue)
-                        player.VoiceChannel = req.intercom.Value
-                            ? VoiceChat.VoiceChatChannel.Intercom
-                            : VoiceChat.VoiceChatChannel.Proximity;
+                        SetVoiceChannel(player, req.intercom.Value);
                     break;
             }
         }, out var err);
@@ -176,6 +217,92 @@ public static class ControlController
 
         Log.Info($"[SLDataAPI][Control] player/{kind} target={req.target}");
         return (200, Json(true, "操作完成"));
+    }
+
+    // 效果名别名：旧 EXILED EffectType 枚举名 → base-game 效果类名（大小写不敏感匹配）
+    private static readonly Dictionary<string, string> EffectAliases =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["burning"] = "Burned",
+            ["burn"] = "Burned",
+            ["poison"] = "Poisoned",
+            ["bleed"] = "Bleeding",
+            ["blind"] = "Blinded",
+            ["cardiac"] = "CardiacArrest",
+            ["concussion"] = "Concussed",
+            ["corroding"] = "Corroding",
+            ["deaf"] = "Deafened",
+            ["flash"] = "Flashed",
+            ["invisible"] = "Invisible",
+            ["movementboost"] = "MovementBoost",
+            ["207"] = "Scp207",
+            ["268"] = "Scp268",
+            ["amnesiaitems"] = "Amnesia",
+        };
+
+    /// <summary>按名称给玩家上效果：先直接匹配，再走别名表，最后按效果类名兜底。</summary>
+    private static bool TryEnableEffect(Player player, string? name, float duration)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return false;
+
+        string effect = name!.Trim();
+
+        if (player.TryGetEffect(effect, out var statusEffect))
+        {
+            player.EnableEffect(statusEffect, 1, duration);
+            return true;
+        }
+
+        if (EffectAliases.TryGetValue(effect, out string? canonical) &&
+            player.TryGetEffect(canonical, out statusEffect))
+        {
+            player.EnableEffect(statusEffect, 1, duration);
+            return true;
+        }
+
+        try
+        {
+            var byClass = player.ActiveEffects.FirstOrDefault(e =>
+                string.Equals(e.GetType().Name, effect, StringComparison.OrdinalIgnoreCase));
+            if (byClass != null)
+            {
+                player.EnableEffect(byClass, 1, duration);
+                return true;
+            }
+        }
+        catch { /* ActiveEffects 不可用时忽略，走失败路径 */ }
+
+        return false;
+    }
+
+    /// <summary>
+    /// 强制切换玩家语音通道（Intercom / Proximity）。
+    /// LabAPI 的 VoiceChannel 是只读的，VoiceModuleBase.CurrentChannel 的 setter
+    /// 也不是公开的，这里用反射写入（与旧 EXILED 的 VoiceChannel 赋值行为等价）。
+    /// </summary>
+    private static void SetVoiceChannel(Player player, bool intercom)
+    {
+        var channel = intercom ? VoiceChatChannel.Intercom : VoiceChatChannel.Proximity;
+        try
+        {
+            var module = player.VoiceModule;
+            if (module == null)
+                throw new InvalidOperationException("玩家语音模块未初始化");
+            var prop = typeof(PlayerRoles.Voice.VoiceModuleBase)
+                .GetProperty("CurrentChannel", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+            if (prop == null || !prop.CanWrite)
+                throw new InvalidOperationException("CurrentChannel 属性不可写");
+            prop.SetValue(module, channel);
+        }
+        catch (InvalidOperationException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException($"切换语音通道失败: {ex.Message}");
+        }
     }
 
     // ------------------------------------------------------------------
@@ -192,10 +319,10 @@ public static class ControlController
             switch (req.action.ToLowerInvariant())
             {
                 case "restart":
-                    Round.Restart(false);
+                    Round.Restart();
                     break;
                 case "end":
-                    Round.EndRound(true);
+                    Round.End(force: true);
                     break;
                 case "start":
                     Round.Start();
@@ -223,7 +350,15 @@ public static class ControlController
 
         MainThreadExecutor.RunOnMainThread(() =>
         {
-            Exiled.API.Features.Cassie.Message(req.message, req.isHeld, req.isNoisy, req.isSubtitles);
+            // LabAPI 1.1.7 把 Cassie.Message(msg, isHeld, isNoisy, isSubtitles) 标记为错误级过时
+            // （新版游戏 CASSIE 已改为 TTS 队列体系）。这里用官方推荐的非过时重载：
+            // isNoisy → playBackground；isHeld/isSubtitles 在新 API 中已无对应开关（忽略）。
+            LabApi.Features.Wrappers.Announcer.Message(
+                req.message,
+                customSubtitles: "",
+                playBackground: req.isNoisy,
+                priority: 0f,
+                glitchScale: 1f);
         }, out var err);
 
         if (err != null)
@@ -345,7 +480,7 @@ public static class ControlController
         try
         {
             string output = MainThreadExecutor.RunOnMainThread(
-                () => Server.ExecuteCommand(command),
+                () => Server.RunCommand(command),
                 out var err);
 
             if (err != null)
@@ -360,51 +495,65 @@ public static class ControlController
     }
 
     // ------------------------------------------------------------------
-    // /control/plugins —— EXILED 插件列表
+    // /control/plugins —— 插件列表与启停
+    // 列出 LabAPI 原生插件；服务器若同时装有 EXILED，一并反射列出其插件。
     // ------------------------------------------------------------------
     // 插件启停暂存（内存态，重启清零）：name -> 目标 enabled
-    // 设计：点击启用/禁用只暂存（不写文件），全部设置好后点"保存并重载"统一写入 + ReloadPlugins
+    // 设计：点击启用/禁用只暂存（不写文件），全部设置好后点"保存并重载"统一写入。
+    //
+    // ★ LabAPI 语义变化（相对旧 EXILED 版本）：
+    //   - apply 写入每个插件的 properties.yml（LabAPI 的启停配置），重启服务器后生效；
+    //     LabAPI 没有运行时重载插件本体的公开 API。
+    //   - reload 仅热重载各插件的配置文件（等价控制台 reload configs），
+    //     不会重载插件 DLL，也不会应用启停变更。
+    //   - 同服的 EXILED 插件在 apply 后会立即 ReloadPlugins 生效（走 EXILED 自身机制）。
     private static readonly Dictionary<string, bool> PluginStaged = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>是否 SLDataAPI 自身（禁止禁用）。</summary>
-    private static bool IsSelfPlugin(Exiled.API.Interfaces.IPlugin<Exiled.API.Interfaces.IConfig> p) =>
-        p.Assembly == typeof(ControlController).Assembly;
+    private static bool IsSelfPlugin(LabPlugin p) =>
+        p.GetType().Assembly == typeof(ControlController).Assembly;
 
-    private static Exiled.API.Interfaces.IPlugin<Exiled.API.Interfaces.IConfig>? FindPlugin(string name) =>
-        Exiled.Loader.Loader.Plugins.FirstOrDefault(p =>
+    private static LabPlugin? FindLabPlugin(string name) =>
+        PluginLoader.Plugins.Keys.FirstOrDefault(p =>
             string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase));
 
     private static (int, string) PluginsAction(string body)
     {
         // 支持：
-        //   {}                          → 列表（enabled 读配置文件 is_enabled）
-        //   { action: "reload" }        → 重载全部插件
+        //   {}                          → 列表（enabled 读配置文件 properties.yml / EXILED 的 is_enabled）
+        //   { action: "reload" }        → 热重载全部插件配置（reload configs）
         //   { action: "stage", name, enabled }  → 暂存启停（不写文件）
         //   { action: "clear" }         → 清空暂存
-        //   { action: "apply" }         → 一次性写入全部暂存配置 + ReloadPlugins
+        //   { action: "apply" }         → 一次性写入全部暂存配置（LabAPI 插件重启生效；EXILED 插件立即重载）
         var req = Parse<PluginsRequest>(body);
 
         string json = MainThreadExecutor.RunOnMainThread(() =>
         {
             if (req?.action == "reload")
             {
-                Exiled.Loader.Loader.ReloadPlugins();
-                return Json(true, "插件已全部重载");
+                int count = 0;
+                foreach (var p in PluginLoader.Plugins.Keys.ToList())
+                {
+                    if (IsSelfPlugin(p)) continue; // 自身配置被 HTTP 服务持有，热重载会得到半旧半新的状态
+                    try { p.LoadConfigs(); count++; }
+                    catch { /* 单个插件失败不影响其余 */ }
+                }
+                return Json(true, $"已热重载 {count} 个插件的配置（插件本体与启停状态需重启服务器生效）");
             }
 
             if (req?.action == "stage")
             {
                 if (string.IsNullOrWhiteSpace(req.name))
                     throw new InvalidOperationException("缺少 name 字段");
-                var plugin = FindPlugin(req.name)
-                    ?? throw new InvalidOperationException($"未找到插件: {req.name}");
-                if (IsSelfPlugin(plugin))
+                bool found = FindLabPlugin(req.name) != null || ExiledInterop.FindPlugin(req.name) != null;
+                if (!found)
+                    throw new InvalidOperationException($"未找到插件: {req.name}");
+                var labSelf = FindLabPlugin(req.name);
+                if (labSelf != null && IsSelfPlugin(labSelf))
                     throw new InvalidOperationException("禁止禁用 SLDataAPI 自身");
-                if (plugin.Config == null)
-                    throw new InvalidOperationException($"插件 {req.name} 没有配置文件，无法启停");
-                PluginStaged[plugin.Name] = req.enabled;
+                PluginStaged[req.name.Trim()] = req.enabled;
                 return Json(true,
-                    $"已暂存{(req.enabled ? "启用" : "禁用")}插件 {plugin.Name}（点\"保存并重载\"统一生效）",
+                    $"已暂存{(req.enabled ? "启用" : "禁用")}插件 {req.name.Trim()}（点\"保存并重载\"统一生效）",
                     new { staged = StagedSnapshot() });
             }
 
@@ -418,60 +567,99 @@ public static class ControlController
             {
                 var applied = new List<object>();
                 var failed = new List<object>();
+                bool exiledTouched = false;
                 foreach (var kv in PluginStaged)
                 {
-                    var plugin = FindPlugin(kv.Key);
-                    if (plugin == null || IsSelfPlugin(plugin))
+                    var labPlugin = FindLabPlugin(kv.Key);
+                    if (labPlugin != null)
                     {
-                        failed.Add(new { name = kv.Key, reason = "插件不存在或为 SLDataAPI 自身" });
+                        if (IsSelfPlugin(labPlugin))
+                        {
+                            failed.Add(new { name = kv.Key, reason = "禁止禁用 SLDataAPI 自身" });
+                            continue;
+                        }
+                        try
+                        {
+                            WriteLabPluginEnabled(labPlugin, kv.Value);
+                            applied.Add(new { name = kv.Key, enabled = kv.Value, note = "重启服务器后生效" });
+                        }
+                        catch (Exception ex)
+                        {
+                            failed.Add(new { name = kv.Key, reason = ex.Message });
+                        }
                         continue;
                     }
-                    try
+
+                    var exiledPlugin = ExiledInterop.FindPlugin(kv.Key);
+                    if (exiledPlugin != null)
                     {
-                        if (plugin.Config == null)
-                            throw new InvalidOperationException("没有配置文件");
-                        if (string.IsNullOrEmpty(plugin.ConfigPath))
-                            throw new InvalidOperationException("未暴露 ConfigPath");
-                        // 改配置里的 is_enabled 并写回（用 EXILED 自己的序列化器保证格式兼容）
-                        plugin.Config.IsEnabled = kv.Value;
-                        File.WriteAllText(plugin.ConfigPath,
-                            Exiled.Loader.Loader.Serializer.Serialize(plugin.Config), Encoding.UTF8);
-                        applied.Add(new { name = kv.Key, enabled = kv.Value });
+                        string? errReason = ExiledInterop.SetPluginEnabled(exiledPlugin, kv.Value);
+                        if (errReason == null)
+                        {
+                            applied.Add(new { name = kv.Key, enabled = kv.Value, note = "EXILED 插件已重载生效" });
+                            exiledTouched = true;
+                        }
+                        else
+                        {
+                            failed.Add(new { name = kv.Key, reason = errReason });
+                        }
+                        continue;
                     }
-                    catch (Exception ex)
-                    {
-                        failed.Add(new { name = kv.Key, reason = ex.Message });
-                    }
+
+                    failed.Add(new { name = kv.Key, reason = "插件不存在" });
                 }
                 PluginStaged.Clear();
-                if (applied.Count > 0)
-                    Exiled.Loader.Loader.ReloadPlugins();
+
+                if (exiledTouched)
+                    ExiledInterop.ReloadPlugins();
+
                 return Json(true,
-                    $"已保存 {applied.Count} 个插件并重载" + (failed.Count > 0 ? $"（{failed.Count} 个失败）" : ""),
+                    $"已保存 {applied.Count} 个插件的启停设置" + (failed.Count > 0 ? $"（{failed.Count} 个失败）" : "") +
+                    "。LabAPI 插件需重启服务器生效。",
                     new { applied, failed });
             }
 
-            if (!string.IsNullOrEmpty(req?.action) && req.action != "list")
+            if (req != null && !string.IsNullOrEmpty(req.action) && req.action != "list")
                 throw new InvalidOperationException($"未知 action: {req.action}");
 
-            // 列表：enabled 读【配置文件】的 is_enabled（EXILED 加载配置时写入 Config.IsEnabled），
+            // 列表：enabled 读【配置文件】（LabAPI properties.yml / EXILED is_enabled），
             // 而非运行时状态 —— 运行时可能被全局禁用/重载中，不代表配置文件里的启停设置
-            var plugins = Exiled.Loader.Loader.Plugins
-                .Select(p => new
+            var plugins = new List<object>();
+
+            foreach (var p in PluginLoader.Plugins.Keys)
+            {
+                plugins.Add(new
                 {
                     name = p.Name,
                     author = p.Author,
                     version = p.Version.ToString(),
-                    prefix = p.Prefix,
+                    prefix = "",
                     priority = p.Priority.ToString(),
-                    enabled = p.Config?.IsEnabled ?? true,
-                    // SLDataAPI 自身：前端禁用启停按钮
+                    enabled = p.Properties?.IsEnabled ?? true,
                     self = IsSelfPlugin(p),
-                    // 该插件是否有暂存的启停改动
                     staged = PluginStaged.TryGetValue(p.Name, out bool target) ? target : (bool?)null,
-                })
-                .OrderBy(p => p.name)
-                .ToList();
+                    source = "labapi",
+                });
+            }
+
+            foreach (var p in ExiledInterop.GetPlugins())
+            {
+                var info = ExiledInterop.GetInfo(p);
+                if (info == null) continue;
+                string name = info.Value.Name;
+                plugins.Add(new
+                {
+                    name,
+                    author = info.Value.Author,
+                    version = info.Value.Version,
+                    prefix = info.Value.Prefix,
+                    priority = info.Value.Priority,
+                    enabled = ExiledInterop.GetIsEnabled(p) ?? true,
+                    self = false,
+                    staged = PluginStaged.TryGetValue(name, out bool target) ? target : (bool?)null,
+                    source = "exiled",
+                });
+            }
 
             return Json(true, "ok", new { count = plugins.Count, plugins });
         }, out var err);
@@ -480,6 +668,23 @@ public static class ControlController
             return (500, Json(false, $"插件操作失败: {err.Message}"));
 
         return (200, json);
+    }
+
+    /// <summary>把 LabAPI 插件的启停写入其 properties.yml（LabAPI/configs/&lt;端口&gt;/&lt;插件名&gt;/properties.yml）。</summary>
+    private static void WriteLabPluginEnabled(LabPlugin plugin, bool enabled)
+    {
+        string path = ConfigurationLoader.GetConfigPath(plugin, "properties.yml");
+        string? dir = Path.GetDirectoryName(path);
+        if (!string.IsNullOrEmpty(dir))
+            Directory.CreateDirectory(dir);
+
+        // 沿用 LabAPI 自己的 YAML 序列化器，保证命名/格式与其加载器兼容
+        string yaml = YamlConfigParser.Serializer.Serialize(new Properties { IsEnabled = enabled });
+        File.WriteAllText(path, yaml, Encoding.UTF8);
+
+        // 同步内存态，列表展示立即反映
+        if (plugin.Properties != null)
+            plugin.Properties.IsEnabled = enabled;
     }
 
     // ------------------------------------------------------------------
@@ -677,38 +882,46 @@ public static class ControlController
             {
                 case "doors":
                 {
-                    if (!Enum.TryParse<DoorType>(req.door_type, true, out var doorType))
-                        throw new InvalidOperationException($"无效门类型: {req.door_type}");
-
-                    Door? door = Door.Get(doorType);
+                    Door? door = FindDoor(req.door_type);
                     if (door == null)
                         throw new InvalidOperationException($"未找到门: {req.door_type}");
 
-                    if (req.lock_door == true) door.Lock(DoorLockType.AdminCommand);
-                    else if (req.lock_door == false) door.Unlock();
-                    if (req.open_door.HasValue) door.IsOpen = req.open_door.Value;
+                    if (req.lock_door == true)
+                        door.Lock(Interactables.Interobjects.DoorUtils.DoorLockReason.AdminCommand, true);
+                    else if (req.lock_door == false)
+                        door.Lock(Interactables.Interobjects.DoorUtils.DoorLockReason.AdminCommand, false);
+                    if (req.open_door.HasValue) door.IsOpened = req.open_door.Value;
 
                     return (200, Json(true, "ok", new
                     {
                         door_type = req.door_type,
                         locked = door.IsLocked,
-                        open = door.IsOpen
+                        open = door.IsOpened
                     }));
                 }
 
                 case "lights":
                 {
-                    if (!Enum.TryParse<RoomType>(req.room_type, true, out var roomType))
+                    if (!Enum.TryParse<MapGeneration.RoomName>(req.room_type, true, out var roomName))
                         throw new InvalidOperationException($"无效房间类型: {req.room_type}");
 
-                    Room? room = Room.Get(roomType);
+                    // 同名房间可能有多处（Room.Get 返回集合），统一全部处理
+                    Room? room = Room.Get(roomName).FirstOrDefault();
                     if (room == null)
                         throw new InvalidOperationException($"未找到房间: {req.room_type}");
 
                     if (req.lights_off == true)
-                        room.TurnOffLights(Math.Max(1f, req.duration));
+                    {
+                        float dur = Math.Max(1f, req.duration);
+                        foreach (var lc in room.AllLightControllers)
+                            lc.FlickerLights(dur);
+                    }
                     else
-                        room.TurnOffLights(0f); // duration=0 立即恢复照明
+                    {
+                        // duration=0 → 立即恢复照明
+                        foreach (var lc in room.AllLightControllers)
+                            lc.LightsEnabled = true;
+                    }
 
                     return (200, Json(true, "ok", new
                     {
@@ -721,6 +934,30 @@ public static class ControlController
                     return (404, Json(false, $"未知 action: {req.action}（支持 layout/doors/lights）"));
             }
         }, out var err);
+    }
+
+    /// <summary>
+    /// 解析门标识：优先 LabAPI 的 DoorName 枚举（旧 EXILED DoorType 名称大多一致），
+    /// 再按 NameTag 精确 / 包含匹配兜底。
+    /// </summary>
+    private static Door? FindDoor(string? input)
+    {
+        if (string.IsNullOrWhiteSpace(input))
+            return null;
+
+        string tag = input!.Trim();
+
+        if (Enum.TryParse<DoorName>(tag, true, out var doorName))
+        {
+            var byEnum = Door.Get(doorName);
+            if (byEnum != null) return byEnum;
+        }
+
+        return Door.Get(tag)
+               ?? Door.List.FirstOrDefault(d => string.Equals(d.NameTag, tag, StringComparison.OrdinalIgnoreCase))
+               ?? Door.List.FirstOrDefault(d =>
+                   !string.IsNullOrEmpty(d.NameTag) &&
+                   d.NameTag!.IndexOf(tag, StringComparison.OrdinalIgnoreCase) >= 0);
     }
 
     // ------------------------------------------------------------------

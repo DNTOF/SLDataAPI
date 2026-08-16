@@ -1,8 +1,14 @@
-using Exiled.API.Features;
-using MEC;
-using PlayerRoles;
+using System;
 using System.Collections.Generic;
 using System.Linq;
+using LabApi.Features.Wrappers;
+using MEC;
+using PlayerRoles;
+using SLDataAPI.Data;
+using SLDataAPI.Integrations;
+using Player = LabApi.Features.Wrappers.Player;
+
+namespace SLDataAPI.Services;
 
 public static class DataCollector
 {
@@ -72,51 +78,51 @@ public static class DataCollector
             var players = Player.List?.ToList() ?? new List<Player>();
 
             CachedData.success = true;
-            CachedData.server_name = Server.Name ?? "Unknown";
+            CachedData.server_name = ServerConsole.ServerName ?? "Unknown";
             CachedData.online = true;
             CachedData.players_count = players.Count;
-            CachedData.max_players = Server.MaxPlayerCount;
-            CachedData.round_started = Round.IsStarted;
-            CachedData.round_duration = Round.IsStarted ? (int)Round.ElapsedTime.TotalSeconds : 0;
-            CachedData.current_phase = Round.IsStarted ? "进行中" : "等待开始";
+            CachedData.max_players = Server.MaxPlayers;
+            CachedData.round_started = Round.IsRoundStarted;
+            CachedData.round_duration = Round.IsRoundStarted ? (int)Round.Duration.TotalSeconds : 0;
+            CachedData.current_phase = Round.IsRoundStarted ? "进行中" : "等待开始";
 
             // ★ 修复：Warhead 在地图加载前是 null，用 try-catch 单独保护
             CachedData.nuke_status = GetNukeStatus();
             CachedData.nuke_countdown = GetNukeCountdown();
 
-            // ★ 修复：排除 Dummy/NPC 玩家（手动添加的 dummy 会混入 Player.List 导致数据污染）
-            var realPlayers = players.Where(p => p != null && !p.IsNPC).ToList();
+            // ★ 修复：排除 Dummy/NPC/主机 玩家（手动添加的 dummy 会混入 Player.List 导致数据污染）
+            var realPlayers = players.Where(p => p != null && !p.IsNpc && !p.IsHost).ToList();
 
             CachedData.players_count = realPlayers.Count;
-            CachedData.d_count = realPlayers.Count(p => p.Role.Team == Team.ClassD || p.Role.Team == Team.ChaosInsurgency);
-            CachedData.foundation_count = realPlayers.Count(p => p.Role.Team == Team.FoundationForces);
-            CachedData.scp_count = realPlayers.Count(p => p.Role.Team == Team.SCPs);
-            CachedData.spectator_count = realPlayers.Count(p => p.Role.Team == Team.Dead);
+            CachedData.d_count = realPlayers.Count(p => p.Team == Team.ClassD || p.Team == Team.ChaosInsurgency);
+            CachedData.foundation_count = realPlayers.Count(p => p.Team == Team.FoundationForces);
+            CachedData.scp_count = realPlayers.Count(p => p.Team == Team.SCPs);
+            CachedData.spectator_count = realPlayers.Count(p => p.Team == Team.Dead);
 
-            CachedData.ping = realPlayers.Any() ? (int)realPlayers.Average(p => p.Ping) : 0;
+            CachedData.ping = realPlayers.Any() ? (int)realPlayers.Average(GetPing) : 0;
 
             // ★ 诊断：ping 长期反馈为 0 时，打开配置里的 debug 开关，
             //   重启服务器后在控制台核对这里打印出的每个玩家原始 Ping 值。
-            //   如果这里打出来的原始值本身就是 0，说明问题在 EXILED Player.Ping
-            //   （LiteNetLib4MirrorServer.GetPing）这个上游 API 本身，不在本插件的计算逻辑里；
+            //   如果这里打出来的原始值本身就是 0，说明问题在 Mirror 连接层的
+            //   rtt 上游数据，不在本插件的计算逻辑里；
             //   如果这里打出来的是非 0 正常值，但最终 JSON 里 ping 还是 0，
             //   那问题出在别处，请把这段日志发给开发者进一步排查。
             if (Plugin.Instance?.Config.Debug == true && realPlayers.Count > 0)
             {
-                string pingDump = string.Join(", ", realPlayers.Select(p => $"{p.Nickname}={p.Ping}ms"));
+                string pingDump = string.Join(", ", realPlayers.Select(p => $"{p.Nickname}={GetPing(p)}ms"));
                 Log.Debug($"[SLDataAPI] Ping 原始值采样: {pingDump}");
             }
 
             CachedData.players = realPlayers
-                .Where(p => p.Role.Type != RoleTypeId.None) // 排除尚未分配职业的玩家
-                .OrderBy(p => TeamOrder.ContainsKey(p.Role.Team) ? TeamOrder[p.Role.Team] : 99)
-                .ThenBy(p => p.Role.Type.ToString())
+                .Where(p => p.Role != RoleTypeId.None) // 排除尚未分配职业的玩家
+                .OrderBy(p => TeamOrder.ContainsKey(p.Team) ? TeamOrder[p.Team] : 99)
+                .ThenBy(p => p.Role.ToString())
                 .Select(p => new PlayerInfo
                 {
                     nickname = Sanitize(p.Nickname),
                     steam_id = p.UserId ?? "",
-                    role = GetRoleCN(p.Role.Type),
-                    team = GetTeamCN(p.Role.Team),
+                    role = GetRoleCN(p.Role),
+                    team = GetTeamCN(p.Team),
                     x = p.Position.x,
                     y = p.Position.y,
                     z = p.Position.z
@@ -135,13 +141,27 @@ public static class DataCollector
         }
     }
 
+    /// <summary>单个玩家的往返延迟（ms）。取自 Mirror 连接层 rtt，连接缺失时返回 0。</summary>
+    private static int GetPing(Player p)
+    {
+        try
+        {
+            var conn = p.ReferenceHub.networkIdentity.connectionToClient as Mirror.NetworkConnectionToClient;
+            return conn == null ? 0 : (int)Math.Round(conn.rtt);
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
     // ★ 修复：地图加载前 Warhead 对象未初始化，整个方法加保护
     private static string GetNukeStatus()
     {
         try
         {
             if (Warhead.IsDetonated) return "已爆炸";
-            if (Warhead.IsInProgress) return $"倒计时:{(int)Warhead.RealDetonationTimer}秒";
+            if (Warhead.IsDetonationInProgress) return $"倒计时:{(int)Warhead.DetonationTime}秒";
         }
         catch { }
         return "未激活";
@@ -149,7 +169,7 @@ public static class DataCollector
 
     private static int GetNukeCountdown()
     {
-        try { return Warhead.IsInProgress ? (int)Warhead.RealDetonationTimer : 0; }
+        try { return Warhead.IsDetonationInProgress ? (int)Warhead.DetonationTime : 0; }
         catch { return 0; }
     }
 

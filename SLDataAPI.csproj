@@ -5,7 +5,8 @@
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <OutputType>Library</OutputType>
-    <NoWarn>CS0618;CS1591</NoWarn>
+    <!-- CS8002：强签名程序集引用未签名程序集——游戏 DLL / 0Harmony 等运行时依赖本就无强名称，属预期 -->
+    <NoWarn>CS0618;CS1591;CS8002</NoWarn>
 
     <!-- 强名称签名：本地存在 key.snk（不入库）时启用 -->
     <SignAssembly Condition="Exists('key.snk')">true</SignAssembly>
@@ -15,15 +16,12 @@
       编译期引用路径（默认指向本机安装目录；其它机器用 -p: 覆盖）：
         -p:SCPSL_DIR="D:\...\SCP Secret Laboratory Dedicated Server\SCPSL_Data\Managed"
         -p:LABAPI_DIR="C:\Users\...\AppData\Roaming\SCP Secret Laboratory\LabAPI"
-        -p:EXILED_PLUGINS_DIR="C:\Users\...\AppData\Roaming\EXILED\Plugins"
 
-      ⚠️ 许可证说明：游戏程序集（Assembly-CSharp 等）与 EXILED 组件
-      均禁止二次分发，因此仓库不携带这些 DLL；编译需要本机已安装
-      SCP:SL 专用服务器与 EXILED/LabAPI。
+      ⚠️ 许可证说明：游戏程序集（Assembly-CSharp 等）禁止二次分发，
+      因此仓库不携带这些 DLL；编译需要本机已安装 SCP:SL 专用服务器（自带 LabApi.dll）。
     -->
     <SCPSL_DIR Condition="'$(SCPSL_DIR)' == ''">D:\SteamLibrary\steamapps\common\SCP Secret Laboratory Dedicated Server\SCPSL_Data\Managed</SCPSL_DIR>
     <LABAPI_DIR Condition="'$(LABAPI_DIR)' == ''">$(USERPROFILE)\AppData\Roaming\SCP Secret Laboratory\LabAPI</LABAPI_DIR>
-    <EXILED_PLUGINS_DIR Condition="'$(EXILED_PLUGINS_DIR)' == ''">$(USERPROFILE)\AppData\Roaming\EXILED\Plugins</EXILED_PLUGINS_DIR>
   </PropertyGroup>
 
   <ItemGroup>
@@ -31,7 +29,7 @@
     <PackageReference Include="System.Net.Http" Version="4.3.4" />
   </ItemGroup>
 
-  <!-- 游戏 + EXILED 9.14.2 程序集：编译期引用本机安装目录，运行时由游戏/EXILED 提供，不打包 -->
+  <!-- 游戏 + LabAPI 程序集：编译期引用本机安装目录，运行时由游戏提供，不打包 -->
   <ItemGroup>
     <Reference Include="Assembly-CSharp">
       <HintPath>$(SCPSL_DIR)\Assembly-CSharp.dll</HintPath>
@@ -87,22 +85,6 @@
     </Reference>
     <Reference Include="0Harmony">
       <HintPath>$(LABAPI_DIR)\dependencies\global\0Harmony.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="Exiled.API">
-      <HintPath>$(LABAPI_DIR)\dependencies\global\Exiled.API.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="SemanticVersioning">
-      <HintPath>$(LABAPI_DIR)\dependencies\global\SemanticVersioning.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="Exiled.Loader">
-      <HintPath>$(LABAPI_DIR)\plugins\global\Exiled.Loader.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="Exiled.Events">
-      <HintPath>$(EXILED_PLUGINS_DIR)\Exiled.Events.dll</HintPath>
       <Private>false</Private>
     </Reference>
   </ItemGroup>

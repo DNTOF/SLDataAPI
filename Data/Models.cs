@@ -1,5 +1,7 @@
 using System.Collections.Generic;
 
+namespace SLDataAPI.Data;
+
 public class PlayerInfo
 {
     public string nickname { get; set; } = "";

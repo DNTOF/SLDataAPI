@@ -5,12 +5,13 @@ using System.Net.Http;
 using System.Reflection;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
-using Exiled.API.Features;
 using Newtonsoft.Json.Linq;
+
+namespace SLDataAPI.Services;
 
 /// <summary>
 /// 启动时异步检查 GitHub Releases 是否有新版本。
-/// install=true 时自动下载并替换插件 DLL（EXILED 9 从内存加载插件，文件不被占用，
+/// install=true 时自动下载并替换插件 DLL（LabAPI 从文件字节加载插件、不锁定文件，
 /// 覆盖后下次重启服务器生效）；install=false 时仅日志提示。
 /// 失败（无网络、限流、校验不过）一律安全降级，不影响插件正常运行。
 /// </summary>
@@ -73,7 +74,7 @@ public static class UpdateChecker
     private static async Task InstallAsync(Version remote, JObject release)
     {
         string dllFile = AsmName + ".dll";
-        string url = release["assets"]?.Children()
+        string? url = release["assets"]?.Children()
             .FirstOrDefault(a => string.Equals(a["name"]?.ToString(), dllFile, StringComparison.OrdinalIgnoreCase))
             ?["browser_download_url"]?.ToString();
         if (string.IsNullOrEmpty(url))
@@ -89,10 +90,19 @@ public static class UpdateChecker
             return;
         }
 
-        string pluginsDir = Paths.Plugins;
+        // 目标目录取自身 DLL 所在位置（LabAPI 的 FilePath；程序集是字节加载的，
+        // Assembly.Location 为空字符串，不能用）
+        string? selfPath = Plugin.Instance?.FilePath;
+        if (string.IsNullOrWhiteSpace(selfPath) || !File.Exists(selfPath))
+        {
+            Log.Warn("[SLDataAPI] 找不到自身 DLL 路径（LabAPI FilePath），放弃自动更新。");
+            return;
+        }
+
+        string pluginsDir = Path.GetDirectoryName(selfPath);
         if (string.IsNullOrEmpty(pluginsDir) || !Directory.Exists(pluginsDir))
         {
-            Log.Warn("[SLDataAPI] 找不到插件目录（Paths.Plugins），放弃自动更新。");
+            Log.Warn("[SLDataAPI] 插件目录不可用，放弃自动更新。");
             return;
         }
 
@@ -133,7 +143,7 @@ public static class UpdateChecker
             }
         }
 
-        // ---- 替换（EXILED 9 从内存加载，文件不占用）----
+        // ---- 替换（LabAPI 从字节加载插件，文件不占用）----
         try
         {
             if (File.Exists(target))
@@ -153,7 +163,7 @@ public static class UpdateChecker
     /// <summary>容错解析版本号：支持 v2.1.0 / 2.1.0 / v2.1.0（YYMMDDHHmm）等标签格式。</summary>
     private static bool TryParseVersion(string tag, out Version version)
     {
-        version = null;
+        version = null!;
         if (string.IsNullOrEmpty(tag)) return false;
         var m = Regex.Match(tag, @"(\d+)\.(\d+)\.(\d+)");
         return m.Success && Version.TryParse(m.Value, out version);

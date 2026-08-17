@@ -38,6 +38,10 @@ namespace SLDataAPI.Voice;
 /// </summary>
 public static class VoiceService
 {
+    private const int MaxClients = 8;               // 监听客户端上限（防连接耗尽）
+    private const float HandshakeTimeoutSec = 10f;  // 连接后完成握手的最长时间（防 Slowloris 式占用）
+    private const float UnwritableDropSec = 3f;     // 发送缓冲持续不可写的判死时间（防主线程卡服）
+
     private static TcpListener? _listener;
     private static CoroutineHandle _coroutine;
     private static volatile bool _running;
@@ -275,12 +279,18 @@ public static class VoiceService
 
     private static void TickOnce()
     {
-        // 1. 接受新连接
+        // 1. 接受新连接（带上限：超出直接拒绝，防止恶意连接耗尽资源）
         try
         {
             while (_listener != null && _listener.Pending())
             {
                 Socket sock = _listener.AcceptSocket();
+                if (Clients.Count >= MaxClients)
+                {
+                    RateLimitedWarn($"[SLDataAPI] 语音监听连接数已满（上限 {MaxClients}），已拒绝新连接");
+                    try { sock.Close(); } catch { /* 忽略 */ }
+                    continue;
+                }
                 Clients.Add(new VoiceClient(sock));
                 RateLimitedInfo("语音监听客户端已连接", Clients.Count);
             }
@@ -290,14 +300,14 @@ public static class VoiceService
             RateLimitedWarn($"[SLDataAPI] 语音 Accept 异常: {ex.Message}");
         }
 
-        // 2. 驱动每个客户端（握手/读帧/清理）
+        // 2. 驱动每个客户端（握手/读帧/清理；含握手超时判定）
         for (int i = Clients.Count - 1; i >= 0; i--)
         {
             VoiceClient c = Clients[i];
             try
             {
                 c.Pump();
-                if (!c.IsOpen)
+                if (!c.IsOpen || c.HandshakeTimedOut)
                 {
                     try { c.Dispose(); } catch { /* 忽略 */ }
                     Clients.RemoveAt(i);
@@ -418,11 +428,22 @@ public static class VoiceService
         public bool IsOpen => _socket.Connected && _state >= 0;
         public bool Authenticated => _state == 1;
 
+        /// <summary>连接时间（主线程时钟）：超过 HandshakeTimeoutSec 仍未完成握手则超时。</summary>
+        private readonly float _connectedAt = UnityEngine.Time.time;
+
+        /// <summary>握手超时判定——连上后不发/慢发 HTTP 头的连接（Slowloris 式占用）强制断开。</summary>
+        public bool HandshakeTimedOut =>
+            _state == 0 && UnityEngine.Time.time - _connectedAt > HandshakeTimeoutSec;
+
         public VoiceClient(Socket socket)
         {
             _socket = socket;
             _socket.NoDelay = true;
             _socket.ReceiveTimeout = 1;
+            // ★ 卡服防护：发送超时兜底。发送缓冲满时 Socket.Send 会阻塞到超时；
+            // 这里是主线程协程，绝不允许多帧/无限期阻塞（配合 PrepareSend 的 Poll 守卫，
+            // 正常情况下永远走不到这个超时）。
+            _socket.SendTimeout = 250;
             _stream = new NetworkStream(socket, false);
         }
 
@@ -491,7 +512,7 @@ public static class VoiceService
 
             if (!ControlAuth.TryAuthenticate(clientIp, key ?? "", cfgToken, out string authErr))
             {
-                Log.Warn($"[SLDataAPI][Voice] 鉴权失败 from {clientIp}: {authErr}");
+                Log.Warn($"[SLDataAPI][Voice] 鉴权失败 from {clientIp}: {authErr} {ControlAuth.DescribeMismatch(key, cfgToken)}");
                 SendHttp("403 Forbidden", "application/json", "{\"ok\":false,\"error\":\"" + JsonEscape(authErr) + "\"}");
                 _state = -1;
                 return;
@@ -627,10 +648,41 @@ public static class VoiceService
         /// <summary>每客户端维护的 speaker 帧去重键（playerId → channel|role|nick）。</summary>
         private readonly Dictionary<ushort, string> _speakerKeys = new();
 
+        /// <summary>持续不可写的起始时间（主线程时钟；-1 = 当前可写）。</summary>
+        private float _unwritableSince = -1f;
+
+        /// <summary>
+        /// 发送前守卫：主线程绝不阻塞在 Send 上。TCP 发送缓冲满（对端停止收数据）时
+        /// 本帧直接跳过（实时语音流允许丢帧）；持续不可写超过 UnwritableDropSec 判死连接。
+        /// </summary>
+        private bool PrepareSend()
+        {
+            try
+            {
+                if (_socket.Poll(0, SelectMode.SelectWrite))
+                {
+                    _unwritableSince = -1f;
+                    return true;
+                }
+            }
+            catch
+            {
+                _state = -1;
+                return false;
+            }
+
+            if (_unwritableSince < 0f)
+                _unwritableSince = UnityEngine.Time.time;
+            else if (UnityEngine.Time.time - _unwritableSince > UnwritableDropSec)
+                _state = -1; // 判死：对端长时间不收数据，下个循环回收
+            return false;
+        }
+
         private void SendWsFrame(int opcode, byte[] payload)
         {
             try
             {
+                if (!PrepareSend()) return;
                 byte[] header;
                 int off;
                 if (payload.Length < 126)
@@ -668,6 +720,7 @@ public static class VoiceService
 
         private void SendHttp(string status, string contentType, string body)
         {
+            if (!PrepareSend()) return;
             byte[] bodyBytes = Encoding.UTF8.GetBytes(body);
             string head =
                 $"HTTP/1.1 {status}\r\n" +

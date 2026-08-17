@@ -86,6 +86,21 @@ public static class ControlAuth
         return true;
     }
 
+    /// <summary>
+    /// 鉴权失败时的诊断摘要（仅供服务器控制台日志，不返回给客户端）：
+    /// 比较配置值与收到值的长度，秒级定位"YAML 截断 / 复制带空格"类问题。不泄露 token 内容。
+    /// </summary>
+    public static string DescribeMismatch(string? provided, string? configured)
+    {
+        int cfgLen = configured?.Length ?? 0;
+        int gotLen = provided?.Length ?? 0;
+        if (cfgLen == 0)
+            return "（服务端 token 为空）";
+        return gotLen == cfgLen
+            ? $"（长度一致：{cfgLen}，内容不同——检查引号/空格/智能引号）"
+            : $"（长度不符：配置 {cfgLen} / 收到 {gotLen}——配置值可能被 YAML 截断，含 # 等特殊字符必须加引号）";
+    }
+
     private static bool IsLocked(string ip, out TimeSpan remaining)
     {
         remaining = TimeSpan.Zero;

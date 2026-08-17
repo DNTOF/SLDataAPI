@@ -25,6 +25,11 @@ public class HttpServer
     // 请求头（请求行+头部）读取上限：防止无换行的超长头行造成内存 DoS
     private const int MaxHeaderBytes = 16384;
 
+    // 请求总时限（收完头+体的最长时间）：防 Slowloris——慢速滴字节可以绕过单次 Read
+    // 的接收超时（每 29s 发 1 字节即可无限占用连接），必须用总时限兜底。
+    // 只约束"读请求"阶段，不影响控制端点最长 5s 的主线程派发与响应写出。
+    private const int RequestDeadlineMs = 15000;
+
     // ★ 串行化 JSON 构建，避免并发请求同时写 CachedData 造成字段错乱
     private static readonly object _jsonLock = new object();
 
@@ -107,20 +112,28 @@ public class HttpServer
                     try { remoteIp = ((IPEndPoint)client.Client.RemoteEndPoint)?.Address.ToString() ?? "unknown"; }
                     catch { }
 
-                    using (var stream = client.GetStream())
-                    {
-                        // ---- 读请求头（请求行+头部），上限 16KB ----
-                        byte[] headBuf = new byte[MaxHeaderBytes];
-                        int headLen = 0;
-                        int headEnd = -1;
-                        while (headLen < headBuf.Length)
+                        using (var stream = client.GetStream())
                         {
-                            int n = stream.Read(headBuf, headLen, headBuf.Length - headLen);
-                            if (n <= 0) break;
-                            headLen += n;
-                            headEnd = FindHeaderEnd(headBuf, headLen);
-                            if (headEnd >= 0) break;
-                        }
+                            // ---- Slowloris 防护：请求必须整体在时限内送达 ----
+                            int startTick = Environment.TickCount;
+
+                            // ---- 读请求头（请求行+头部），上限 16KB ----
+                            byte[] headBuf = new byte[MaxHeaderBytes];
+                            int headLen = 0;
+                            int headEnd = -1;
+                            while (headLen < headBuf.Length)
+                            {
+                                int n = stream.Read(headBuf, headLen, headBuf.Length - headLen);
+                                if (n <= 0) break;
+                                headLen += n;
+                                headEnd = FindHeaderEnd(headBuf, headLen);
+                                if (headEnd >= 0) break;
+                                if (unchecked(Environment.TickCount - startTick) > RequestDeadlineMs)
+                                {
+                                    SendJson(stream, 408, Err("请求超时：头部长时间未收完（Slowloris 防护）"));
+                                    return;
+                                }
+                            }
                         if (headEnd < 0)
                         {
                             SendJson(stream, 431, Err("请求头过大或格式非法"));
@@ -195,9 +208,20 @@ public class HttpServer
                                 int n = stream.Read(bodyBuf, total, contentLength - total);
                                 if (n <= 0) break;
                                 total += n;
+                                if (unchecked(Environment.TickCount - startTick) > RequestDeadlineMs)
+                                {
+                                    SendJson(stream, 408, Err("请求超时：请求体长时间未收完（Slowloris 防护）"));
+                                    return;
+                                }
                             }
                             body = Encoding.UTF8.GetString(bodyBuf, 0, total);
                         }
+
+                        // ---- 控制接口 WebSocket 升级（v2.5）----
+                        // /ws/control 长连接：call/result 信封，语义与 /control/* HTTP 完全一致。
+                        // 返回 true 表示连接已被完整接管（含整个 WS 会话生命周期）。
+                        if (WsControlService.TryHandle(client, stream, method, path, query, headers, remoteIp, _config))
+                            return;
 
                         Route(stream, remoteIp, method, path, query, headers, body);
                     }
@@ -243,7 +267,7 @@ public class HttpServer
                 // 与控制接口共用同一套防爆破锁定（常量时间比较 + 按 IP 锁定）
                 if (!ControlAuth.TryAuthenticate(remoteIp, reqToken, _config.VerifyToken ?? "", out string readErr))
                 {
-                    Log.Warn($"[SLDataAPI] 数据接口鉴权失败 from {remoteIp}: {readErr}");
+                    Log.Warn($"[SLDataAPI] 数据接口鉴权失败 from {remoteIp}: {readErr} {ControlAuth.DescribeMismatch(reqToken, _config.VerifyToken)}");
                     SendJson(stream, 403, Err(readErr));
                     return;
                 }
@@ -263,13 +287,28 @@ public class HttpServer
                     return;
                 }
 
+                // 传输方式互斥（control_transport）：ws 模式下 HTTP 控制端点整体禁用，
+                // 只留 WS 一条通路（http 模式下本检查不触发，HTTP 正常）。
+                // data.code = transport_mismatch 是给上游平台的机器可读协商信号：
+                // 收到后应改走 /ws/control 的 call 通道重试。
+                if (string.Equals(_config.ControlTransport, "ws", StringComparison.OrdinalIgnoreCase))
+                {
+                    SendJson(stream, 404, Newtonsoft.Json.JsonConvert.SerializeObject(new ControlResponse
+                    {
+                        success = false,
+                        message = "控制接口已切换为 WebSocket 模式（control_transport: ws），HTTP /control/* 已禁用",
+                        data = new { code = "transport_mismatch", use = "ws" },
+                    }));
+                    return;
+                }
+
                 string reqToken = headers.TryGetValue("X-Control-Token", out var h)
                     ? h
                     : ExtractQueryValue(query, "token");
 
                 if (!ControlAuth.TryAuthenticate(remoteIp, reqToken, _config.ControlToken, out string authErr))
                 {
-                    Log.Warn($"[SLDataAPI][Control] 鉴权失败 from {remoteIp}: {authErr}");
+                    Log.Warn($"[SLDataAPI][Control] 鉴权失败 from {remoteIp}: {authErr} {ControlAuth.DescribeMismatch(reqToken, _config.ControlToken)}");
                     SendJson(stream, 403, Err(authErr));
                     return;
                 }
@@ -323,6 +362,7 @@ public class HttpServer
             case 403: return "Forbidden";
             case 404: return "Not Found";
             case 405: return "Method Not Allowed";
+            case 408: return "Request Timeout";
             case 413: return "Payload Too Large";
             case 431: return "Request Header Fields Too Large";
             case 500: return "Internal Server Error";
@@ -334,7 +374,8 @@ public class HttpServer
     private static string Err(string message) =>
         Newtonsoft.Json.JsonConvert.SerializeObject(new ControlResponse { success = false, message = message });
 
-    private static string ExtractQueryValue(string query, string key)
+    /// <summary>从 URL 查询串提取首个指定键的值（WsControlService 复用）。</summary>
+    internal static string ExtractQueryValue(string query, string key)
     {
         if (string.IsNullOrEmpty(query)) return "";
         foreach (var pair in query.Split('&'))

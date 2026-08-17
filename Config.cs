@@ -28,6 +28,17 @@ public class Config
     public string ControlToken { get; set; } = "";
 
     /// <summary>
+    /// 控制接口的传输方式（二选一，硬互斥）：
+    /// - "http"（默认）：仅 HTTP POST /control/*（WS 握手被拒，带协商信号）。
+    /// - "ws"：仅 WebSocket 长连接（HTTP /control/* 返回 404，带协商信号）。
+    /// 设计考量：不设双通道默认值——选了 ws 就不该留着 HTTP 刷包面，选了 http 就不开放 WS；
+    /// 始终只有一条控制通路。WS 升级地址为 /control（或别名 /ws/control），
+    /// call 信封里的 path 仍是 /control/*。
+    /// 只读数据接口 /get_sl_data 不受影响（始终走 HTTP）。非法值启动时按 http 处理并在日志警告。
+    /// </summary>
+    public string ControlTransport { get; set; } = "http";
+
+    /// <summary>
     /// 是否在插件启用时自动检查 GitHub Releases 上的新版本（仅日志提示，不自动更新）。
     /// </summary>
     public bool AutoUpdateCheck { get; set; } = true;

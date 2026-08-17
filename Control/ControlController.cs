@@ -4,6 +4,8 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text;
+using System.Text.RegularExpressions;
+using LabApi.Events.Arguments.ServerEvents;
 using LabApi.Features.Enums;
 using LabApi.Loader;
 using LabApi.Loader.Features.Plugins;
@@ -11,6 +13,7 @@ using LabApi.Loader.Features.Plugins.Configuration;
 using LabApi.Loader.Features.Yaml;
 using Newtonsoft.Json;
 using PlayerRoles;
+using RemoteAdmin;
 using SLDataAPI.Capture;
 using SLDataAPI.Data;
 using SLDataAPI.Integrations;
@@ -90,28 +93,99 @@ public static class ControlController
         if (req == null || string.IsNullOrWhiteSpace(req.command))
             return (400, Json(false, "缺少 command 字段"));
 
+        bool debug = Plugin.Instance?.Config.Debug ?? false;
         Log.Info($"[SLDataAPI][Control] 执行服务器命令: {req.command}");
 
-        // 命令执行窗口内捕获控制台输出（插件命令如 SLPlayer .m 的输出
-        // 走 AddLog 管线，Server.RunCommand 返回值里没有）
+        // 命令执行窗口内捕获控制台输出（普通命令的响应走 AddLog 管线；
+        // 点命令的响应由 ExecuteConsoleCommand 直接返回，不经过管线）
         CommandOutputCapture.BeginCapture();
-        string output;
+        string output = "";
         string consoleOutput;
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         try
         {
             output = MainThreadExecutor.RunOnMainThread(
-                () => Server.RunCommand(req.command),
+                () => ExecuteConsoleCommand(req.command),
                 out var err);
+            sw.Stop();
             if (err != null)
+            {
+                Log.Error($"[SLDataAPI][Control] 命令执行失败（{sw.ElapsedMilliseconds}ms）: {err.GetType().Name}: {err.Message}");
                 return (500, Json(false, $"命令执行失败: {err.Message}"));
+            }
         }
         finally
         {
             consoleOutput = CommandOutputCapture.EndCapture();
         }
+        sw.Stop();
+
+        // 全链路诊断（不受 debug 开关限制——控制台回显是核心功能，问题要能一眼定位）
+        Log.Info($"[SLDataAPI][Control] 命令完成（{sw.ElapsedMilliseconds}ms）：output 长度 {output?.Length ?? 0}，console 长度 {consoleOutput?.Length ?? 0}");
 
         return (200, Json(true, "已执行", new { output, console = consoleOutput }));
     }
+
+    private static readonly char[] SpaceSeparator = { ' ' };
+
+    /// <summary>
+    /// 执行服务器控制台命令。点命令（客户端命令，如 .m 系列）走专用通道：
+    /// 当前游戏版本里 TypeCommand 会把点命令路由到 GameConsoleTransmission.SendToServer，
+    /// 而专用服上 NetworkClient 未激活，该路径是死胡同——命令根本不执行、更没有回显
+    /// （旧版可用是 EXILED 补丁的副作用，迁移 LabAPI 后消失）。
+    /// 这里直接在 QueryProcessor.DotCommandHandler 上以主机玩家身份执行，
+    /// 复刻原生 ProcessGameConsoleQuery 的语义（含 LabAPI 命令事件），响应文本直接返回。
+    /// </summary>
+    private static string ExecuteConsoleCommand(string command)
+    {
+        string trimmed = command.TrimStart();
+        if (!trimmed.StartsWith(".") || trimmed.Length <= 1)
+            return Server.RunCommand(command); // 普通命令：原有路径（AddLog/Respond 管线回显）
+
+        string[] array = trimmed.Substring(1).Trim().Split(SpaceSeparator, StringSplitOptions.RemoveEmptyEntries);
+        if (array.Length == 0)
+            return "命令为空";
+
+        bool found = QueryProcessor.DotCommandHandler.TryGetCommand(array[0], out var dotCommand);
+        var arguments = new ArraySegment<string>(array, 1, array.Length - 1);
+
+        // 原生玩家路径以玩家身份执行（大量插件命令会取 sender.Player），专用服用主机玩家等效代替
+        if (!ReferenceHub.TryGetLocalHub(out var hub) || hub == null)
+            return "主机玩家不存在，无法以玩家身份执行点命令";
+        var sender = new PlayerCommandSender(hub);
+
+        // 与原生路径一致：触发 LabAPI 命令事件（监听/审计命令的插件可见）
+        var executing = new CommandExecutingEventArgs(sender, CommandType.Client, found, dotCommand, arguments);
+        LabApi.Events.Handlers.ServerEvents.OnCommandExecuting(executing);
+        if (!executing.IsAllowed)
+            return "Command execution failed! Reason: Forcefully cancelled by a plugin.";
+        if (!executing.CommandFound)
+            return $"Command {array[0]} does not exist!";
+
+        arguments = executing.Arguments;
+        dotCommand = executing.Command!;
+
+        string response;
+        bool success;
+        try
+        {
+            success = dotCommand.Execute(arguments, sender, out response);
+            response = StripRichText(response);
+        }
+        catch (Exception ex)
+        {
+            success = false;
+            response = "Command execution failed! Error: " + ex.Message;
+        }
+
+        LabApi.Events.Handlers.ServerEvents.OnCommandExecuted(
+            new CommandExecutedEventArgs(sender, CommandType.Client, dotCommand, arguments, success, response));
+        return response;
+    }
+
+    /// <summary>去除客户端控制台的 rich text 标签（对应原生 CloseAllRichTextTags，避免 WebUI 显示原始标签）。</summary>
+    private static string StripRichText(string? text) =>
+        string.IsNullOrEmpty(text) ? "" : Regex.Replace(text, "</?[a-zA-Z][^>]*>", string.Empty);
 
     // ------------------------------------------------------------------
     // /control/player/{kick|ban|role|teleport}
@@ -480,7 +554,7 @@ public static class ControlController
         try
         {
             string output = MainThreadExecutor.RunOnMainThread(
-                () => Server.RunCommand(command),
+                () => ExecuteConsoleCommand(command),
                 out var err);
 
             if (err != null)

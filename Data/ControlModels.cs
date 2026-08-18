@@ -80,6 +80,12 @@ public class CassieRequest
     public bool isHeld { get; set; } = false;
     public bool isNoisy { get; set; } = true;
     public bool isSubtitles { get; set; } = false;
+
+    /// <summary>
+    /// 字幕翻译文本（可选）：提供时语音仍播报 message 原文（含音效代码），
+    /// 游戏内字幕显示 translation（纯文本，不解析音效代码）。空 = 现有行为。
+    /// </summary>
+    public string translation { get; set; } = "";
 }
 
 /// <summary>POST /control/warhead，action: start | stop | detonate</summary>
@@ -197,6 +203,21 @@ public class MapControlRequest
 
     /// <summary>doors 用：true=开门，false=关门，null=不改变开关状态。</summary>
     public bool? open_door { get; set; }
+
+    /// <summary>
+    /// doors 用：操作范围。type（默认，按 door_type 单门）| all（全部已实例化的门）|
+    /// all_not_list（除 DoorType 枚举能匹配到的门之外的所有门）。scope=all|all_not_list 时忽略 door_type。
+    /// </summary>
+    public string scope { get; set; } = "";
+
+    /// <summary>elevators 用：电梯类型（旧名 Nuke/Scp049/GateA/GateB/LiftA/LiftB/LczA/LczB/ServerRoom，或当前 ElevatorGroup 名如 Nuke01/LczA01）。scope=all 时忽略。</summary>
+    public string elevator_type { get; set; } = "";
+
+    /// <summary>elevators 用：up（升一层）| down（降一层）| send（直达 level 目标楼层）。</summary>
+    public string command { get; set; } = "";
+
+    /// <summary>elevators 用，command=send 时必填：目标楼层（非负整数，0=最低层；不能超过该组电梯楼层数）。</summary>
+    public int level { get; set; } = -1;
 
     /// <summary>lights 用：RoomType 枚举名（如 Hcz106 / Lcz173）。</summary>
     public string room_type { get; set; } = "";

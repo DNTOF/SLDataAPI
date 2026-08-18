@@ -1,11 +1,11 @@
 # SLDataAPI
 
-**版本：** 2.5.0（开发代号 **Maginot Line**）  
+**版本：** 2.5.0（开发代号 **Yagami Light**）  
 **架构：** **LabAPI 原生插件**（v2.4 起脱离 EXILED，运行于 Northwood 官方 LabAPI 框架）  
 **依赖：** LabAPI（游戏服务器自带） · MEC · Newtonsoft.Json · Harmony（服务器自带，不打包）  
 **用途：** 在 SCP:SL 游戏服务器上暴露一个轻量 HTTP 接口，供 WebUI / AstrBot 等外部程序轮询实时服务器数据，并通过 `/control/*` 控制接口远程执行管理操作；内置**语音转发**（WebSocket 实时收听全频道语音，代号 SPY）；v2.5 起新增**控制接口 WebSocket 长连接**。
 
-> **v2.4.0（现代号 Maginot Line）—— 架构迁移说明：** 本插件已从 EXILED 插件迁移为 **LabAPI 原生插件**（不再依赖 EXILED），并完成源码目录/命名空间分类重构。
+> **v2.4.0（现代号 Yagami Light）—— 架构迁移说明：** 本插件已从 EXILED 插件迁移为 **LabAPI 原生插件**（不再依赖 EXILED），并完成源码目录/命名空间分类重构。
 > - 安装位置变更：`LabAPI/plugins/global/`（不再是 `EXILED/Plugins/`）
 > - 配置位置变更：`LabAPI/configs/<端口>/SLDataAPI/config.yml`（旧 EXILED 配置文件不会被读取，需把值抄到新文件；键名同为 snake_case，删掉 `is_enabled` 即可）
 > - 插件启停由 LabAPI 的 `properties.yml` 管理（`/control/plugins` 可代写）
@@ -25,6 +25,7 @@
 | 文件防线 | 文件端点四重防线：路径白名单 / Windows 目录禁写 / 仅配置文件扩展名 / 游戏数据与自身配置目录禁访问 |
 | 自动更新 | 启动时检查 GitHub Releases；检测到新版本自动下载并替换 DLL（程序集/名称/强名称签名三重校验，重启游戏服生效，旧版备份 .bak） |
 | 语音转发（SPY） | WebSocket 实时推送全频道语音（近距离/对讲机/Intercom/SCP 频道等），Opus 解码为 48kHz float32 PCM，含说话者信息帧与 `/status` 状态查询，ControlToken 鉴权 |
+| 语音录音取证（v2.5） | 每局自动保存混合音轨（WAV 48kHz/16bit/单声道）+ 时间轴日志（谁在何时说了多久），用于游戏不公平问题取证；按 `voice_record_max_rounds` 自动清理旧局 |
 
 ---
 
@@ -72,6 +73,11 @@ log_directory: ''                     # 服务器日志目录；留空=自动探
 # ===== 语音转发（v2.3 / SPY）=====
 voice_enabled: false                  # 是否启用语音转发 WebSocket（默认关闭）
 voice_port: 8082                      # 语音 WebSocket 监听端口（独立于 http_port）
+
+# ===== 语音录音取证（v2.5 / Yagami Light）=====
+voice_record_enabled: false           # 每局自动保存录音（WAV 混合音轨 + 时间轴日志）；需 voice_enabled=true
+voice_record_max_rounds: 10           # 最多保留多少局录音（0/负数=不清理；参考 5.5MB/分钟/局）
+voice_record_dir: ''                  # 录音保存目录（留空=默认 %AppData%/SCP Secret Laboratory/SLDataAPI/VoiceRecords）
 ```
 
 > ⚠️ **键名必须是 snake_case**（LabAPI 使用 UnderscoredNamingConvention）：`verify_token` 而不是 `verifyToken`。
@@ -95,6 +101,9 @@ voice_port: 8082                      # 语音 WebSocket 监听端口（独立�
 | `auto_update_install` | 检测到新版本时自动下载并替换 `SLDataAPI.dll`（覆盖后重启游戏服生效；旧版备份 `.bak`）。校验：下载文件必须为合法程序集、名称一致；当前已强名称签名时还要求签名一致（防篡改）。关闭则仅日志提示 |
 | `file_root` | 文件管理端点的根目录（绝对路径），所有文件操作被限制在该目录内（防 `..` 路径穿越）；留空 = 禁用。建议指向 `SCPSL_Data` 或某个只读配置目录 |
 | `log_directory` | `/control/logs` 读取的日志目录。留空自动探测：`%AppData%/SCP Secret Laboratory/ServerLogs`（含端口子目录）→ `SCPSL_Data/Logs` |
+| `voice_record_enabled` | 每局自动保存语音录音：混合音轨 WAV（48kHz/16bit/单声道）+ 时间轴日志。**需同时开启 `voice_enabled`**（复用语音解码管线）。回合开始建档、回合结束定稿；停服时兜底保存 |
+| `voice_record_max_rounds` | 最多保留的录音局数（按最近时间排序，超出自动删除最旧的 wav + 时间轴）。0/负数 = 不清理。磁盘参考：约 5.5MB/分钟/局（一小时局 ≈ 330MB） |
+| `voice_record_dir` | 录音保存目录（绝对路径）；留空 = `%AppData%/SCP Secret Laboratory/SLDataAPI/VoiceRecords`。该目录在游戏数据目录内，天然受文件端点顶级防线保护 |
 
 > ⚠️ 请确保服务器防火墙放行对应端口（默认 8081/TCP）。
 
@@ -195,9 +204,9 @@ voice_port: 8082                      # 语音 WebSocket 监听端口（独立�
 | `/control/player/effect` | `target`, `effect`, `effect_duration` | 施加状态效果 |
 | `/control/player/state` | `target`, `godmode`?, `bypass`?, `health`?, `intercom`? | 查询/设置玩家状态（均为可选字段） |
 | `/control/round` | `action`: `restart` / `end` / `start` | 回合控制 |
-| `/control/cassie` | `message`, `isNoisy`? | CASSIE 播报（LabAPI 新版 TTS 体系不再细分 isHeld/isSubtitles，传入会被忽略） |
+| `/control/cassie` | `message`, `isNoisy`?, `translation`? | CASSIE 播报。`translation` 非空时：语音播报 `message` 原文（含音效代码），游戏内字幕显示 `translation`（纯文本，不解析音效代码）——"英文播报 + 中文字幕"；空则仅播报。isHeld/isSubtitles 在新 TTS 体系无对应开关（忽略） |
 | `/control/warhead` | `action`: `start` / `stop` / `detonate` | 核弹控制 |
-| `/control/map` | `action`: `seed` / `layout` / `doors` / `lights` | 地图信息与控制（seed 每回合固定，同 seed 布局恒定） |
+| `/control/map` | `action`: `seed` / `layout` / `doors` / `elevators` / `lights` | 地图信息与控制。doors 支持 `scope`: `type`(默认,按 door_type 单门) / `all`(全部门) / `all_not_list`(枚举未列出的门，机关门/随机门等)；elevators 支持 `elevator_type`(当前 ElevatorGroup 名如 Nuke01/LczA01/GateA01=单轿厢粒度，或旧名 Nuke/GateA/GateB/Scp049/LczA/LczB/ServerRoom=整组操作) + `command`: `up`/`down`/`send`（send 直达 `level` 目标楼层，对齐 RA elevator send）+ `scope`: `type`/`all` |
 | `/control/map/export` | — | 导出地图原始数据（atlas RGBA base64、glyph_pairs、zone_candidates 等），供外部重建 |
 | `/control/slplayer` | `action`: `status` / `list` / `play` / `next` / `stop` / `volume` / `shuffle` / `reload` | 控制 SLPlayer 音乐（需服务器装有 SLPlayer 插件） |
 | `/control/plugins` | `action`?: `stage`/`clear`/`apply`/`reload`（空=列表） | 插件管理。列表同时列出 **LabAPI 原生插件**（`source: labapi`）与同服 **EXILED 插件**（`source: exiled`，需装有 EXILED）；`enabled` 读配置文件；`stage` 暂存启停（不写文件，SLDataAPI 自身禁止禁用）；`apply` 统一写入——LabAPI 插件写 `properties.yml` 后**重启服务器生效**，EXILED 插件立即重载生效；`reload` 仅热重载各插件**配置文件**（等价控制台 `reload configs`，不重载插件本体） |
@@ -299,6 +308,57 @@ Content-Type: application/json
 
 ---
 
+## 语音录音取证（v2.5 / Yagami Light）
+
+开启 `voice_record_enabled`（需同时开启 `voice_enabled`）后，**每局游戏自动保存一个压缩包**到录音目录（默认 `%AppData%/SCP Secret Laboratory/SLDataAPI/VoiceRecords`）：
+
+```
+voice_round_3_20260818_223100.zip
+└─ 内含:
+   ├─ voice_round_3_20260818_223100.Proximity.wav  # 近距离频道音轨（人类阵营主频道）
+   ├─ voice_round_3_20260818_223100.Radio.wav      # 对讲机频道音轨
+   ├─ voice_round_3_20260818_223100.Intercom.wav   # Intercom 频道音轨
+   ├─ voice_round_3_20260818_223100.Scp.wav        # SCP 频道音轨（SCP 阵营专用）
+   └─ voice_round_3_20260818_223100.timeline.log   # 时间轴：谁在什么时候说了多久
+```
+
+> **按频道分轨**：每个语音频道独立一个 WAV（48kHz/16bit/单声道），**频道之间绝不混合**——SCP 频道与人类频道是游戏里独立的听觉流，混在一起会丢失阵营听觉信息。只有**同频道内**多人同时说话才逐采样混合（那是真实“同听”关系）。未产生流量的频道不生成文件。
+
+**时间轴格式**（制表符分隔，可导入 Excel / 脚本解析；**与音频采样级对齐**）：
+
+```
+# SLDataAPI 语音时间轴（v2.5 Yagami Light）
+# 局号: 3  回合开始: 2026-08-18 22:31:00.123  采样率: 48000Hz
+# 列: 回合内秒	绝对时间	事件	昵称	steamid	角色	频道	netid	详情
+# 对齐: 采样号 = 回合内秒 × 48000 = 任一频道 WAV 文件内精确位置（帧间已补静默，可直接切段取证）
+# 分轨: 每个语音频道（Proximity/Radio/Intercom/Spectator/Scp…）独立一个 WAV，频道间不混合；同频道多人同时说话才混合
+0.000	22:31:00.123	回合开始
+1.200	22:31:01.323	通道开始	Proximity	0	voice_round_3_20260818_223100.Proximity.wav
+12.345	22:31:12.468	说话开始	PlayerOne	76561198000000000	D级人员	0	1234	起点采样=592560
+16.789	22:31:16.912	说话结束	PlayerOne	76561198000000000	D级人员	0	1234	时长=4.444s 起点采样=592560 终点采样=805872
+42.000	22:31:42.123	说话开始	Scp173Fan	76561198123456789	SCP-173	4	5678	起点采样=2016000
+...
+623.456	22:41:23.579	回合结束	时长=623.333s 丢帧=0 终点采样=29920000
+623.500	22:41:23.623	通道归档	Proximity	voice_round_3_20260818_223100.Proximity.wav	终点采样=29920000
+623.500	22:41:23.623	通道归档	Scp	voice_round_3_20260818_223100.Scp.wav	终点采样=29920000
+```
+
+**对齐原理**：各频道 WAV 在说话帧之间**补写了静默**、文件末尾补齐到回合结束点，因此对所有频道文件统一成立 `采样号 = 回合内秒 × 48000 = WAV 内字节位置 ÷ 2`——跨频道对照时用同一个采样号即可对齐同一时刻（如“SCP 频道第 2016000 采样”与“近距离频道第 2016000 采样”是同一瞬间）。用任意支持按采样定位的播放器/编辑器跳转，或用脚本按 `起点采样/终点采样` 直接切段导出。
+
+**行为说明：**
+
+- 回合开始建档、回合结束定稿；**定稿与 zip 打包在后台线程完成**（快照隔离，不占主线程、不阻塞下一局），服务器停服时同步等待打包结束
+- 打包格式：标准 zip（PCM 压缩率约 40%-60%），内含各频道 WAV + 时间轴；打包完成后删除散件。若打包失败（磁盘满等），散件文件保留在录音目录并记日志，下局清理兜底
+- **采样级对齐**：帧间补静默，时间轴秒数 × 48000 = **任一频道文件**内的精确采样位置，跨频道对照用同一采样号
+- **频道隔离**：SCP / 人类（近距离/对讲机/Intercom）等各自独立 WAV，不混合；**同频道多人同时说话 = 逐采样混合**（求和钳制防溢出，任何一方不丢失），实现为 0.4s 混合窗口延迟落盘
+- 说话段按静默 0.8s 划分；说话者静默 1.5s 被清理时收尾其讲话段（与转发管线的状态一致）
+- 磁盘写入在**后台线程**完成，主线程只入队（有界队列 ≈9MB）；写入过慢时丢帧并限频告警，丢帧数记入时间轴末行
+- 磁盘占用参考：**每个有流量的频道**约 5.5MB/分钟原始 PCM（一小时局 ≈ 330MB/频道），zip 后约 40%-60%；按 `voice_record_max_rounds` 清理
+- 按 `voice_record_max_rounds` 自动清理最旧局（wav 与时间轴成对删除）；`0` 或负数 = 不清理
+- 录音目录位于游戏数据目录内，天然受文件端点顶级防线保护（无法通过 `/control/files/*` 读写）
+
+---
+
 ## 安全注意事项
 
 - `/control/command` **等价于本机控制台权限**：大多数 RA 命令通过 `GameConsoleCommandHandler` 同时注册，可在此执行。`control_token` 一旦泄露即完全沦陷——务必只通过受信内网或反向代理白名单暴露，`control_enabled` 默认关闭是有意为之。
@@ -377,7 +437,8 @@ SLDataAPI/
 │   ├── ServerLogService.cs         # [SLDataAPI.Services] 服务器日志尾部读取（自动探测日志目录）
 │   └── UpdateChecker.cs            # [SLDataAPI.Services] GitHub Releases 自动更新检查/替换
 ├── Voice/
-│   └── VoiceService.cs             # [SLDataAPI.Voice] 语音转发（SPY）：WebSocket、Opus 解码、PCM 推送
+│   ├── VoiceService.cs             # [SLDataAPI.Voice] 语音转发（SPY）：WebSocket、Opus 解码、PCM 推送
+│   └── VoiceRecorder.cs            # [SLDataAPI.Voice] 每局语音录音取证（WAV 混合音轨 + 时间轴日志，v2.5）
 ├── Map/
 │   ├── MapLayoutService.cs         # [SLDataAPI.Map] 本回合房间布局采集（RoomIdentifier 反射）
 │   └── MapExportService.cs         # [SLDataAPI.Map] 地图原始数据导出（atlas / glyph / 候选权重）

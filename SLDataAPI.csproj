@@ -27,6 +27,9 @@
   <ItemGroup>
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <PackageReference Include="System.Net.Http" Version="4.3.4" />
+    <!-- 语音录音打包（System.IO.Compression.FileSystem 提供 ZipFile） -->
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.IO.Compression.FileSystem" />
   </ItemGroup>
 
   <!-- 游戏 + LabAPI 程序集：编译期引用本机安装目录，运行时由游戏提供，不打包 -->

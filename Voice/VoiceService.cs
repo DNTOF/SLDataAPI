@@ -170,12 +170,17 @@ public static class VoiceService
         }
         if (samples <= 0) return;
 
+        float now = UnityEngine.Time.time;
+
         // 说话状态（/status 用）：角色实时读
         string roleCn = "未知";
         try { roleCn = GetRoleCN(player.Role); }
         catch { /* 忽略 */ }
 
-        float now = UnityEngine.Time.time;
+        // 录音取证（可选）：复用解码结果，主线程入队、后台线程写盘
+        VoiceRecorder.HandlePcm(netId, buf, samples,
+            player.Nickname ?? "?", player.UserId ?? "?", roleCn, (byte)msg.Channel, now);
+
         Activities[netId] = new VoiceActivity
         {
             PlayerId = player.PlayerId,
@@ -250,6 +255,7 @@ public static class VoiceService
                         Decoders.Remove(netId);
                     }
                     Activities.Remove(netId);
+                    VoiceRecorder.OnSpeakerGone(netId, UnityEngine.Time.time);
                     _lastPacketTime.Remove(netId);
                     _dupSeen.Remove(netId);
                 }

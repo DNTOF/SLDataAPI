@@ -20,7 +20,7 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
     private HttpServer? server;
 
     public override string Name => "SLDataAPI";
-    public override string Description => "通过 HTTP API 向外部（WebUI / 机器人）提供服务器数据采集与远程控制能力（LabAPI 原生插件，代号 Maginot Line）";
+    public override string Description => "通过 HTTP API 向外部（WebUI / 机器人）提供服务器数据采集与远程控制能力（LabAPI 原生插件，代号 Yagami Light）";
     public override string Author => "DNT_OF";
     public override Version Version => new Version(2, 5, 0);
     public override Version RequiredApiVersion => new Version(1, 1, 7);
@@ -47,7 +47,8 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
         Log.Info(
             $"[SLDataAPI] 配置摘要：http_port={Config.HttpPort}，verify_token 长度 {Config.VerifyToken?.Length ?? 0}，" +
             $"control={(Config.ControlEnabled ? $"{Config.ControlTransport} 模式，token 长度 {Config.ControlToken?.Length ?? 0}" : "关闭")}，" +
-            $"voice={(Config.VoiceEnabled ? $"启用(端口 {Config.VoicePort})" : "关闭")}。");
+            $"voice={(Config.VoiceEnabled ? $"启用(端口 {Config.VoicePort})" : "关闭")}，" +
+            $"录音={(Config.VoiceRecordEnabled ? $"开(保留 {Config.VoiceRecordMaxRounds} 局)" : "关")}。");
 
         server = new HttpServer(Config.HttpPort, Config);
         server.Start();
@@ -59,6 +60,9 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
             VoiceService.Start(Config.VoicePort);
         }
 
+        // 语音录音取证（v2.5）：每局自动保存 WAV + 时间轴日志
+        VoiceRecorder.Configure(Config.VoiceRecordEnabled, Config.VoiceRecordMaxRounds, Config.VoiceRecordDir);
+
         // 插件启用时立即采集一次真实数据，并启动定时循环
         DataCollector.IsRoundActive = Round.IsRoundStarted;
         DataCollector.InitData(Config.PushIntervalSeconds);
@@ -66,7 +70,7 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
         if (Config.AutoUpdateCheck)
             UpdateChecker.CheckAsync(Version, Config.AutoUpdateInstall);
 
-        Log.Info($"SLDataAPI v{Version} (Maginot Line / LabAPI) enabled. HTTP on port {Config.HttpPort}. Control API: {(Config.ControlEnabled ? $"{Config.ControlTransport.ToUpperInvariant()} 模式" : "关闭")}. Voice: {(Config.VoiceEnabled ? $"启用(端口 {Config.VoicePort})" : "关闭")}.");
+        Log.Info($"SLDataAPI v{Version} (Yagami Light / LabAPI) enabled. HTTP on port {Config.HttpPort}. Control API: {(Config.ControlEnabled ? $"{Config.ControlTransport.ToUpperInvariant()} 模式" : "关闭")}. Voice: {(Config.VoiceEnabled ? $"启用(端口 {Config.VoicePort})" : "关闭")}.");
     }
 
     public override void Disable()
@@ -77,6 +81,7 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
         LabApi.Events.Handlers.PlayerEvents.SendingVoiceMessage -= OnSendingVoiceMessage;
 
         VoiceService.Stop();
+        VoiceRecorder.EndRound(waitFinalize: true); // 兜底：停服时定稿并等待打包完成
         server?.Stop();
         WsControlService.ShutdownAll();
         DataCollector.StopTimer();
@@ -168,6 +173,7 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
         DataCollector.IsRoundActive = true;
         DataCollector.UpdateDataNow();
         MapLayoutService.CaptureLayout(); // 采集本回合随机布局（LCZ/HCZ 每回合不同）
+        VoiceRecorder.BeginRound(); // 语音录音取证：本局开始
         Log.Info("SLDataAPI: Round started.");
     }
 
@@ -175,6 +181,7 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
     {
         DataCollector.IsRoundActive = false;
         DataCollector.UpdateDataNow();
+        VoiceRecorder.EndRound(); // 语音录音取证：定稿本局录音
         Log.Info("SLDataAPI: Round ended.");
     }
 }

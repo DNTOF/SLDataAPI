@@ -411,9 +411,11 @@ public static class WsControlService
                     var (status, json) = ControlController.Handle(path, bodyJson);
                     JToken data;
                     try { data = JToken.Parse(json); }
-                    catch { data = new JValue(json); }
+                    catch { data = new JObject(); } // 解析失败兜底为空对象，绝不能是 JValue（索引会抛 InvalidOperationException）
 
-                    string? failMessage = status == 200 ? null : data["message"]?.ToString();
+                    // 只有 JObject 才能安全索引 message（JValue/标量索引会抛 "Cannot access child value"）
+                    string? failMessage = status == 200 ? null
+                        : (data is JObject jobj ? jobj["message"]?.ToString() : null);
                     SendResult(reqId, status == 200, status, failMessage, data);
                 }
                 catch (Exception ex)

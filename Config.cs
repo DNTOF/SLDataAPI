@@ -75,4 +75,25 @@ public class Config
     /// 语音转发 WebSocket 服务的监听端口（独立于 HttpPort，默认 8082）。
     /// </summary>
     public int VoicePort { get; set; } = 8082;
+
+    // ================== 语音录音取证（v2.5 / Yagami Light 新增） ==================
+
+    /// <summary>
+    /// 是否自动保存每局游戏的语音录音：一条混合音轨（WAV 48kHz/16bit/单声道）
+    /// + 一份时间轴日志（谁在什么时候说了多久，含 steamid/角色/频道）。
+    /// 用于游戏不公平问题的取证。需要 voice_enabled=true（复用语音解码管线）。
+    /// </summary>
+    public bool VoiceRecordEnabled { get; set; } = false;
+
+    /// <summary>
+    /// 最多保留多少局游戏的录音（按最近时间排序，超出自动删除最旧的 wav+时间轴）。
+    /// 0 或负数 = 不清理（注意磁盘占用）。参考占用：约 5.5MB/分钟/局。
+    /// </summary>
+    public int VoiceRecordMaxRounds { get; set; } = 10;
+
+    /// <summary>
+    /// 录音保存目录（绝对路径）。留空 = 默认
+    /// %AppData%/SCP Secret Laboratory/SLDataAPI/VoiceRecords。
+    /// </summary>
+    public string VoiceRecordDir { get; set; } = "";
 }

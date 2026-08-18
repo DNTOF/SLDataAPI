@@ -28,10 +28,12 @@ using GameBanType = global::BanHandler.BanType;
 using LabPlugin = LabApi.Loader.Features.Plugins.Plugin;
 using Player = LabApi.Features.Wrappers.Player;
 using Door = LabApi.Features.Wrappers.Door;
+using Elevator = LabApi.Features.Wrappers.Elevator;
 using Room = LabApi.Features.Wrappers.Room;
 using Server = LabApi.Features.Wrappers.Server;
 using Round = LabApi.Features.Wrappers.Round;
 using Warhead = LabApi.Features.Wrappers.Warhead;
+using ElevatorGroup = Interactables.Interobjects.ElevatorGroup;
 
 namespace SLDataAPI.Control;
 
@@ -45,7 +47,7 @@ public static class ControlController
     {
         try
         {
-            return path switch
+            var (status, json) = path switch
             {
                 "/control/command" => RunCommand(body),
                 "/control/player/kick" => PlayerAction(body, "kick"),
@@ -72,6 +74,15 @@ public static class ControlController
                 "/control/files/write" => FilesAction(body, "write"),
                 _ => (404, Json(false, "未知控制端点")),
             };
+
+            // ★ 最终兜底：任何端点漏检查主线程派发错误而泄漏 (0, null) 时，
+            //   统一转 500（否则 HTTP 端回 "HTTP/1.1 0" 非法响应=平台 STATUS=000，WS 端抛 JValue 异常）
+            if (status <= 0 || string.IsNullOrEmpty(json))
+            {
+                Log.Error($"[SLDataAPI][Control] 端点 {path} 返回了无效结果 (status={status})——内部错误未正确传播，已兜底为 500");
+                return (500, Json(false, "内部错误"));
+            }
+            return (status, json);
         }
         catch (Exception ex)
         {
@@ -425,11 +436,14 @@ public static class ControlController
         MainThreadExecutor.RunOnMainThread(() =>
         {
             // LabAPI 1.1.7 把 Cassie.Message(msg, isHeld, isNoisy, isSubtitles) 标记为错误级过时
-            // （新版游戏 CASSIE 已改为 TTS 队列体系）。这里用官方推荐的非过时重载：
-            // isNoisy → playBackground；isHeld/isSubtitles 在新 API 中已无对应开关（忽略）。
+            // （新版游戏 CASSIE 已改为 TTS 队列体系），这里用官方推荐的非过时重载：
+            //   - 无 translation：isNoisy → playBackground；isHeld/isSubtitles 在新 API 中无对应开关（忽略）
+            //   - 有 translation：message 播报原文（含 PITCH_0.5 等音效代码），translation 作为字幕文本
+            //     （纯文本，不解析音效代码）——实现"英文播报 + 中文字幕"
+            string translation = (req.translation ?? "").Trim();
             LabApi.Features.Wrappers.Announcer.Message(
                 req.message,
-                customSubtitles: "",
+                translation,
                 playBackground: req.isNoisy,
                 priority: 0f,
                 glitchScale: 1f);
@@ -950,28 +964,167 @@ public static class ControlController
             return (200, Json(true, "ok", layout));
         }
 
-        return MainThreadExecutor.RunOnMainThread(() =>
+        var (mapStatus, mapJson) = MainThreadExecutor.RunOnMainThread(() =>
         {
             switch (action)
             {
                 case "doors":
                 {
-                    Door? door = FindDoor(req.door_type);
-                    if (door == null)
-                        throw new InvalidOperationException($"未找到门: {req.door_type}");
+                    // scope: type（默认，按 door_type 单门）| all | all_not_list
+                    string scope = string.IsNullOrWhiteSpace(req.scope)
+                        ? "type"
+                        : req.scope.Trim().ToLowerInvariant();
 
-                    if (req.lock_door == true)
-                        door.Lock(Interactables.Interobjects.DoorUtils.DoorLockReason.AdminCommand, true);
-                    else if (req.lock_door == false)
-                        door.Lock(Interactables.Interobjects.DoorUtils.DoorLockReason.AdminCommand, false);
-                    if (req.open_door.HasValue) door.IsOpened = req.open_door.Value;
-
-                    return (200, Json(true, "ok", new
+                    List<Door> targets;
+                    if (scope == "all")
                     {
-                        door_type = req.door_type,
-                        locked = door.IsLocked,
-                        open = door.IsOpened
-                    }));
+                        targets = Door.List.ToList();
+                    }
+                    else if (scope == "all_not_list")
+                    {
+                        // 除 DoorType 枚举能匹配到的门之外的所有门（机关门/随机门等未列出的门）
+                        targets = Door.List.Where(d => d.DoorName == DoorName.None).ToList();
+                    }
+                    else
+                    {
+                        Door? door = FindDoor(req.door_type);
+                        if (door == null)
+                            throw new InvalidOperationException($"未找到门: {req.door_type}");
+                        targets = new List<Door> { door };
+                    }
+
+                    if (targets.Count == 0)
+                        throw new InvalidOperationException(
+                            scope == "type" ? $"未找到门: {req.door_type}" : "未找到任何符合条件的门");
+
+                    // 逐门操作并防御：单门失败（已销毁/网络同步异常）不中断整批
+                    int locked = 0, unlocked = 0, opened = 0, closed = 0, failed = 0;
+                    foreach (var d in targets)
+                    {
+                        try
+                        {
+                            if (req.lock_door == true) { d.Lock(Interactables.Interobjects.DoorUtils.DoorLockReason.AdminCommand, true); locked++; }
+                            else if (req.lock_door == false) { d.Lock(Interactables.Interobjects.DoorUtils.DoorLockReason.AdminCommand, false); unlocked++; }
+                            if (req.open_door.HasValue)
+                            {
+                                d.IsOpened = req.open_door.Value;
+                                if (req.open_door.Value) opened++; else closed++;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            failed++;
+                            Log.Warn($"[SLDataAPI][Control] 门操作失败 ({d.NameTag}): {ex.Message}");
+                        }
+                    }
+
+                    return (200, Json(true,
+                        $"已处理 {targets.Count} 扇门（锁定 {locked}/解锁 {unlocked}/开 {opened}/关 {closed}/失败 {failed}）",
+                        new
+                        {
+                            scope,
+                            door_type = req.door_type,
+                            count = targets.Count,
+                            locked,
+                            unlocked,
+                            opened,
+                            closed,
+                            failed,
+                        }));
+                }
+
+                case "elevators":
+                {
+                    // scope: type（默认，按 elevator_type 匹配组）| all
+                    string escope = string.IsNullOrWhiteSpace(req.scope)
+                        ? "type"
+                        : req.scope.Trim().ToLowerInvariant();
+
+                    List<Elevator> targets;
+                    if (escope == "all")
+                    {
+                        targets = Elevator.List.ToList();
+                    }
+                    else
+                    {
+                        if (string.IsNullOrWhiteSpace(req.elevator_type))
+                            throw new InvalidOperationException("缺少 elevator_type 字段");
+
+                        string typeKey = req.elevator_type.Trim();
+                        // 1) 当前 ElevatorGroup 枚举名直接匹配（如 Nuke01/LczA01/GateA01——单轿厢粒度）
+                        bool asGroup = Enum.TryParse<ElevatorGroup>(typeKey, true, out var group);
+                        // 2) 旧名别名（Nuke/GateA/GateB/Scp049/LczA/LczB/ServerRoom——双轿厢组整组操作）
+                        bool asAlias = ElevatorAliases.TryGetValue(typeKey, out var aliasGroups);
+
+                        if (!asGroup && !asAlias)
+                            throw new InvalidOperationException(
+                                $"未知电梯类型: {req.elevator_type}（支持当前 ElevatorGroup 名如 Nuke01/LczA01/GateA01，或旧名 Nuke/GateA/GateB/Scp049/LczA/LczB/ServerRoom）");
+
+                        targets = Elevator.List
+                            .Where(e => (asGroup && e.Group == group) ||
+                                        (asAlias && aliasGroups!.Contains(e.Group)))
+                            .ToList();
+                        if (targets.Count == 0)
+                            throw new InvalidOperationException($"未找到电梯: {req.elevator_type}");
+                    }
+
+                    if (targets.Count == 0)
+                        throw new InvalidOperationException("未找到任何电梯");
+
+                    string cmd = (req.command ?? "").Trim().ToLowerInvariant();
+                    bool sendMode = cmd == "send";
+                    int delta = cmd switch
+                    {
+                        "up" => 1,
+                        "down" => -1,
+                        "send" => 0,
+                        _ => throw new InvalidOperationException($"未知 command: {req.command}（支持 up / down / send）"),
+                    };
+                    if (sendMode && req.level < 0)
+                        throw new InvalidOperationException("command=send 需要 level 字段（非负整数目标楼层）");
+
+                    int moved = 0, invalid = 0;
+                    foreach (var el in targets)
+                    {
+                        try
+                        {
+                            if (sendMode)
+                            {
+                                // 直达目标楼层（对齐 RA elevator send）：校验楼层存在
+                                int floorCount = el.Doors.Count();
+                                if (req.level >= floorCount)
+                                {
+                                    invalid++;
+                                    Log.Warn($"[SLDataAPI][Control] 电梯 {el.Group} 无楼层 {req.level}（共 {floorCount} 层），已跳过");
+                                    continue;
+                                }
+                                el.SetDestination(req.level, force: false);
+                            }
+                            else
+                            {
+                                int targetLevel = Math.Max(0, el.CurrentDestinationLevel + delta);
+                                el.SetDestination(targetLevel, force: false);
+                            }
+                            moved++;
+                        }
+                        catch (Exception ex)
+                        {
+                            Log.Warn($"[SLDataAPI][Control] 电梯操作失败 ({el.Group}): {ex.Message}");
+                        }
+                    }
+
+                    return (200, Json(true,
+                        $"已向 {moved}/{targets.Count} 部电梯发送 {(sendMode ? $"直达 {req.level} 层" : cmd)} 指令",
+                        new
+                        {
+                            scope = escope,
+                            elevator_type = req.elevator_type,
+                            command = cmd,
+                            level = sendMode ? req.level : (int?)null,
+                            moved,
+                            invalid,
+                            total = targets.Count,
+                        }));
                 }
 
                 case "lights":
@@ -1005,10 +1158,35 @@ public static class ControlController
                 }
 
                 default:
-                    return (404, Json(false, $"未知 action: {req.action}（支持 layout/doors/lights）"));
+                    return (404, Json(false, $"未知 action: {req.action}（支持 layout/doors/elevators/lights）"));
             }
         }, out var err);
+
+        // ★ 必须检查 err：lambda 内任何异常都会使 RunOnMainThread 返回 (0, null)，
+        //   漏检查会让非法结果泄漏出去（HTTP 端表现为 STATUS=000 断连、WS 端 JValue 异常）
+        if (err != null)
+            return (400, Json(false, err.Message));
+
+        return (mapStatus, mapJson);
     }
+
+    /// <summary>
+    /// 电梯类型别名：旧/平台命名 → 当前 ElevatorGroup 集合（Exiled.API 权威映射 + 更老命名的兜底）。
+    /// ElA/ElB 属旧地图入口区电梯，现行地图已无对应组，不映射（返回明确错误）。
+    /// </summary>
+    private static readonly Dictionary<string, ElevatorGroup[]> ElevatorAliases =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["nuke"] = new[] { ElevatorGroup.Nuke01, ElevatorGroup.Nuke02 },
+            ["scp049"] = new[] { ElevatorGroup.Scp049 },
+            ["gatea"] = new[] { ElevatorGroup.GateA01, ElevatorGroup.GateA02 },
+            ["gateb"] = new[] { ElevatorGroup.GateB },
+            ["lifta"] = new[] { ElevatorGroup.LczA01, ElevatorGroup.LczA02 },
+            ["liftb"] = new[] { ElevatorGroup.LczB01, ElevatorGroup.LczB02 },
+            ["lcza"] = new[] { ElevatorGroup.LczA01, ElevatorGroup.LczA02 },
+            ["lczb"] = new[] { ElevatorGroup.LczB01, ElevatorGroup.LczB02 },
+            ["serverroom"] = new[] { ElevatorGroup.ServerRoom },
+        };
 
     /// <summary>
     /// 解析门标识：优先 LabAPI 的 DoorName 枚举（旧 EXILED DoorType 名称大多一致），

@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 使用疑问 / 配置问题
+    url: https://github.com/DNTOF/SLDataAPI/discussions/categories/q-a
+    about: 配置踩坑、接口怎么调、报错排查等，发 Discussions 比开 Issue 更合适
+  - name: 💡 先聊聊想法
+    url: https://github.com/DNTOF/SLDataAPI/discussions/categories/ideas
+    about: 功能建议还没想清楚细节？先来 Discussions 聊开
+  - name: 🔒 安全漏洞报告（请勿公开提 Issue）
+    url: https://github.com/DNTOF/SLDataAPI/security/advisories/new
+    about: 涉及鉴权绕过、越权、token 泄露等安全问题，请通过 Security Advisory 私下提交，不要发公开 Issue

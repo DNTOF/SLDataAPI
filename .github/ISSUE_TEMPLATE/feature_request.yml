@@ -1,0 +1,48 @@
+name: 💡 功能建议
+description: 希望 SLDataAPI 支持的新功能、新的控制端点、跨插件联动等
+labels: ["enhancement", "待分类"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        想法还没完全成型也没关系，可以先发 [Discussions - Ideas](../../discussions/categories/ideas) 聊开了再落地成这里的正式 Issue。
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 这个功能要解决什么问题 / 场景是什么
+      description: 比如"现在没有办法批量踢出某个阵营的玩家"，尽量描述实际使用场景而不是直接给方案
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 你设想的实现方式（可选）
+      description: 如果已经有具体想法，比如希望新增哪个 /control/* 端点、请求/响应大概长什么样，可以写在这里
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 有没有考虑过用现有功能组合实现
+      description: 说明一下为什么现有的端点/机制不够用
+    validations:
+      required: false
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: 涉及范围
+      multiple: true
+      options:
+        - 数据接口（/get_sl_data）
+        - 控制接口（/control/*）
+        - 语音转发 / 录音取证
+        - 文件管理端点
+        - 跨插件联动（SLPlayer / SLAgent / OmegaWarhead 等）
+        - 自动更新
+        - 其他 / 不确定
+    validations:
+      required: false

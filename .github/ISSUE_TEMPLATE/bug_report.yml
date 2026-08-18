@@ -1,0 +1,78 @@
+name: 🐛 Bug 反馈
+description: 插件运行不符合预期、报错、崩溃等问题
+labels: ["bug", "待分类"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈！提交前请确认：
+        - 已经看过启动时打印的「配置摘要」那行日志，基本排除了 config.yml 没读到 / 用了默认值的情况
+        - 截图 / 日志里的 `verify_token`、`control_token` 已经打码，不要原样发出来
+        - 单纯的用法疑问建议发 [Discussions - Q&A](../../discussions/categories/q-a)，Issue 主要留给确定的 bug
+
+  - type: input
+    id: version
+    attributes:
+      label: SLDataAPI 版本
+      description: 启动日志里会打印，或者看 DLL 属性 / release 版本号
+      placeholder: 例如 v2.5.0
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: 运行环境
+      description: LabAPI 版本、服务端系统（Windows/Linux）、是否用了 Docker 等
+      placeholder: 例如 LabAPI 1.1.7 / Windows Server 2022
+    validations:
+      required: true
+
+  - type: textarea
+    id: config
+    attributes:
+      label: 相关配置（脱敏后）
+      description: config.yml 里跟这个问题相关的部分，token 类字段请替换成 `***`
+      render: yaml
+      placeholder: |
+        http_port: 8081
+        control_enabled: true
+        control_transport: http
+        control_token: "***"
+    validations:
+      required: false
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望的行为
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际的行为
+      description: 报错信息、异常表现，能贴日志原文最好（脱敏后）
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. 配置 xxx
+        2. 调用 /control/xxx 接口，body 为 ...
+        3. 出现 xxx 现象
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 完整日志（可选，脱敏后）
+      description: 如果方便的话，贴一段插件启动到出问题这段时间的完整日志，比零散描述好定位得多
+      render: text
+    validations:
+      required: false

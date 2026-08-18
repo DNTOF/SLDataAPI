@@ -14,7 +14,7 @@ using VoiceChat;
 namespace SLDataAPI.Voice;
 
 /// <summary>
-/// 语音录音取证（v2.5 / Yagami Light）：每局游戏自动保存为一个压缩包
+/// 语音录音取证（v2.5 / Yagami Light [L_egitimate_Patch]）：每局游戏自动保存为一个压缩包
 ///   voice_round_&lt;局号&gt;_&lt;开始时间&gt;.zip，内含：
 ///   1) 按频道分轨的音轨：&lt;局名&gt;.&lt;频道&gt;.wav（48kHz / 16bit / 单声道 PCM，
 ///      如 .Proximity / .Radio / .Intercom / .Scp …）
@@ -346,14 +346,18 @@ public static class VoiceRecorder
 
     private static void WriterLoop()
     {
+        // ★ 进入循环前快照本局轨道：上一局 writer 若未及时退出、下一局已重建 Tracks，
+        //   直接访问静态 Tracks 会刷到新局的文件甚至并发写同一文件（跨局竞态）
+        var trackMap = new Dictionary<byte, ChannelTrack>(Tracks);
+        var trackList = Tracks.Values.ToList();
         try
         {
             foreach (var frame in _queue!.GetConsumingEnumerable())
             {
-                WriteFrame(frame);
+                WriteFrame(frame, trackMap);
             }
-            // 队列耗尽：把各轨混合窗口剩余内容全部落盘（定稿前的最后一步）
-            foreach (var track in Tracks.Values)
+            // 队列耗尽：把本局各轨混合窗口剩余内容全部落盘（定稿前的最后一步）
+            foreach (var track in trackList)
                 FlushPending(track, track.PendingLen);
         }
         catch (Exception ex)
@@ -368,9 +372,9 @@ public static class VoiceRecorder
     /// 采用带混合窗口的延迟落盘：帧先混入内存窗口，只有未来帧不可能再触碰的
     /// 安全区（头部）才落盘（帧的 StartSample 随处理顺序单调不减，保证判定成立）。
     /// </summary>
-    private static void WriteFrame(VoiceFrame frame)
+    private static void WriteFrame(VoiceFrame frame, Dictionary<byte, ChannelTrack> trackMap)
     {
-        if (!Tracks.TryGetValue(frame.Channel, out var track) || track.Writer == null || frame.Count <= 0)
+        if (!trackMap.TryGetValue(frame.Channel, out var track) || track.Writer == null || frame.Count <= 0)
             return;
 
         long start = frame.StartSample;
@@ -474,7 +478,7 @@ public static class VoiceRecorder
 
     private static void AppendTimelineHeader()
     {
-        _timeline!.AppendLine("# SLDataAPI 语音时间轴（v2.5 Yagami Light）");
+        _timeline!.AppendLine("# SLDataAPI 语音时间轴（v2.5 Yagami Light [L_egitimate_Patch]）");
         _timeline.AppendLine($"# 局号: {_roundNumber}  回合开始: {_roundStart:yyyy-MM-dd HH:mm:ss.fff}  采样率: {SampleRate}Hz");
         _timeline.AppendLine("# 列: 回合内秒\t绝对时间\t事件\t昵称\tsteamid\t角色\t频道\tnetid\t详情");
         _timeline.AppendLine("# 对齐: 采样号 = 回合内秒 × 48000 = 任一频道 WAV 文件内精确位置（帧间已补静默，可直接切段取证）");

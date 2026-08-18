@@ -6,6 +6,7 @@ using LabApi.Features.Wrappers;
 using LabApi.Loader;
 using LabApi.Loader.Features.Plugins;
 using LabApi.Loader.Features.Yaml;
+using MEC;
 using SLDataAPI.Capture;
 using SLDataAPI.Control;
 using SLDataAPI.Map;
@@ -20,9 +21,9 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
     private HttpServer? server;
 
     public override string Name => "SLDataAPI";
-    public override string Description => "通过 HTTP API 向外部（WebUI / 机器人）提供服务器数据采集与远程控制能力（LabAPI 原生插件，代号 Yagami Light）";
+    public override string Description => "通过 HTTP API 向外部（WebUI / 机器人）提供服务器数据采集与远程控制能力（LabAPI 原生插件，代号 Yagami Light [L_egitimate_Patch]）";
     public override string Author => "DNT_OF";
-    public override Version Version => new Version(2, 5, 0);
+    public override Version Version => new Version(2, 5, 1);
     public override Version RequiredApiVersion => new Version(1, 1, 7);
 
     public override void Enable()
@@ -70,7 +71,7 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
         if (Config.AutoUpdateCheck)
             UpdateChecker.CheckAsync(Version, Config.AutoUpdateInstall);
 
-        Log.Info($"SLDataAPI v{Version} (Yagami Light / LabAPI) enabled. HTTP on port {Config.HttpPort}. Control API: {(Config.ControlEnabled ? $"{Config.ControlTransport.ToUpperInvariant()} 模式" : "关闭")}. Voice: {(Config.VoiceEnabled ? $"启用(端口 {Config.VoicePort})" : "关闭")}.");
+        Log.Info($"SLDataAPI v{Version} (Yagami Light [L_egitimate_Patch] / LabAPI) enabled. HTTP on port {Config.HttpPort}. Control API: {(Config.ControlEnabled ? $"{Config.ControlTransport.ToUpperInvariant()} 模式" : "关闭")}. Voice: {(Config.VoiceEnabled ? $"启用(端口 {Config.VoicePort})" : "关闭")}.");
     }
 
     public override void Disable()
@@ -170,18 +171,68 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
 
     private void OnRoundStarted()
     {
-        DataCollector.IsRoundActive = true;
-        DataCollector.UpdateDataNow();
-        MapLayoutService.CaptureLayout(); // 采集本回合随机布局（LCZ/HCZ 每回合不同）
-        VoiceRecorder.BeginRound(); // 语音录音取证：本局开始
-        Log.Info("SLDataAPI: Round started.");
+        try
+        {
+            DataCollector.IsRoundActive = true;
+            DataCollector.UpdateDataNow();
+            MapLayoutService.CaptureLayout(); // 采集本回合随机布局（LCZ/HCZ 每回合不同）
+            VoiceRecorder.BeginRound(); // 语音录音取证：本局开始
+            NotifyRecordingHint(); // 录音启用时向所有玩家声明本局将被录音（隐私告知）
+            Log.Info("SLDataAPI: Round started.");
+        }
+        catch (Exception ex)
+        {
+            // ★ 事件链保护：LabAPI 事件分发无 try-catch（InvokeEvent 裸调用），
+            //   任何异常都会传播回游戏回合开始流程，导致回合初始化中断、
+            //   玩家状态错乱（0 血/未注册/RA 查不到）——这里兜底并记录
+            Log.Error($"[SLDataAPI] RoundStarted 处理器异常（已兜底）: {ex}");
+        }
+    }
+
+    /// <summary>
+    /// 录音启用时，每局开始向所有玩家显示 3 秒录音声明（隐私告知义务）。
+    /// 延迟 1 秒显示：等待玩家完成出生动画，提示不易被切屏错过。
+    /// 只发给真实玩家（HintDisplay.Show 对本地玩家会抛异常，NPC/dummy 无需告知）；
+    /// 中途加入的玩家不会收到本提示（仅开局告知）。
+    /// </summary>
+    private void NotifyRecordingHint()
+    {
+        if (!Config.VoiceRecordEnabled || !Config.VoiceEnabled)
+            return;
+
+        const string text = "为了保证游戏公平性，本局游戏将会被录音，具体详询服务器管理员。";
+        Timing.CallDelayed(1f, () =>
+        {
+            try
+            {
+                foreach (var p in Player.List)
+                {
+                    if (p.IsHost || p.IsNpc || p.IsDummy || !p.IsPlayer || !p.IsReady)
+                        continue;
+                    try { p.SendHint(text, 3f); }
+                    catch { /* 个别玩家断开等瞬态异常忽略 */ }
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"[SLDataAPI] 录音声明提示发送异常（忽略）: {ex.Message}");
+            }
+        });
     }
 
     private void OnRoundEnded(RoundEndedEventArgs ev)
     {
-        DataCollector.IsRoundActive = false;
-        DataCollector.UpdateDataNow();
-        VoiceRecorder.EndRound(); // 语音录音取证：定稿本局录音
-        Log.Info("SLDataAPI: Round ended.");
+        try
+        {
+            DataCollector.IsRoundActive = false;
+            DataCollector.UpdateDataNow();
+            VoiceRecorder.EndRound(); // 语音录音取证：定稿本局录音
+            Log.Info("SLDataAPI: Round ended.");
+        }
+        catch (Exception ex)
+        {
+            // 事件链保护：异常不得传播回游戏回合结束流程
+            Log.Error($"[SLDataAPI] RoundEnded 处理器异常（已兜底）: {ex}");
+        }
     }
 }

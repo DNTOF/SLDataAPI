@@ -1,11 +1,11 @@
 # SLDataAPI
 
-**版本：** 2.5.0（开发代号 **Yagami Light**）  
+**版本：** 2.5.0（开发代号 **Yagami Light [L_egitimate_Patch]**）  
 **架构：** **LabAPI 原生插件**（v2.4 起脱离 EXILED，运行于 Northwood 官方 LabAPI 框架）  
 **依赖：** LabAPI（游戏服务器自带） · MEC · Newtonsoft.Json · Harmony（服务器自带，不打包）  
 **用途：** 在 SCP:SL 游戏服务器上暴露一个轻量 HTTP 接口，供 WebUI / AstrBot 等外部程序轮询实时服务器数据，并通过 `/control/*` 控制接口远程执行管理操作；内置**语音转发**（WebSocket 实时收听全频道语音，代号 SPY）；v2.5 起新增**控制接口 WebSocket 长连接**。
 
-> **v2.4.0（现代号 Yagami Light）—— 架构迁移说明：** 本插件已从 EXILED 插件迁移为 **LabAPI 原生插件**（不再依赖 EXILED），并完成源码目录/命名空间分类重构。
+> **v2.4.0（现代号 Yagami Light [L_egitimate_Patch]）—— 架构迁移说明：** 本插件已从 EXILED 插件迁移为 **LabAPI 原生插件**（不再依赖 EXILED），并完成源码目录/命名空间分类重构。
 > - 安装位置变更：`LabAPI/plugins/global/`（不再是 `EXILED/Plugins/`）
 > - 配置位置变更：`LabAPI/configs/<端口>/SLDataAPI/config.yml`（旧 EXILED 配置文件不会被读取，需把值抄到新文件；键名同为 snake_case，删掉 `is_enabled` 即可）
 > - 插件启停由 LabAPI 的 `properties.yml` 管理（`/control/plugins` 可代写）
@@ -74,7 +74,7 @@ log_directory: ''                     # 服务器日志目录；留空=自动探
 voice_enabled: false                  # 是否启用语音转发 WebSocket（默认关闭）
 voice_port: 8082                      # 语音 WebSocket 监听端口（独立于 http_port）
 
-# ===== 语音录音取证（v2.5 / Yagami Light）=====
+# ===== 语音录音取证（v2.5 / Yagami Light [L_egitimate_Patch]）=====
 voice_record_enabled: false           # 每局自动保存录音（WAV 混合音轨 + 时间轴日志）；需 voice_enabled=true
 voice_record_max_rounds: 10           # 最多保留多少局录音（0/负数=不清理；参考 5.5MB/分钟/局）
 voice_record_dir: ''                  # 录音保存目录（留空=默认 %AppData%/SCP Secret Laboratory/SLDataAPI/VoiceRecords）
@@ -308,7 +308,7 @@ Content-Type: application/json
 
 ---
 
-## 语音录音取证（v2.5 / Yagami Light）
+## 语音录音取证（v2.5 / Yagami Light [L_egitimate_Patch]）
 
 开启 `voice_record_enabled`（需同时开启 `voice_enabled`）后，**每局游戏自动保存一个压缩包**到录音目录（默认 `%AppData%/SCP Secret Laboratory/SLDataAPI/VoiceRecords`）：
 
@@ -327,7 +327,7 @@ voice_round_3_20260818_223100.zip
 **时间轴格式**（制表符分隔，可导入 Excel / 脚本解析；**与音频采样级对齐**）：
 
 ```
-# SLDataAPI 语音时间轴（v2.5 Yagami Light）
+# SLDataAPI 语音时间轴（v2.5 Yagami Light [L_egitimate_Patch]）
 # 局号: 3  回合开始: 2026-08-18 22:31:00.123  采样率: 48000Hz
 # 列: 回合内秒	绝对时间	事件	昵称	steamid	角色	频道	netid	详情
 # 对齐: 采样号 = 回合内秒 × 48000 = 任一频道 WAV 文件内精确位置（帧间已补静默，可直接切段取证）
@@ -348,6 +348,7 @@ voice_round_3_20260818_223100.zip
 **行为说明：**
 
 - 回合开始建档、回合结束定稿；**定稿与 zip 打包在后台线程完成**（快照隔离，不占主线程、不阻塞下一局），服务器停服时同步等待打包结束
+- **隐私告知**：录音启用时，每局开始 1 秒后向所有玩家显示 3 秒声明"为了保证游戏公平性，本局游戏将会被录音，具体详询服务器管理员。"（中途加入的玩家不重复提示，仅开局告知）
 - 打包格式：标准 zip（PCM 压缩率约 40%-60%），内含各频道 WAV + 时间轴；打包完成后删除散件。若打包失败（磁盘满等），散件文件保留在录音目录并记日志，下局清理兜底
 - **采样级对齐**：帧间补静默，时间轴秒数 × 48000 = **任一频道文件**内的精确采样位置，跨频道对照用同一采样号
 - **频道隔离**：SCP / 人类（近距离/对讲机/Intercom）等各自独立 WAV，不混合；**同频道多人同时说话 = 逐采样混合**（求和钳制防溢出，任何一方不丢失），实现为 0.4s 混合窗口延迟落盘

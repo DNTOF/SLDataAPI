@@ -32,7 +32,7 @@ namespace SLDataAPI.Voice;
 /// 鉴权：key 必须等于 Config.ControlToken（与控制接口同权限）。
 /// 全部在主线程协程中轮询，避免线程安全问题（同 VoiceStreamPlugin 方案）。
 ///
-/// 注意：按“说话者”维护的状态一律用 netId（uint）做键，绝不用 ReferenceHub——
+/// 注意：按"说话者"维护的状态一律用 netId（uint）做键，绝不用 ReferenceHub——
 /// 玩家断开后 Hub 的 GameObject 被销毁，ReferenceHub.GetHashCode 会抛 NRE，
 /// 进而杀死 MEC 协程、整个转发停摆（线上真实踩过的坑）。
 /// </summary>
@@ -197,7 +197,8 @@ public static class VoiceService
         if (now - _lastStatsLog > 10f)
         {
             _lastStatsLog = now;
-            Log.Info($"[SLDataAPI] 语音流活跃: 近10秒 {_pktCount} 包, 最近说话者={player.Nickname} channel={(byte)msg.Channel} samples={samples} clients={Clients.Count}");
+            // 诊断统计：降为 Debug 级（受 config.debug 开关控制），避免说话时每 10 秒刷一条 Info 占控制台
+            Log.Debug($"[SLDataAPI] 语音流活跃: 近10秒 {_pktCount} 包, 最近说话者={player.Nickname} channel={(byte)msg.Channel} samples={samples} clients={Clients.Count}");
             _pktCount = 0;
         }
 
@@ -342,9 +343,9 @@ public static class VoiceService
         // 4. 清理超时解码器
         Cleanup();
 
-        // 5. 心跳日志：即使无人监听也能确认服务还活着（累计包数用于区分“没人说话”）
+        // 5. 心跳日志：低频巡检（5 分钟一条），确认服务还活着（累计包数用于区分"没人说话"）
         float now = UnityEngine.Time.time;
-        if (now - _lastHeartbeat > 60f)
+        if (now - _lastHeartbeat > 300f)
         {
             _lastHeartbeat = now;
             Log.Info($"[SLDataAPI] 语音心跳: 累计语音包={_totalPackets}, 监听客户端={Clients.Count}, 活跃说话者={Activities.Count}");

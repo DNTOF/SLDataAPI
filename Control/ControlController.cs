@@ -1088,10 +1088,12 @@ public static class ControlController
                     {
                         try
                         {
+                            // 楼层数只取一次（el.Doors = 该组电梯的楼层门数，即可用层数）
+                            int floorCount = el.Doors.Count();
+
                             if (sendMode)
                             {
                                 // 直达目标楼层（对齐 RA elevator send）：校验楼层存在
-                                int floorCount = el.Doors.Count();
                                 if (req.level >= floorCount)
                                 {
                                     invalid++;
@@ -1102,7 +1104,11 @@ public static class ControlController
                             }
                             else
                             {
-                                int targetLevel = Math.Max(0, el.CurrentDestinationLevel + delta);
+                                // ★ up/down 必须按楼层数钳制：越界目标会让电梯状态机
+                                //   每帧执行 _floorDoors[越界] 抛异常，状态机损坏后表现为
+                                //   "自动触发/复位"怪象（ServerRoom 电梯仅 2 层，up 一次即顶天，
+                                //   是重灾区；层数多的电梯不易触发）
+                                int targetLevel = Math.Max(0, Math.Min(el.CurrentDestinationLevel + delta, floorCount - 1));
                                 el.SetDestination(targetLevel, force: false);
                             }
                             moved++;

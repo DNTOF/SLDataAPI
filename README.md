@@ -1,11 +1,11 @@
 # SLDataAPI
 
-**版本：** 2.5.0（开发代号 **Yagami Light [L_egitimate_Patch]**）  
+版本： 2.5.2（开发代号 Bay of Pigs Invasion）  
 **架构：** **LabAPI 原生插件**（v2.4 起脱离 EXILED，运行于 Northwood 官方 LabAPI 框架）  
 **依赖：** LabAPI（游戏服务器自带） · MEC · Newtonsoft.Json · Harmony（服务器自带，不打包）  
 **用途：** 在 SCP:SL 游戏服务器上暴露一个轻量 HTTP 接口，供 WebUI / AstrBot 等外部程序轮询实时服务器数据，并通过 `/control/*` 控制接口远程执行管理操作；内置**语音转发**（WebSocket 实时收听全频道语音，代号 SPY）；v2.5 起新增**控制接口 WebSocket 长连接**。
 
-> **v2.4.0（现代号 Yagami Light [L_egitimate_Patch]）—— 架构迁移说明：** 本插件已从 EXILED 插件迁移为 **LabAPI 原生插件**（不再依赖 EXILED），并完成源码目录/命名空间分类重构。
+> **v2.4.0（现代号 Bay of Pigs Invasion）—— 架构迁移说明：** 本插件已从 EXILED 插件迁移为 **LabAPI 原生插件**（不再依赖 EXILED），并完成源码目录/命名空间分类重构。
 > - 安装位置变更：`LabAPI/plugins/global/`（不再是 `EXILED/Plugins/`）
 > - 配置位置变更：`LabAPI/configs/<端口>/SLDataAPI/config.yml`（旧 EXILED 配置文件不会被读取，需把值抄到新文件；键名同为 snake_case，删掉 `is_enabled` 即可）
 > - 插件启停由 LabAPI 的 `properties.yml` 管理（`/control/plugins` 可代写）
@@ -74,7 +74,7 @@ log_directory: ''                     # 服务器日志目录；留空=自动探
 voice_enabled: false                  # 是否启用语音转发 WebSocket（默认关闭）
 voice_port: 8082                      # 语音 WebSocket 监听端口（独立于 http_port）
 
-# ===== 语音录音取证（v2.5 / Yagami Light [L_egitimate_Patch]）=====
+# ===== 语音录音取证（v2.5 / Bay of Pigs Invasion）=====
 voice_record_enabled: false           # 每局自动保存录音（WAV 混合音轨 + 时间轴日志）；需 voice_enabled=true
 voice_record_max_rounds: 10           # 最多保留多少局录音（0/负数=不清理；参考 5.5MB/分钟/局）
 voice_record_dir: ''                  # 录音保存目录（留空=默认 %AppData%/SCP Secret Laboratory/SLDataAPI/VoiceRecords）
@@ -116,9 +116,11 @@ voice_record_dir: ''                  # 录音保存目录（留空=默认 %AppD
 | Token | 用途 | 传入方式 | 强度要求 |
 |-------|------|----------|----------|
 | `verify_token` | 只读数据接口 `/get_sl_data` | URL 查询参数 `?token=` | 无强制要求（建议复杂化） |
-| `control_token` | 所有 `/control/*` 控制接口 **和语音转发 WebSocket** | `X-Control-Token` 请求头（也兼容 `?token=`）；语音 WS 用 `?key=` | 启动时强制校验格式 |
+| `control_token` | 所有 `/control/*` 控制接口 **和语音转发 WebSocket** | `X-Control-Token` 请求头（也兼容 `?token=`）；语音 WS 支持 `X-Control-Token` 头（也兼容 `?key=`） | 启动时强制校验格式 |
 
-**暴力破解防护**（`ControlAuth.cs`）：三个入口（数据接口、控制接口、语音 WS）共用同一套防护——同一 IP 在 5 分钟窗口内失败 10 次即锁定 5 分钟；token 比较使用常量时间算法，避免时序侧信道。语音 WS 未配置 `control_token` 时一律拒绝（不开放匿名监听）。
+> 🔒 **token 传递建议**：优先用 `X-Control-Token` 请求头——`?token=` / `?key=` 查询串会落入反向代理/访问日志，属于弱一环。三个入口（数据/控制/语音 WS）均已支持头鉴权，新客户端应一律走请求头。
+
+**暴力破解防护**（`ControlAuth.cs`）：按 IP 失败锁定**分权限级**——只读数据接口（`verify_token`）与控制/语音（`control_token`）各用一张失败表，攻击者刷数据接口不会锁死管理员的高权限通道；同一 IP 在 5 分钟窗口内失败 10 次即锁定 5 分钟，失败表周期清扫（过期条目自动移除，海量源地址不会无界增长）。token 比较使用常量时间算法，避免时序侧信道。语音 WS 未配置 `control_token` 时一律拒绝（不开放匿名监听）。
 
 ---
 
@@ -288,8 +290,8 @@ Content-Type: application/json
 
 | 端点 | 说明 |
 |------|------|
-| `GET /ws?key=control_token` | WebSocket 升级，实时语音流（需要 `control_token` 鉴权） |
-| `GET /status?key=control_token` | JSON：当前正在说话的玩家（昵称/UserID/角色/频道，1.5s 无新包视为停止） |
+| `GET /ws?key=control_token`（或 `X-Control-Token` 头） | WebSocket 升级，实时语音流（需要 `control_token` 鉴权） |
+| `GET /status?key=control_token`（或 `X-Control-Token` 头） | JSON：当前正在说话的玩家（昵称/UserID/角色/频道，1.5s 无新包视为停止） |
 
 **帧格式：**
 
@@ -308,7 +310,7 @@ Content-Type: application/json
 
 ---
 
-## 语音录音取证（v2.5 / Yagami Light [L_egitimate_Patch]）
+## 语音录音取证（v2.5 / Bay of Pigs Invasion）
 
 开启 `voice_record_enabled`（需同时开启 `voice_enabled`）后，**每局游戏自动保存一个压缩包**到录音目录（默认 `%AppData%/SCP Secret Laboratory/SLDataAPI/VoiceRecords`）：
 
@@ -327,7 +329,7 @@ voice_round_3_20260818_223100.zip
 **时间轴格式**（制表符分隔，可导入 Excel / 脚本解析；**与音频采样级对齐**）：
 
 ```
-# SLDataAPI 语音时间轴（v2.5 Yagami Light [L_egitimate_Patch]）
+# SLDataAPI 语音时间轴（v2.5 Bay of Pigs Invasion）
 # 局号: 3  回合开始: 2026-08-18 22:31:00.123  采样率: 48000Hz
 # 列: 回合内秒	绝对时间	事件	昵称	steamid	角色	频道	netid	详情
 # 对齐: 采样号 = 回合内秒 × 48000 = 任一频道 WAV 文件内精确位置（帧间已补静默，可直接切段取证）

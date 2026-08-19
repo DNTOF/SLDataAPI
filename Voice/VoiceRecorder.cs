@@ -8,25 +8,28 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using UnityEngine;
 using VoiceChat;
 
 namespace SLDataAPI.Voice;
 
 /// <summary>
-/// 语音录音取证（v2.5 / Yagami Light [L_egitimate_Patch]）：每局游戏自动保存为一个压缩包
+/// 语音录音取证（v2.5 / Bay of Pigs Invasion）：每局游戏自动保存为一个压缩包
 ///   voice_round_&lt;局号&gt;_&lt;开始时间&gt;.zip，内含：
 ///   1) 按频道分轨的音轨：&lt;局名&gt;.&lt;频道&gt;.wav（48kHz / 16bit / 单声道 PCM，
 ///      如 .Proximity / .Radio / .Intercom / .Scp …）
 ///   2) 时间轴日志：&lt;局名&gt;.timeline.log（谁在什么时候说了多久，含 steamid / 角色 / 频道）
 /// 设计：
 ///   - **频道隔离**：SCP 频道与人类频道（近距离/对讲机/Intercom）是游戏里独立的听觉流，
-///     分轨保存互不混合；同一频道内多人同时说话才逐采样求和混合（钳制防溢出）。
-///   - 采样级对齐：帧间补静默，采样号 = 回合内秒 × 48000 = 任一频道文件内的精确位置。
-///   - HandlePcm / OnSpeakerGone / BeginRound / EndRound 均由主线程调用；
-///     磁盘写入在独立后台线程完成，主线程只入队（有界队列，满则丢帧并告警）。
-///   - 定稿与 zip 打包在后台线程完成（快照隔离，不占主线程、不阻塞下一局）；
-///     服务器停服时同步等待打包结束。按 voice_record_max_rounds 清理最旧局。
+///     分轨保存互不混合。
+///   - **连续拼接（保真）**：音频按语音包到达顺序连续写入（累计样本数定位），与转发管线一致——
+///     不受"处理时刻"的网络抖动影响，杜绝音质失真（按处理时刻定位会让每帧位置错乱，产生金属噪声）。
+///     同一频道多人同时说话表现为交错拼接（与 WebUI 转发听感一致），任何一方的声音都不丢失。
+///   - 时间轴以「文件内采样号」精确对齐（采样号 = WAV 内字节位置 ÷ 2），可精确定位/切段；
+///     静默不占文件空间（墙钟秒仅作参考）。
+///   - HandlePcm / OnSpeakerGone / BeginRound / EndRound 均由主线程调用；磁盘写入在独立
+///     后台线程完成（开轨控制消息与音频帧同队列串行，无共享字典竞态）。
+///   - 定稿与 zip 打包在后台线程完成（快照隔离，不占主线程、不阻塞下一局）；服务器停服时
+///     同步定稿打包。按 voice_record_max_rounds 清理最旧局。
 ///   - 依赖语音管线运行（voice_enabled=true）；本类不自行订阅事件，由 Plugin 驱动。
 /// </summary>
 public static class VoiceRecorder
@@ -35,7 +38,6 @@ public static class VoiceRecorder
     private const int BytesPerSample = 2;        // 16bit PCM
     private const int MaxQueuedFrames = 400;     // 有界队列（每帧缓冲 ≤23KB ≈ 9MB 待写上限），超出丢帧告警
     private const float BurstGapSeconds = 0.8f;  // 与语音转发一致：间隔超过视为新一轮讲话
-    private const int MixWindowSamples = 48000 * 4 / 10; // 混合窗口 0.4s：同频道重叠帧在此窗口内求和混合后延迟落盘
 
     private static bool _enabled;
     private static int _maxRounds = 10;
@@ -43,41 +45,53 @@ public static class VoiceRecorder
 
     private static int _roundNumber;
     private static DateTime _roundStart;
-    private static float _roundStartTime;
     private static string _baseName = "";
 
-    private static BlockingCollection<VoiceFrame>? _queue;
+    // ★ 录音时序：高精度单调时钟（double 秒，仅用于时间轴/讲话段判定的参考时刻）+ 累计样本定位（连续拼接）
+    private static readonly System.Diagnostics.Stopwatch Clock = System.Diagnostics.Stopwatch.StartNew();
+    private static double Now => Clock.Elapsed.TotalSeconds;
+    private static double _roundStartTime;
+    private static long _cumulativeSamples; // 全局累计样本数（文件内位置 = 累计样本数，主线程独占）
+
+    private static BlockingCollection<object>? _queue;  // VoiceFrame（音频帧）与 VoiceOpenChannel（开轨控制消息）
     private static Thread? _writer;
     private static long _droppedFrames;
-    private static float _lastDropWarn;
+    private static double _lastDropWarn;
 
     private static StringBuilder? _timeline;
     private static Task? _finalizeTask; // 上一局的打包任务（Disable 时同步等待）
 
     // 讲话段状态（全部主线程访问）
-    private static readonly Dictionary<uint, (float StartTime, long StartSample)> OpenBursts = new();
-    private static readonly Dictionary<uint, float> LastPacket = new();
+    private static readonly Dictionary<uint, (double StartTime, long StartSample)> OpenBursts = new();
+    private static readonly Dictionary<uint, double> LastPacket = new();
     private static readonly Dictionary<uint, (string Name, string UserId, string Role, byte Channel)> BurstMeta = new();
 
-    // 频道分轨：主线程在首包到达时创建（含建档日志），写盘线程只读
-    private static readonly Dictionary<byte, ChannelTrack> Tracks = new();
+    // 本局已请求开轨的频道（主线程独占；写盘线程经控制消息串行建档，无共享字典）
+    private static readonly HashSet<byte> PendingChannels = new();
+
+    // 写盘线程结束时产出的本局轨道列表；主线程 EndRound 在 Join 成功后才读取（happens-before 保证）
+    private static List<ChannelTrack>? _writerTracks;
 
     private struct VoiceFrame
     {
         public float[] Data;
         public int Count;
-        public long StartSample; // 本帧在回合时间轴上的起始采样位置（采样号 = 回合内秒 × 48000）
+        public long StartSample; // 本帧在文件内的起始采样号（累计样本数）
+        public byte Channel;
+    }
+
+    /// <summary>开轨控制消息：写盘线程收到后创建频道文件（与音频帧同队列串行，天然无竞态）。</summary>
+    private struct VoiceOpenChannel
+    {
         public byte Channel;
     }
 
     private sealed class ChannelTrack
     {
+        public byte Channel;
         public string FilePath = "";
         public BinaryWriter? Writer;
         public long SamplesWritten;
-        public readonly short[] Pending = new short[MixWindowSamples];
-        public long PendingStart;
-        public int PendingLen;
     }
 
     public static void Configure(bool enabled, int maxRounds, string dir)
@@ -108,7 +122,7 @@ public static class VoiceRecorder
 
         _roundNumber++;
         _roundStart = DateTime.Now;
-        _roundStartTime = Time.time;
+        _roundStartTime = Now;
         _baseName = $"voice_round_{_roundNumber}_{_roundStart:yyyyMMdd_HHmmss}";
 
         try
@@ -116,8 +130,11 @@ public static class VoiceRecorder
             _timeline = new StringBuilder();
             AppendTimelineHeader();
             AppendTimeline("回合开始");
-            _queue = new BlockingCollection<VoiceFrame>(MaxQueuedFrames);
+            _queue = new BlockingCollection<object>(MaxQueuedFrames);
             _droppedFrames = 0;
+            _cumulativeSamples = 0;
+            _writerTracks = null;
+            PendingChannels.Clear();
             _writer = new Thread(WriterLoop) { IsBackground = true, Name = "SLDataAPI-VoiceRecorder" };
             _writer.Start();
             Log.Info($"[SLDataAPI] 本局语音录音开始: {_baseName}（目录: {_dir}，频道分轨）");
@@ -132,9 +149,9 @@ public static class VoiceRecorder
     }
 
     /// <summary>
-    /// 回合结束：关闭所有讲话段，把定稿工作（补静默/补头/打包 zip/清理旧局）快照后交给
+    /// 回合结束：关闭所有讲话段，把定稿工作（补头/打包 zip/清理旧局）快照后交给
     /// 后台线程执行——压缩大文件耗时，绝不能占主线程。waitFinalize=true 时（服务器停服）
-    /// 同步等待打包完成，防止进程退出打断。
+    /// 同步定稿打包，防止进程退出打断。
     /// </summary>
     public static void EndRound(bool waitFinalize = false)
     {
@@ -149,21 +166,28 @@ public static class VoiceRecorder
         try
         {
             foreach (uint netId in new List<uint>(OpenBursts.Keys))
-                CloseBurst(netId, Time.time);
+                CloseBurst(netId, Now);
 
-            roundEndSample = (long)((Time.time - _roundStartTime) * SampleRate);
+            roundEndSample = _cumulativeSamples;
             AppendTimeline("回合结束",
-                $"时长={Time.time - _roundStartTime:F3}s 丢帧={_droppedFrames} 终点采样={roundEndSample}");
+                $"内容时长={roundEndSample / (double)SampleRate:F3}s 丢帧={_droppedFrames} 终点采样={roundEndSample}");
 
-            // 先让写盘线程把队列耗尽（含各轨混合窗口刷盘）
+            // 让写盘线程耗尽队列（含开轨消息）——必须 Join 成功，否则定稿会与其并发写/双重关闭。
+            // waitFinalize（服务器停服）时给更长的等待窗口，尽力在进程退出前完成。
             _queue?.CompleteAdding();
-            _writer?.Join(3000);
+            bool joined = _writer?.Join(waitFinalize ? 15000 : 3000) ?? true;
+            if (!joined)
+            {
+                Log.Error(
+                    $"[SLDataAPI] 录音写盘线程未及时退出，本局 {_baseName} 不定稿（散件文件保留在录音目录，下局清理兜底）");
+                return;
+            }
 
-            // 快照定稿所需的一切：主线程随后清空状态，下一局可立即开始
-            tracks = Tracks.Values.ToList();
-            foreach (var kv in Tracks)
+            // 写盘线程已退出并产出轨道列表（happens-before：Join）
+            tracks = _writerTracks ?? new List<ChannelTrack>();
+            foreach (var t in tracks)
                 AppendTimeline("通道归档",
-                    $"{SafeChannelName(kv.Key)}\t{Path.GetFileName(kv.Value.FilePath)}\t终点采样={roundEndSample}");
+                    $"{SafeChannelName(t.Channel)}\t{Path.GetFileName(t.FilePath)}\t样本数={t.SamplesWritten}\t终点采样={roundEndSample}");
             timelineText = _timeline?.ToString();
         }
         catch (Exception ex)
@@ -175,36 +199,37 @@ public static class VoiceRecorder
             OpenBursts.Clear();
             LastPacket.Clear();
             BurstMeta.Clear();
-            Tracks.Clear();
+            PendingChannels.Clear();
             _queue = null;
             _writer = null;
+            _writerTracks = null;
             _timeline = null;
         }
 
-        // 后台定稿 + 打包（快照独立，与下一局完全隔离）
-        var task = Task.Run(() => FinalizeRound(tracks, baseName, timelineText, roundEndSample));
-        _finalizeTask = task;
+        // 定稿 + 打包（快照独立，与下一局完全隔离）。
+        // waitFinalize（服务器停服）时同步执行：进程退出时 Task.Run 后台线程可能被强杀，导致 zip 丢失
         if (waitFinalize)
         {
-            try { task.Wait(20000); } catch { /* 超时则放弃等待，散件保留 */ }
+            FinalizeRound(tracks, baseName, timelineText, roundEndSample);
+        }
+        else
+        {
+            var task = Task.Run(() => FinalizeRound(tracks, baseName, timelineText, roundEndSample));
+            _finalizeTask = task;
         }
     }
 
     /// <summary>
-    /// 后台线程：各频道轨补静默/补头/关闭 → 写时间轴 → 全部文件打入 zip → 删散件 → 清理旧局。
+    /// 后台线程：各频道轨补头/关闭 → 写时间轴 → 全部文件打入 zip → 删散件 → 清理旧局。
     /// 失败时散件文件保留在录音目录（日志提示），下局清理兜底。
     /// </summary>
     private static void FinalizeRound(List<ChannelTrack>? tracks, string baseName, string? timelineText, long roundEndSample)
     {
         try
         {
-            // 1. 各轨收尾
+            // 1. 各轨补头并关闭（音频已是连续拼接，无需补静默）
             foreach (var track in tracks ?? Enumerable.Empty<ChannelTrack>())
-            {
-                FlushPending(track, track.PendingLen);
-                WriteSilence(track, roundEndSample - track.SamplesWritten);
                 PatchAndClose(track);
-            }
 
             // 2. 时间轴落盘
             string timelinePath = Path.Combine(_dir, baseName + ".timeline.log");
@@ -244,30 +269,40 @@ public static class VoiceRecorder
     // ────────────── 语音包入口（主线程，VoiceService.HandleIncoming 调用） ──────────────
 
     /// <summary>
-    /// 每收到一个解码后的语音包：维护讲话段（开始/延续/轮转）并确保频道轨存在、入队待写。
+    /// 每收到一个解码后的语音包：维护讲话段并连续拼接定位（累计样本数）、入队待写。
     /// pcm 数组由调用方新建（每包一个），本方法接管所有权，无需拷贝。
     /// </summary>
     public static void HandlePcm(uint netId, float[] pcm, int sampleCount,
-        string nickname, string userId, string role, byte channel, float now)
+        string nickname, string userId, string role, byte channel)
     {
         if (_queue == null) return;
 
-        // 首包到达该频道：主线程建档（写盘线程只读 Tracks）
-        if (!Tracks.ContainsKey(channel))
-            OpenChannel(channel);
+        double now = Now; // 录音内部时钟（高精度）
 
-        // 本帧在回合时间轴上的起始采样位置（时间轴秒数 × 48000 = WAV 内精确位置）
-        long startSample = (long)((now - _roundStartTime) * SampleRate);
+        // 首包到达该频道：主线程只记时间轴并请求写盘线程开轨（控制消息，与帧同队列串行）
+        if (PendingChannels.Add(channel))
+        {
+            AppendTimeline("通道开始", $"{SafeChannelName(channel)}\t{channel}");
+            if (!_queue.TryAdd(new VoiceOpenChannel { Channel = channel }))
+            {
+                PendingChannels.Remove(channel); // 开轨消息入队失败则撤销，下一包重试
+                _droppedFrames++;
+            }
+        }
+
+        // 本帧在文件内的起始采样号 = 累计样本数（连续拼接：无论处理时刻抖动，音频按到达顺序连续写）
+        long startSample = _cumulativeSamples;
+        _cumulativeSamples += sampleCount;
 
         // 讲话段判定：距该说话者最近一包超过阈值视为新一轮讲话（先收尾上一段，再开新段）
-        bool continuing = LastPacket.TryGetValue(netId, out float lastPkt) &&
+        bool continuing = LastPacket.TryGetValue(netId, out double lastPkt) &&
                           now - lastPkt <= BurstGapSeconds;
         if (!continuing)
         {
             CloseBurst(netId, now);
             OpenBursts[netId] = (now, startSample);
             AppendTimeline("说话开始",
-                $"{nickname}\t{userId}\t{role}\t{channel}\t{netId}\t起点采样={startSample}");
+                $"{nickname}\t{userId}\t{role}\t{channel}\t{netId}\t文件采样号={startSample}");
         }
         LastPacket[netId] = now;
         BurstMeta[netId] = (nickname, userId, role, channel);
@@ -284,48 +319,54 @@ public static class VoiceRecorder
     }
 
     /// <summary>说话者静默超时被清理（VoiceService.Cleanup 调用）：收尾其讲话段。</summary>
-    public static void OnSpeakerGone(uint netId, float now)
+    public static void OnSpeakerGone(uint netId)
     {
-        CloseBurst(netId, now);
+        CloseBurst(netId, Now);
         LastPacket.Remove(netId);
     }
 
-    private static void CloseBurst(uint netId, float now)
+    private static void CloseBurst(uint netId, double now)
     {
         if (OpenBursts.TryGetValue(netId, out var burst))
         {
             if (BurstMeta.TryGetValue(netId, out var meta))
             {
-                long endSample = (long)((now - _roundStartTime) * SampleRate);
                 AppendTimeline("说话结束",
                     $"{meta.Name}\t{meta.UserId}\t{meta.Role}\t{meta.Channel}\t{netId}\t" +
-                    $"时长={now - burst.StartTime:F3}s 起点采样={burst.StartSample} 终点采样={endSample}");
+                    $"时长={now - burst.StartTime:F3}s 文件起点采样={burst.StartSample} 文件终点采样={_cumulativeSamples}");
             }
             OpenBursts.Remove(netId);
         }
         BurstMeta.Remove(netId);
     }
 
-    // ────────────── 频道轨（主线程创建） ──────────────
+    // ────────────── 频道轨（写盘线程创建，与帧处理串行） ──────────────
 
-    private static void OpenChannel(byte channel)
+    /// <summary>创建频道轨道文件并加入本局轨道表（写盘线程调用）。失败时不留半开句柄。</summary>
+    private static void OpenChannel(byte channel, Dictionary<byte, ChannelTrack> trackMap)
     {
+        ChannelTrack? track = null;
+        FileStream? stream = null;
         try
         {
             string name = SafeChannelName(channel);
-            var track = new ChannelTrack
+            track = new ChannelTrack
             {
+                Channel = channel,
                 FilePath = Path.Combine(_dir, $"{_baseName}.{name}.wav"),
             };
-            var stream = new FileStream(track.FilePath, FileMode.Create, FileAccess.Write, FileShare.Read);
+            stream = new FileStream(track.FilePath, FileMode.Create, FileAccess.Write, FileShare.Read);
             track.Writer = new BinaryWriter(stream, Encoding.UTF8, leaveOpen: false);
+            stream = null; // 所有权已移交 BinaryWriter
             WriteWavHeader(track.Writer);
-            Tracks[channel] = track;
-            AppendTimeline("通道开始", $"{name}\t{channel}\t{Path.GetFileName(track.FilePath)}");
+            trackMap[channel] = track;
             Log.Info($"[SLDataAPI] 录音通道 {name} 已创建");
         }
         catch (Exception ex)
         {
+            // 防句柄泄漏：WriteWavHeader 或文件创建失败时释放已打开的流
+            try { track?.Writer?.Dispose(); } catch { }
+            try { stream?.Dispose(); } catch { }
             Log.Error($"[SLDataAPI] 录音通道 {channel} 创建失败: {ex.Message}");
         }
     }
@@ -344,97 +385,49 @@ public static class VoiceRecorder
 
     // ────────────── 后台写盘线程 ──────────────
 
+    /// <summary>
+    /// 本局轨道表为写盘线程独占（无共享字典）：开轨控制消息与音频帧经同一队列串行处理，
+    /// 动态注册对写盘线程天然可见。线程退出时把轨道产出给主线程（EndRound 在 Join 成功后才读取）。
+    /// </summary>
     private static void WriterLoop()
     {
-        // ★ 进入循环前快照本局轨道：上一局 writer 若未及时退出、下一局已重建 Tracks，
-        //   直接访问静态 Tracks 会刷到新局的文件甚至并发写同一文件（跨局竞态）
-        var trackMap = new Dictionary<byte, ChannelTrack>(Tracks);
-        var trackList = Tracks.Values.ToList();
+        var trackMap = new Dictionary<byte, ChannelTrack>();
         try
         {
-            foreach (var frame in _queue!.GetConsumingEnumerable())
+            foreach (var item in _queue!.GetConsumingEnumerable())
             {
-                WriteFrame(frame, trackMap);
+                if (item is VoiceOpenChannel open)
+                    OpenChannel(open.Channel, trackMap);
+                else if (item is VoiceFrame frame)
+                    WritePcm(frame, trackMap);
             }
-            // 队列耗尽：把本局各轨混合窗口剩余内容全部落盘（定稿前的最后一步）
-            foreach (var track in trackList)
-                FlushPending(track, track.PendingLen);
         }
         catch (Exception ex)
         {
             Log.Error($"[SLDataAPI] 录音写盘线程异常终止: {ex.Message}");
         }
+        finally
+        {
+            // 产出给主线程；不在此处 Close（定稿由 FinalizeRound 统一补头后关闭，
+            // 避免双重关闭/未补头散件）。若 Join 超时跳过定稿，文件句柄由 GC 兜底释放。
+            _writerTracks = trackMap.Values.ToList();
+        }
     }
 
-    /// <summary>
-    /// 按采样位置写入一帧到对应频道轨。帧间补静默保证 采样号 = 回合内秒 × 48000 = 文件位置；
-    /// **同频道重叠帧（多人同时说话）逐采样混合**（求和钳制），任何一方都不丢失。
-    /// 采用带混合窗口的延迟落盘：帧先混入内存窗口，只有未来帧不可能再触碰的
-    /// 安全区（头部）才落盘（帧的 StartSample 随处理顺序单调不减，保证判定成立）。
-    /// </summary>
-    private static void WriteFrame(VoiceFrame frame, Dictionary<byte, ChannelTrack> trackMap)
+    /// <summary>连续拼接写入一帧（float(-1..1) → 16bit 小端）。同一频道多人同时说话表现为交错拼接，与转发听感一致。</summary>
+    private static void WritePcm(VoiceFrame frame, Dictionary<byte, ChannelTrack> trackMap)
     {
         if (!trackMap.TryGetValue(frame.Channel, out var track) || track.Writer == null || frame.Count <= 0)
             return;
 
-        long start = frame.StartSample;
-
-        if (start > track.PendingStart + MixWindowSamples)
-        {
-            // 帧离窗口太远（长时间无人说话）：整体落盘 + 补静默，从 start 重建窗口
-            FlushPending(track, track.PendingLen);
-            WriteSilence(track, start - track.SamplesWritten);
-            track.PendingStart = start;
-        }
-        else if (start > track.PendingStart)
-        {
-            // 安全区：start 之前的样本不可能再被未来帧触碰，落盘
-            FlushPending(track, (int)(start - track.PendingStart));
-        }
-
-        // 罕见长帧可能超出窗口右缘：先让出头部空间
-        int offset = (int)(start - track.PendingStart);
-        int need = offset + frame.Count;
-        if (need > MixWindowSamples)
-        {
-            FlushPending(track, need - MixWindowSamples);
-            offset = (int)(start - track.PendingStart);
-        }
-
-        // 混合进窗口：与已缓冲的同位置样本求和（钳制防溢出）
-        int n = Math.Min(frame.Count, MixWindowSamples - offset);
+        int n = Math.Min(frame.Count, frame.Data.Length);
         for (int i = 0; i < n; i++)
         {
             float v = frame.Data[i] * 32767f;
             short s = (short)Math.Max(-32768, Math.Min(32767, v));
-            int sum = track.Pending[offset + i] + s;
-            track.Pending[offset + i] = (short)Math.Max(-32768, Math.Min(32767, sum));
+            track.Writer.Write(s);
         }
-        int end = offset + n;
-        if (end > track.PendingLen) track.PendingLen = end;
-    }
-
-    /// <summary>把窗口头部 count 个采样落盘并左移剩余（只写安全区）。</summary>
-    private static void FlushPending(ChannelTrack track, int count)
-    {
-        if (count <= 0 || track.Writer == null) return;
-        count = Math.Min(count, track.PendingLen);
-        for (int i = 0; i < count; i++)
-            track.Writer.Write(track.Pending[i]);
-        track.SamplesWritten += count;
-        int rest = track.PendingLen - count;
-        if (rest > 0)
-            Array.Copy(track.Pending, count, track.Pending, 0, rest);
-        track.PendingLen = rest;
-        track.PendingStart += count;
-    }
-
-    private static void WriteSilence(ChannelTrack track, long count)
-    {
-        if (track.Writer == null || count <= 0) return;
-        for (long i = 0; i < count; i++)
-            track.Writer.Write((short)0);
-        track.SamplesWritten += count;
+        track.SamplesWritten += n;
     }
 
     private static void WriteWavHeader(BinaryWriter w)
@@ -478,17 +471,17 @@ public static class VoiceRecorder
 
     private static void AppendTimelineHeader()
     {
-        _timeline!.AppendLine("# SLDataAPI 语音时间轴（v2.5 Yagami Light [L_egitimate_Patch]）");
+        _timeline!.AppendLine("# SLDataAPI 语音时间轴（v2.5 Bay of Pigs Invasion）");
         _timeline.AppendLine($"# 局号: {_roundNumber}  回合开始: {_roundStart:yyyy-MM-dd HH:mm:ss.fff}  采样率: {SampleRate}Hz");
         _timeline.AppendLine("# 列: 回合内秒\t绝对时间\t事件\t昵称\tsteamid\t角色\t频道\tnetid\t详情");
-        _timeline.AppendLine("# 对齐: 采样号 = 回合内秒 × 48000 = 任一频道 WAV 文件内精确位置（帧间已补静默，可直接切段取证）");
-        _timeline.AppendLine("# 分轨: 每个语音频道（Proximity/Radio/Intercom/Spectator/Scp…）独立一个 WAV，频道间不混合；同频道多人同时说话才混合");
+        _timeline.AppendLine("# 对齐: 采样号 = WAV 文件内字节位置 ÷ 2（连续拼接，静默不占文件空间；用采样号可精确跳转/切段）");
+        _timeline.AppendLine("# 分轨: 每个语音频道（Proximity/Radio/Intercom/Spectator/Scp…）独立一个 WAV，频道间不混合");
     }
 
     private static void AppendTimeline(string evt, string detail = "")
     {
         if (_timeline == null) return;
-        string t = (Time.time - _roundStartTime).ToString("F3", CultureInfo.InvariantCulture);
+        string t = (Now - _roundStartTime).ToString("F3", CultureInfo.InvariantCulture);
         _timeline.Append(t).Append('\t').Append(DateTime.Now.ToString("HH:mm:ss.fff")).Append('\t')
                  .Append(evt);
         if (detail.Length > 0)

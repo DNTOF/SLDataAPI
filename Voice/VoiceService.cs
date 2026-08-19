@@ -41,6 +41,7 @@ public static class VoiceService
     private const int MaxClients = 8;               // 监听客户端上限（防连接耗尽）
     private const float HandshakeTimeoutSec = 10f;  // 连接后完成握手的最长时间（防 Slowloris 式占用）
     private const float UnwritableDropSec = 3f;     // 发送缓冲持续不可写的判死时间（防主线程卡服）
+    private const long MaxMessageBytes = 256 * 1024; // 入站单帧长度上限（L-02，防长度回绕/超大分配）
 
     private static TcpListener? _listener;
     private static CoroutineHandle _coroutine;
@@ -179,7 +180,7 @@ public static class VoiceService
 
         // 录音取证（可选）：复用解码结果，主线程入队、后台线程写盘
         VoiceRecorder.HandlePcm(netId, buf, samples,
-            player.Nickname ?? "?", player.UserId ?? "?", roleCn, (byte)msg.Channel, now);
+            player.Nickname ?? "?", player.UserId ?? "?", roleCn, (byte)msg.Channel);
 
         Activities[netId] = new VoiceActivity
         {
@@ -256,7 +257,7 @@ public static class VoiceService
                         Decoders.Remove(netId);
                     }
                     Activities.Remove(netId);
-                    VoiceRecorder.OnSpeakerGone(netId, UnityEngine.Time.time);
+                    VoiceRecorder.OnSpeakerGone(netId);
                     _lastPacketTime.Remove(netId);
                     _dupSeen.Remove(netId);
                 }
@@ -503,9 +504,12 @@ public static class VoiceService
             string method = parts[0];
             string path = parts[1];
 
-            // 鉴权：query ?key= 必须等于 ControlToken。与控制接口同一套防爆破锁定
-            // （常量时间比较 + 按 IP 锁定），未配置 token 时一律拒绝（不裸奔监听）。
-            string? key = ExtractQuery(path, "key") ?? ExtractQuery(path, "access_key");
+            // 鉴权：优先 X-Control-Token 请求头（L-05：不落反向代理/访问日志），
+            // 其次 query ?key=。与控制接口同一套防爆破锁定（常量时间比较 + 按 IP 锁定），
+            // 未配置 token 时一律拒绝（不裸奔监听）。
+            string? key = ExtractHeader(header, "X-Control-Token");
+            if (string.IsNullOrEmpty(key))
+                key = ExtractQuery(path, "key") ?? ExtractQuery(path, "access_key");
             string cfgToken = Plugin.Instance?.Config.ControlToken ?? "";
             if (string.IsNullOrEmpty(cfgToken))
             {
@@ -596,6 +600,15 @@ public static class VoiceService
                     for (int i = 0; i < 8; i++) len = (len << 8) | _inBuf[2 + i];
                     off = 10;
                 }
+
+                // ★ 帧长度上限（L-02）：声明 2^32 长度时 (int)len 会回绕成 0 绕过缓冲检查，
+                //   再 new byte[len] 抛 OverflowException 逃逸 Pump 的 catch——超限直接断连
+                if (len > MaxMessageBytes)
+                {
+                    _state = -1;
+                    return;
+                }
+
                 byte[]? mask = null;
                 if (masked)
                 {
@@ -764,6 +777,19 @@ public static class VoiceService
             h *= 1099511628211UL;
         }
         return h;
+    }
+
+    /// <summary>从握手 HTTP 头中提取指定请求头（L-05：语音 WS 支持 X-Control-Token 头鉴权）。</summary>
+    private static string? ExtractHeader(string header, string name)
+    {
+        foreach (var line in header.Split('\n'))
+        {
+            int idx = line.IndexOf(':');
+            if (idx <= 0) continue;
+            if (line.Substring(0, idx).Trim().Equals(name, StringComparison.OrdinalIgnoreCase))
+                return line.Substring(idx + 1).Trim();
+        }
+        return null;
     }
 
     private static string? ExtractQuery(string path, string name)

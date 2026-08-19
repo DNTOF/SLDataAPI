@@ -265,7 +265,7 @@ public class HttpServer
 
                 string reqToken = ExtractQueryValue(query, "token");
                 // 与控制接口共用同一套防爆破锁定（常量时间比较 + 按 IP 锁定）
-                if (!ControlAuth.TryAuthenticate(remoteIp, reqToken, _config.VerifyToken ?? "", out string readErr))
+                if (!ControlAuth.TryAuthenticate(remoteIp, reqToken, _config.VerifyToken ?? "", out string readErr, highPrivilege: false))
                 {
                     Log.Warn($"[SLDataAPI] 数据接口鉴权失败 from {remoteIp}: {readErr} {ControlAuth.DescribeMismatch(reqToken, _config.VerifyToken)}");
                     SendJson(stream, 403, Err(readErr));

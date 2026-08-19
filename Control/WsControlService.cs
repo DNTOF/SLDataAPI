@@ -111,6 +111,7 @@ public static class WsControlService
             return true;
         }
 
+        // 快速预检（握手前）：多数超限在此拒绝，省一次无谓握手
         lock (RegistryLock)
         {
             if (Sessions.Count >= MaxClients)
@@ -119,7 +120,6 @@ public static class WsControlService
                 return true;
             }
         }
-
         if (!headers.TryGetValue("Sec-WebSocket-Key", out string? wsKey) || string.IsNullOrEmpty(wsKey))
         {
             WriteHttpJson(stream, 400, "缺少 Sec-WebSocket-Key");
@@ -153,6 +153,14 @@ public static class WsControlService
         int current;
         lock (RegistryLock)
         {
+            // ★ 权威检查：预检与这里之间存在并发握手窗口，必须在 Add 同一临界区内二次校验，
+            //   消除连接数 TOCTOU（L-01）；超限的已握手连接直接关闭
+            if (Sessions.Count >= MaxClients)
+            {
+                Log.Warn($"[SLDataAPI][WsControl] 连接数瞬时超限（{MaxClients}），已拒绝并发握手 from {remoteIp}");
+                session.Close();
+                return true;
+            }
             Sessions.Add(session);
             current = Sessions.Count;
             EnsureIdleSweeper();
@@ -283,7 +291,8 @@ public static class WsControlService
             while (!_closed)
             {
                 if (ReadExact(head, 2) < 2) break;
-                LastActivity = DateTime.UtcNow;
+                // ★ 不再在读帧头后刷新 LastActivity（L-04）：否则每 89 秒发 2 字节不完整帧头
+                //   即可无限续命。LastActivity 只在完整帧处理完后统一刷新（见下方）。
 
                 int b0 = head[0];
                 int b1 = head[1];
@@ -317,10 +326,10 @@ public static class WsControlService
                 if (masked)
                     for (int i = 0; i < payload.Length; i++) payload[i] ^= mask[i & 3];
 
-                // 控制帧（close/ping/pong）：不参与分片，允许随时插队
-                if (opcode == 0x8) { TrySendFrame(0x8, payload); break; }
-                if (opcode == 0x9) { TrySendFrame(0xA, payload); continue; }
-                if (opcode == 0xA) continue;
+                // 控制帧（close/ping/pong）：不参与分片，允许随时插队；完整帧处理完即刷新活动
+                if (opcode == 0x8) { TrySendFrame(0x8, payload); LastActivity = DateTime.UtcNow; break; }
+                if (opcode == 0x9) { TrySendFrame(0xA, payload); LastActivity = DateTime.UtcNow; continue; }
+                if (opcode == 0xA) { LastActivity = DateTime.UtcNow; continue; }
 
                 // 数据帧：仅支持文本
                 if (opcode == 0x2) { CloseWith(1003, "仅支持文本帧"); break; }
@@ -350,6 +359,7 @@ public static class WsControlService
                 byte[] message = fragments.ToArray();
                 fragments.Clear();
                 HandleTextMessage(Encoding.UTF8.GetString(message));
+                LastActivity = DateTime.UtcNow; // 完整数据帧处理完（L-04）
             }
 
             Close();

@@ -12,7 +12,7 @@ namespace SLDataAPI.Services;
 
 public static class DataCollector
 {
-    public static ServerData CachedData = new ServerData();
+    public static volatile ServerData CachedData = new ServerData(); // volatile：快照引用原子替换，主线程单写、HTTP 线程只读引用，无字段撕裂
     public static bool IsRoundActive = false;
 
     private static CoroutineHandle _handle;
@@ -59,17 +59,47 @@ public static class DataCollector
     // ★ 新增：允许外部（事件处理器）触发立即更新
     public static void UpdateDataNow() => UpdateData();
 
-    // ★ 修复2：核弹倒计时实时读取，不用缓存值（避免最多差 8 秒的误差）
+    // ★ 修复2：核弹倒计时实时读取，不用缓存值（避免最多差 8 秒的误差）。
+    //   BuildJson 只做只读快照 + 主线程派发读核弹（Warhead 是 Unity 状态，
+    //   HTTP 线程直接读取违反线程模型；派发失败则回落快照中的缓存值）
     public static string BuildJson()
     {
-        CachedData.nuke_status = GetNukeStatus();
-        CachedData.nuke_countdown = GetNukeCountdown();
-        CachedData.voice_port = Plugin.Instance?.Config != null && Plugin.Instance.Config.VoiceEnabled
-            ? Plugin.Instance.Config.VoicePort
-            : 0;
+        var snap = CachedData ?? new ServerData();
+        var resp = Clone(snap);
 
-        return Newtonsoft.Json.JsonConvert.SerializeObject(CachedData);
+        var (nukeStatus, nukeCountdown) = MainThreadExecutor.RunOnMainThread(
+            () => (GetNukeStatus(), GetNukeCountdown()), out var err);
+        if (err == null)
+        {
+            resp.nuke_status = nukeStatus;
+            resp.nuke_countdown = nukeCountdown;
+        }
+
+        return Newtonsoft.Json.JsonConvert.SerializeObject(resp);
     }
+
+    /// <summary>浅拷贝快照（players 列表只读共享，序列化不修改）。</summary>
+    private static ServerData Clone(ServerData src) => new ServerData
+    {
+        success = src.success,
+        server_name = src.server_name,
+        online = src.online,
+        players_count = src.players_count,
+        max_players = src.max_players,
+        round_started = src.round_started,
+        round_duration = src.round_duration,
+        current_phase = src.current_phase,
+        nuke_status = src.nuke_status,
+        nuke_countdown = src.nuke_countdown,
+        voice_port = src.voice_port,
+        d_count = src.d_count,
+        foundation_count = src.foundation_count,
+        scp_count = src.scp_count,
+        spectator_count = src.spectator_count,
+        ping = src.ping,
+        players = src.players,
+        dntof_plugins = src.dntof_plugins,
+    };
 
     private static void UpdateData()
     {
@@ -77,29 +107,36 @@ public static class DataCollector
         {
             var players = Player.List?.ToList() ?? new List<Player>();
 
-            CachedData.success = true;
-            CachedData.server_name = ServerConsole.ServerName ?? "Unknown";
-            CachedData.online = true;
-            CachedData.players_count = players.Count;
-            CachedData.max_players = Server.MaxPlayers;
-            CachedData.round_started = Round.IsRoundStarted;
-            CachedData.round_duration = Round.IsRoundStarted ? (int)Round.Duration.TotalSeconds : 0;
-            CachedData.current_phase = Round.IsRoundStarted ? "进行中" : "等待开始";
+            // ★ 构建完整快照后原子替换引用：主线程单写，HTTP 线程只读引用，
+            //   players_count 与 players 列表等字段永不失配（消除 M-01 字段撕裂）
+            var fresh = new ServerData();
+
+            fresh.success = true;
+            fresh.server_name = ServerConsole.ServerName ?? "Unknown";
+            fresh.online = true;
+            fresh.voice_port = Plugin.Instance?.Config != null && Plugin.Instance.Config.VoiceEnabled
+                ? Plugin.Instance.Config.VoicePort
+                : 0;
+            fresh.players_count = players.Count;
+            fresh.max_players = Server.MaxPlayers;
+            fresh.round_started = Round.IsRoundStarted;
+            fresh.round_duration = Round.IsRoundStarted ? (int)Round.Duration.TotalSeconds : 0;
+            fresh.current_phase = Round.IsRoundStarted ? "进行中" : "等待开始";
 
             // ★ 修复：Warhead 在地图加载前是 null，用 try-catch 单独保护
-            CachedData.nuke_status = GetNukeStatus();
-            CachedData.nuke_countdown = GetNukeCountdown();
+            fresh.nuke_status = GetNukeStatus();
+            fresh.nuke_countdown = GetNukeCountdown();
 
             // ★ 修复：排除 Dummy/NPC/主机 玩家（手动添加的 dummy 会混入 Player.List 导致数据污染）
             var realPlayers = players.Where(p => p != null && !p.IsNpc && !p.IsHost).ToList();
 
-            CachedData.players_count = realPlayers.Count;
-            CachedData.d_count = realPlayers.Count(p => p.Team == Team.ClassD || p.Team == Team.ChaosInsurgency);
-            CachedData.foundation_count = realPlayers.Count(p => p.Team == Team.FoundationForces);
-            CachedData.scp_count = realPlayers.Count(p => p.Team == Team.SCPs);
-            CachedData.spectator_count = realPlayers.Count(p => p.Team == Team.Dead);
+            fresh.players_count = realPlayers.Count;
+            fresh.d_count = realPlayers.Count(p => p.Team == Team.ClassD || p.Team == Team.ChaosInsurgency);
+            fresh.foundation_count = realPlayers.Count(p => p.Team == Team.FoundationForces);
+            fresh.scp_count = realPlayers.Count(p => p.Team == Team.SCPs);
+            fresh.spectator_count = realPlayers.Count(p => p.Team == Team.Dead);
 
-            CachedData.ping = realPlayers.Any() ? (int)realPlayers.Average(GetPing) : 0;
+            fresh.ping = realPlayers.Any() ? (int)realPlayers.Average(GetPing) : 0;
 
             // ★ 诊断：ping 长期反馈为 0 时，打开配置里的 debug 开关，
             //   重启服务器后在控制台核对这里打印出的每个玩家原始 Ping 值。
@@ -113,7 +150,7 @@ public static class DataCollector
                 Log.Debug($"[SLDataAPI] Ping 原始值采样: {pingDump}");
             }
 
-            CachedData.players = realPlayers
+            fresh.players = realPlayers
                 .Where(p => p.Role != RoleTypeId.None) // 排除尚未分配职业的玩家
                 .OrderBy(p => TeamOrder.ContainsKey(p.Team) ? TeamOrder[p.Team] : 99)
                 .ThenBy(p => p.Role.ToString())
@@ -133,7 +170,7 @@ public static class DataCollector
             //   必须放在这里（MEC 协程 = 主线程），不能放进 BuildJson()——
             //   BuildJson() 是被 HttpServer 的后台线程直接调用的，
             //   在后台线程里访问 Player.Position 等游戏对象存在线程安全风险。
-            CachedData.dntof_plugins = DntofDetector.Collect();
+            fresh.dntof_plugins = DntofDetector.Collect();
         }
         catch (System.Exception ex)
         {

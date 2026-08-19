@@ -1,10 +1,16 @@
 using System;
 using System.Collections.Concurrent;
+using System.Threading;
 
 namespace SLDataAPI.Control;
 
 /// <summary>
 /// 控制接口鉴权：token 格式校验、常量时间比较、按 IP 的暴力破解锁定。
+/// 锁定按权限分级（M-02）：
+///   - 只读数据接口（/get_sl_data，verify_token 低权限）单独一张失败表——
+///     攻击者刷数据接口不会锁死管理员的高权限通道；
+///   - 控制/语音（control_token 高权限）共用另一张失败表。
+/// 失败表带周期清扫（窗口过期 + 锁定期即删），IPv6 海量源地址不会造成无界内存增长。
 /// </summary>
 public static class ControlAuth
 {
@@ -12,8 +18,35 @@ public static class ControlAuth
     private static readonly TimeSpan Window = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan LockDuration = TimeSpan.FromMinutes(5);
 
-    // IP -> (窗口内失败次数, 窗口起始时间)
-    private static readonly ConcurrentDictionary<string, (int Count, DateTime WindowStart)> Failures = new();
+    // 失败表按权限分级（IP -> (窗口内失败次数, 窗口起始时间)）
+    private static readonly ConcurrentDictionary<string, (int Count, DateTime WindowStart)> ReadFailures = new();
+    private static readonly ConcurrentDictionary<string, (int Count, DateTime WindowStart)> ControlFailures = new();
+
+    private static Timer? _sweeper;
+
+    private static ConcurrentDictionary<string, (int Count, DateTime WindowStart)> TableFor(bool highPrivilege) =>
+        highPrivilege ? ControlFailures : ReadFailures;
+
+    private static void EnsureSweeper()
+    {
+        if (_sweeper != null) return;
+        _sweeper = new Timer(_ =>
+        {
+            Sweep(ReadFailures);
+            Sweep(ControlFailures);
+        }, null, 60000, 60000);
+    }
+
+    /// <summary>删除窗口+锁定期均已过期的条目（IPv6 海量源地址不会无界增长）。</summary>
+    private static void Sweep(ConcurrentDictionary<string, (int Count, DateTime WindowStart)> table)
+    {
+        DateTime cutoff = DateTime.UtcNow - Window - LockDuration;
+        foreach (var kv in table)
+        {
+            if (kv.Value.WindowStart < cutoff)
+                table.TryRemove(kv.Key, out _);
+        }
+    }
 
     /// <summary>
     /// 校验 token 格式：长度不少于 8 位，且同时包含大写字母 / 小写字母 / 数字 / 特殊符号。
@@ -56,13 +89,16 @@ public static class ControlAuth
     }
 
     /// <summary>
-    /// 对某个 IP 的一次鉴权尝试。失败会计入锁定窗口；达到锁定条件的 IP 直接拒绝，不再比较 token。
+    /// 对某个 IP 的一次鉴权尝试。失败会计入对应权限级的锁定窗口；达到锁定条件的 IP 直接拒绝，不再比较 token。
+    /// highPrivilege=false 用于只读数据接口（verify_token），true 用于控制/语音（control_token）。
     /// </summary>
-    public static bool TryAuthenticate(string ip, string providedToken, string configuredToken, out string error)
+    public static bool TryAuthenticate(string ip, string providedToken, string configuredToken, out string error,
+        bool highPrivilege = true)
     {
         ip ??= "unknown";
+        var table = TableFor(highPrivilege);
 
-        if (IsLocked(ip, out var remaining))
+        if (IsLocked(ip, table, out var remaining))
         {
             error = $"该来源已因多次鉴权失败被临时锁定，请 {Math.Ceiling(remaining.TotalSeconds)} 秒后重试";
             return false;
@@ -76,12 +112,12 @@ public static class ControlAuth
 
         if (!SecureEquals(providedToken ?? string.Empty, configuredToken))
         {
-            RegisterFailure(ip);
+            RegisterFailure(ip, table);
             error = "token 错误或缺失";
             return false;
         }
 
-        ResetFailures(ip);
+        ResetFailures(ip, table);
         error = string.Empty;
         return true;
     }
@@ -101,10 +137,12 @@ public static class ControlAuth
             : $"（长度不符：配置 {cfgLen} / 收到 {gotLen}——配置值可能被 YAML 截断，含 # 等特殊字符必须加引号）";
     }
 
-    private static bool IsLocked(string ip, out TimeSpan remaining)
+    private static bool IsLocked(string ip,
+        ConcurrentDictionary<string, (int Count, DateTime WindowStart)> table, out TimeSpan remaining)
     {
         remaining = TimeSpan.Zero;
-        if (!Failures.TryGetValue(ip, out var entry))
+        EnsureSweeper();
+        if (!table.TryGetValue(ip, out var entry))
             return false;
 
         if (DateTime.UtcNow - entry.WindowStart > Window && entry.Count < MaxFailuresPerWindow)
@@ -119,7 +157,7 @@ public static class ControlAuth
         var lockedUntil = entry.WindowStart + Window + LockDuration;
         if (DateTime.UtcNow >= lockedUntil)
         {
-            Failures.TryRemove(ip, out _);
+            table.TryRemove(ip, out _);
             return false;
         }
 
@@ -127,9 +165,10 @@ public static class ControlAuth
         return true;
     }
 
-    private static void RegisterFailure(string ip)
+    private static void RegisterFailure(string ip,
+        ConcurrentDictionary<string, (int Count, DateTime WindowStart)> table)
     {
-        Failures.AddOrUpdate(
+        table.AddOrUpdate(
             ip,
             _ => (1, DateTime.UtcNow),
             (_, old) => DateTime.UtcNow - old.WindowStart > Window
@@ -137,5 +176,7 @@ public static class ControlAuth
                 : (old.Count + 1, old.WindowStart));
     }
 
-    private static void ResetFailures(string ip) => Failures.TryRemove(ip, out _);
+    private static void ResetFailures(string ip,
+        ConcurrentDictionary<string, (int Count, DateTime WindowStart)> table) =>
+        table.TryRemove(ip, out _);
 }

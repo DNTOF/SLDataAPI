@@ -141,6 +141,11 @@ public static class FileService
         if (!Directory.Exists(fullRoot))
             throw new InvalidOperationException($"FileRoot 目录不存在: {fullRoot}");
 
+        // X-09：拒绝含冒号的相对路径（Windows 盘符外的 ":" 即 NTFS 备用数据流，
+        // 如 "a.cfg:b.cfg" 可绕过扩展名白名单写入 ADS 隐藏数据）
+        if ((relPath ?? "").Contains(':'))
+            throw new ArgumentException("路径含非法字符 ':'");
+
         // 统一分隔符后去掉首尾斜杠，避免 ".." 或绝对路径被 Combine 拼接出界
         string rel = (relPath ?? "").Replace('\\', '/').Trim('/');
         string full;

@@ -104,7 +104,6 @@ public static class ControlController
         if (req == null || string.IsNullOrWhiteSpace(req.command))
             return (400, Json(false, "缺少 command 字段"));
 
-        bool debug = Plugin.Instance?.Config.Debug ?? false;
         Log.Info($"[SLDataAPI][Control] 执行服务器命令: {req.command}");
 
         // 命令执行窗口内捕获控制台输出（普通命令的响应走 AddLog 管线；
@@ -244,10 +243,11 @@ public static class ControlController
                     break;
 
                 case "ban":
-                    // 请求单位是分钟；LabAPI 的 Ban 按秒计，0 = 永久
+                    // 请求单位是分钟；LabAPI 的 Ban 按秒计，0 = 永久。
+                    // X-08：负数 duration 语义未定义，钳制为 0（永久）
                     player.Ban(
                         string.IsNullOrWhiteSpace(req.reason) ? "由管理端封禁" : req.reason,
-                        (long)req.duration * 60);
+                        (long)Math.Max(0, req.duration) * 60);
                     break;
 
                 case "role":
@@ -1138,22 +1138,24 @@ public static class ControlController
                     if (!Enum.TryParse<MapGeneration.RoomName>(req.room_type, true, out var roomName))
                         throw new InvalidOperationException($"无效房间类型: {req.room_type}");
 
-                    // 同名房间可能有多处（Room.Get 返回集合），统一全部处理
-                    Room? room = Room.Get(roomName).FirstOrDefault();
-                    if (room == null)
+                    // ★ N-05：同名房间可能有多处（Room.Get 返回集合），统一全部处理（此前只处理第一间）
+                    var rooms = Room.Get(roomName).ToList();
+                    if (rooms.Count == 0)
                         throw new InvalidOperationException($"未找到房间: {req.room_type}");
 
                     if (req.lights_off == true)
                     {
                         float dur = Math.Max(1f, req.duration);
-                        foreach (var lc in room.AllLightControllers)
-                            lc.FlickerLights(dur);
+                        foreach (var room in rooms)
+                            foreach (var lc in room.AllLightControllers)
+                                lc.FlickerLights(dur);
                     }
                     else
                     {
                         // duration=0 → 立即恢复照明
-                        foreach (var lc in room.AllLightControllers)
-                            lc.LightsEnabled = true;
+                        foreach (var room in rooms)
+                            foreach (var lc in room.AllLightControllers)
+                                lc.LightsEnabled = true;
                     }
 
                     return (200, Json(true, "ok", new
@@ -1258,6 +1260,9 @@ public static class ControlController
 
     private static string Json(bool success, string message, object data = null!) =>
         JsonConvert.SerializeObject(new ControlResponse { success = success, message = message, data = data });
+
+    /// <summary>清空插件启停暂存（插件重载时调用，X-05）。</summary>
+    public static void ClearPluginStaged() => PluginStaged.Clear();
 
     /// <summary>暂存清单快照（name → 目标 enabled）。</summary>
     private static object StagedSnapshot() =>

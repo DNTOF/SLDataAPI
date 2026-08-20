@@ -1,11 +1,11 @@
 # SLDataAPI
 
-版本： 2.5.2（开发代号 Bay of Pigs Invasion）  
+版本： 2.5.3（开发代号 Apollo 11's Tapes）  
 **架构：** **LabAPI 原生插件**（v2.4 起脱离 EXILED，运行于 Northwood 官方 LabAPI 框架）  
 **依赖：** LabAPI（游戏服务器自带） · MEC · Newtonsoft.Json · Harmony（服务器自带，不打包）  
 **用途：** 在 SCP:SL 游戏服务器上暴露一个轻量 HTTP 接口，供 WebUI / AstrBot 等外部程序轮询实时服务器数据，并通过 `/control/*` 控制接口远程执行管理操作；内置**语音转发**（WebSocket 实时收听全频道语音，代号 SPY）；v2.5 起新增**控制接口 WebSocket 长连接**。
 
-> **v2.4.0（现代号 Bay of Pigs Invasion）—— 架构迁移说明：** 本插件已从 EXILED 插件迁移为 **LabAPI 原生插件**（不再依赖 EXILED），并完成源码目录/命名空间分类重构。
+> **v2.4.0（现代号 Apollo 11's Tapes）—— 架构迁移说明：** 本插件已从 EXILED 插件迁移为 **LabAPI 原生插件**（不再依赖 EXILED），并完成源码目录/命名空间分类重构。
 > - 安装位置变更：`LabAPI/plugins/global/`（不再是 `EXILED/Plugins/`）
 > - 配置位置变更：`LabAPI/configs/<端口>/SLDataAPI/config.yml`（旧 EXILED 配置文件不会被读取，需把值抄到新文件；键名同为 snake_case，删掉 `is_enabled` 即可）
 > - 插件启停由 LabAPI 的 `properties.yml` 管理（`/control/plugins` 可代写）
@@ -74,7 +74,7 @@ log_directory: ''                     # 服务器日志目录；留空=自动探
 voice_enabled: false                  # 是否启用语音转发 WebSocket（默认关闭）
 voice_port: 8082                      # 语音 WebSocket 监听端口（独立于 http_port）
 
-# ===== 语音录音取证（v2.5 / Bay of Pigs Invasion）=====
+# ===== 语音录音取证（v2.5 / Apollo 11's Tapes）=====
 voice_record_enabled: false           # 每局自动保存录音（WAV 混合音轨 + 时间轴日志）；需 voice_enabled=true
 voice_record_max_rounds: 10           # 最多保留多少局录音（0/负数=不清理；参考 5.5MB/分钟/局）
 voice_record_dir: ''                  # 录音保存目录（留空=默认 %AppData%/SCP Secret Laboratory/SLDataAPI/VoiceRecords）
@@ -98,7 +98,7 @@ voice_record_dir: ''                  # 录音保存目录（留空=默认 %AppD
 |------|------|
 | `control_token` | 控制接口专用 token。要求长度 ≥ 8，且同时包含大写字母、小写字母、数字、特殊符号；格式不合法时本次运行会**强制禁用控制接口**并在日志报错 |
 | `control_transport` | 控制接口传输方式（**二选一硬互斥**）：`http`（默认，仅 `/control/*` HTTP POST）或 `ws`（仅 WebSocket 长连接）。选了 ws 就不留 HTTP 刷包面、选了 http 就不开放 WS，任何时刻只有一条控制通路；被拒一方返回 404 带 `data.code = "transport_mismatch"` 供平台自动切换（互斥检查在鉴权之前，刷被拒通道不消耗失败锁定额度）。只读接口 `/get_sl_data` 不受影响 |
-| `auto_update_install` | 检测到新版本时自动下载并替换 `SLDataAPI.dll`（覆盖后重启游戏服生效；旧版备份 `.bak`）。校验：下载文件必须为合法程序集、名称一致；当前已强名称签名时还要求签名一致（防篡改）。关闭则仅日志提示 |
+| `auto_update_install` | 检测到新版本时自动下载并替换 `SLDataAPI.dll`（覆盖后重启游戏服生效；旧版备份 `.bak`）。校验：下载文件必须为合法程序集、名称一致；当前已强名称签名时还要求签名一致（防篡改）。**只自动接受稳定版**：预发布版本（GitHub prerelease/draft 标记，或 tag 含 beta/alpha/rc/preview/dev 等标识）不会自动下载。关闭则仅日志提示 |
 | `file_root` | 文件管理端点的根目录（绝对路径），所有文件操作被限制在该目录内（防 `..` 路径穿越）；留空 = 禁用。建议指向 `SCPSL_Data` 或某个只读配置目录 |
 | `log_directory` | `/control/logs` 读取的日志目录。留空自动探测：`%AppData%/SCP Secret Laboratory/ServerLogs`（含端口子目录）→ `SCPSL_Data/Logs` |
 | `voice_record_enabled` | 每局自动保存语音录音：混合音轨 WAV（48kHz/16bit/单声道）+ 时间轴日志。**需同时开启 `voice_enabled`**（复用语音解码管线）。回合开始建档、回合结束定稿；停服时兜底保存 |
@@ -310,7 +310,7 @@ Content-Type: application/json
 
 ---
 
-## 语音录音取证（v2.5 / Bay of Pigs Invasion）
+## 语音录音取证（v2.5 / Apollo 11's Tapes）
 
 开启 `voice_record_enabled`（需同时开启 `voice_enabled`）后，**每局游戏自动保存一个压缩包**到录音目录（默认 `%AppData%/SCP Secret Laboratory/SLDataAPI/VoiceRecords`）：
 
@@ -329,7 +329,7 @@ voice_round_3_20260818_223100.zip
 **时间轴格式**（制表符分隔，可导入 Excel / 脚本解析；**与音频采样级对齐**）：
 
 ```
-# SLDataAPI 语音时间轴（v2.5 Bay of Pigs Invasion）
+# SLDataAPI 语音时间轴（v2.5 Apollo 11's Tapes）
 # 局号: 3  回合开始: 2026-08-18 22:31:00.123  采样率: 48000Hz
 # 列: 回合内秒	绝对时间	事件	昵称	steamid	角色	频道	netid	详情
 # 对齐: 采样号 = 回合内秒 × 48000 = 任一频道 WAV 文件内精确位置（帧间已补静默，可直接切段取证）

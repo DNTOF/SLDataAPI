@@ -56,7 +56,7 @@ SLDataAPI 提供服务器数据查询和远程控制能力（含执行控制台�
 - **把端口锁在受信网络内**：SLDataAPI 自身没有 TLS，裸 HTTP 暴露在公网上会被中间人窃听 token。建议只监听内网/本机，对外通过反向代理（Nginx/Caddy）加 HTTPS，并做 IP 白名单。
 - **`FileRoot` 尽量不要设置成比必要范围更大的目录**，权限最小化。
 - **语音转发/录音相关配置**（`voice_enabled` / `voice_record_enabled`）涉及玩家隐私，启用前请确认服务器规则中已告知玩家，并妥善控制录音文件的访问权限。
-- **`AutoUpdateInstall` 依赖你的构建是强签名的**：如果你本地随手编译了一个未签名的 DLL 在跑，自动更新的签名校验会被跳过，等同于信任任何能上传到你 GitHub Release 的人。生产环境建议走仓库里 CI 签名构建。
+- **`AutoUpdateInstall` 依赖你的构建是强签名的**：如果你本地随手编译了一个未签名的 DLL 在跑，自动更新的签名校验会被跳过，等同于信任任何能上传到你 GitHub Release 的人。签名密钥（`key.snk`）按设计不入库、由发布者本地保管：发布正式 Release 前请用 `dotnet build -c Release` 本地构建（存在 `key.snk` 时自动启用强签名），并核对产物公钥令牌为 `3ec73bb20070fa9c` 后再上传附件。
 
 ## 致谢
 

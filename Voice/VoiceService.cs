@@ -430,7 +430,6 @@ public static class VoiceService
         private readonly byte[] _inBuf = new byte[4096];
         private int _inLen;
         private int _state; // 0=HTTP 待握手 1=已握手
-        private readonly StringBuilder _httpHeader = new StringBuilder(1024);
         private int _frameSeq;
 
         public bool IsOpen => _socket.Connected && _state >= 0;
@@ -617,7 +616,16 @@ public static class VoiceService
                     Array.Copy(_inBuf, off, mask, 0, 4);
                     off += 4;
                 }
-                if (_inLen < off + (int)len) return;
+                // ★ N-01：区分「尚未收全」与「永远装不下」——_inBuf 固定 4096 字节，
+                //   声明长度超过缓冲的帧即使等再多轮也收不全（Pump 无法再读），
+                //   会永久卡死连接槽。合法入站帧只有 ping/close（都很小），直接断连。
+                int total = off + (int)len;
+                if (total > _inBuf.Length)
+                {
+                    _state = -1;
+                    return;
+                }
+                if (_inLen < total) return; // 尚未收全：等下一轮 Pump
 
                 byte[] payload = new byte[len];
                 Array.Copy(_inBuf, off, payload, 0, (int)len);
@@ -810,7 +818,23 @@ public static class VoiceService
     private static string JsonEscape(string s)
     {
         if (string.IsNullOrEmpty(s)) return "";
-        return s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\r", "").Replace("\n", " ");
+        var sb = new StringBuilder(s.Length + 16);
+        foreach (char c in s)
+        {
+            switch (c)
+            {
+                case '\\': sb.Append("\\\\"); break;
+                case '"': sb.Append("\\\""); break;
+                case '\n': sb.Append(' '); break;   // 换行 → 空格（保持日志行可读）
+                case '\r': break;                    // 回车删除
+                case '\t': sb.Append("\\t"); break;
+                default:
+                    if (c < 0x20) sb.Append("\\u").Append(((int)c).ToString("x4")); // 其余控制字符转 \uXXXX（合法 JSON）
+                    else sb.Append(c);
+                    break;
+            }
+        }
+        return sb.ToString();
     }
 
     private static string GetRoleCN(RoleTypeId type)

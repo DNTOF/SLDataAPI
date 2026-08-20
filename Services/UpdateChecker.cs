@@ -13,6 +13,8 @@ namespace SLDataAPI.Services;
 /// 启动时异步检查 GitHub Releases 是否有新版本。
 /// install=true 时自动下载并替换插件 DLL（LabAPI 从文件字节加载插件、不锁定文件，
 /// 覆盖后下次重启服务器生效）；install=false 时仅日志提示。
+/// 稳定版策略：自动更新只接受稳定版——GitHub 的 prerelease/draft 标记（权威）
+/// 与 tag 语义识别（beta/alpha/rc/preview/dev 等）双保险，预发布版本一律跳过。
 /// 失败（无网络、限流、校验不过）一律安全降级，不影响插件正常运行。
 /// </summary>
 public static class UpdateChecker
@@ -48,6 +50,17 @@ public static class UpdateChecker
 
                 var obj = JObject.Parse(await resp.Content.ReadAsStringAsync());
                 string tag = obj["tag_name"]?.ToString() ?? "";
+
+                // 稳定版策略（用户要求）：预发布版本一律不自动下载。
+                // 双保险：GitHub 元数据（prerelease/draft 复选框，权威）+ tag 语义识别
+                //（防发布时忘勾 prerelease 复选框就把 beta tag 当稳定版推出）。
+                if (obj["prerelease"]?.Value<bool>() == true || obj["draft"]?.Value<bool>() == true ||
+                    IsPreReleaseTag(tag))
+                {
+                    Log.Debug($"[SLDataAPI] 最新 Release 为预发布版本（{tag}），按稳定版策略跳过自动更新。");
+                    return;
+                }
+
                 if (!TryParseVersion(tag, out var remote) || remote <= currentVersion)
                 {
                     Log.Debug("[SLDataAPI] 已是最新版本。");
@@ -83,10 +96,38 @@ public static class UpdateChecker
             return;
         }
 
-        byte[] data = await Http.GetByteArrayAsync(url);
-        if (data.Length <= 0 || data.Length > MaxDllBytes)
+        // X-02：流式下载并限长——GetByteArrayAsync 会先把整个 asset 读进内存（GitHub 单文件
+        // 上限约 2GB），被篡改的巨大文件会在启动期触发 GB 级分配甚至 OOM；改为边读边计数，
+        // 超过 MaxDllBytes 立即中断
+        byte[] data;
+        using (var resp = await Http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead))
         {
-            Log.Warn($"[SLDataAPI] 下载文件大小异常（{data.Length} 字节），放弃自动更新。");
+            if (!resp.IsSuccessStatusCode)
+            {
+                Log.Warn($"[SLDataAPI] 下载失败: HTTP {(int)resp.StatusCode}，放弃自动更新。");
+                return;
+            }
+            using var stream = await resp.Content.ReadAsStreamAsync();
+            using var ms = new MemoryStream();
+            var buffer = new byte[8192];
+            long total = 0;
+            while (true)
+            {
+                int n = await stream.ReadAsync(buffer, 0, buffer.Length);
+                if (n <= 0) break;
+                total += n;
+                if (total > MaxDllBytes)
+                {
+                    Log.Warn($"[SLDataAPI] 下载文件超过上限 {MaxDllBytes} 字节（已读取 {total}），放弃自动更新。");
+                    return;
+                }
+                ms.Write(buffer, 0, n);
+            }
+            data = ms.ToArray();
+        }
+        if (data.Length <= 0)
+        {
+            Log.Warn("[SLDataAPI] 下载文件为空，放弃自动更新。");
             return;
         }
 
@@ -160,11 +201,32 @@ public static class UpdateChecker
         }
     }
 
-    /// <summary>容错解析版本号：支持 v2.1.0 / 2.1.0 / v2.1.0（YYMMDDHHmm）等标签格式。</summary>
+    // 预发布标识段：段内只允许"标识词 + 数字后缀"（如 beta / rc1 / alpha2），
+    // 避免 premium 这类含 pre 前缀的正常单词被误判（Y-02：旧实现的 \b 在非逐字
+    // 字符串里是退格符，分支永远匹配不到，仅靠 -rc 兜底属侥幸正确）
+    private static readonly Regex PreReleaseSegmentRegex = new Regex(
+        @"^(?:beta|alpha|preview|pre|prerelease|rc|dev|nightly|canary|snapshot)\d*$",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    /// <summary>tag 是否为预发布版本：按 -_. 分段，任一段命中预发布标识词即判定。</summary>
+    private static bool IsPreReleaseTag(string tag)
+    {
+        if (string.IsNullOrEmpty(tag)) return false;
+        foreach (string seg in tag.Split('-', '_', '.'))
+        {
+            if (PreReleaseSegmentRegex.IsMatch(seg))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>容错解析版本号：支持 v2.1.0 / 2.1.0 / v2.1.0（YYMMDDHHmm）等标签格式。
+    /// 预发布 tag（beta/alpha/rc/preview/dev 等）不解析——自动更新只接受稳定版。</summary>
     private static bool TryParseVersion(string tag, out Version version)
     {
         version = null!;
         if (string.IsNullOrEmpty(tag)) return false;
+        if (IsPreReleaseTag(tag)) return false;
         var m = Regex.Match(tag, @"(\d+)\.(\d+)\.(\d+)");
         return m.Success && Version.TryParse(m.Value, out version);
     }

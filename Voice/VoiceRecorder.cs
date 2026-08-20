@@ -13,7 +13,7 @@ using VoiceChat;
 namespace SLDataAPI.Voice;
 
 /// <summary>
-/// 语音录音取证（v2.5 / Bay of Pigs Invasion）：每局游戏自动保存为一个压缩包
+/// 语音录音取证（v2.5 / Apollo 11's Tapes）：每局游戏自动保存为一个压缩包
 ///   voice_round_&lt;局号&gt;_&lt;开始时间&gt;.zip，内含：
 ///   1) 按频道分轨的音轨：&lt;局名&gt;.&lt;频道&gt;.wav（48kHz / 16bit / 单声道 PCM，
 ///      如 .Proximity / .Radio / .Intercom / .Scp …）
@@ -77,7 +77,6 @@ public static class VoiceRecorder
     {
         public float[] Data;
         public int Count;
-        public long StartSample; // 本帧在文件内的起始采样号（累计样本数）
         public byte Channel;
     }
 
@@ -282,6 +281,12 @@ public static class VoiceRecorder
     {
         if (_queue == null) return;
 
+        // X-01：清洗时间轴文本字段（剥 \r\n\t 与控制字符）——玩家昵称含换行/Tab
+        // 可伪造或错位 TSV 证据条目，取证文件本身不能被玩家污染
+        nickname = CleanField(nickname);
+        userId = CleanField(userId);
+        role = CleanField(role);
+
         double now = Now; // 录音内部时钟（高精度）
 
         // 首包到达该频道：主线程只记时间轴并请求写盘线程开轨（控制消息，与帧同队列串行）
@@ -298,8 +303,6 @@ public static class VoiceRecorder
         // 本帧在「所属频道文件内」的起始采样号 = 该频道累计样本数（连续拼接：与各轨 WAV 实际位置一致，
         // 时间轴的采样号可精确跳转到对应频道文件；全局累计仅用于内容时长）
         long startSample = ChannelSamples.TryGetValue(channel, out long ch) ? ch : 0;
-        ChannelSamples[channel] = startSample + sampleCount;
-        _cumulativeSamples += sampleCount;
 
         // 讲话段判定：距该说话者最近一包超过阈值视为新一轮讲话（先收尾上一段，再开新段）
         bool continuing = LastPacket.TryGetValue(netId, out double lastPkt) &&
@@ -314,7 +317,14 @@ public static class VoiceRecorder
         LastPacket[netId] = now;
         BurstMeta[netId] = (nickname, userId, role, channel);
 
-        if (!_queue.TryAdd(new VoiceFrame { Data = pcm, Count = sampleCount, StartSample = startSample, Channel = channel }))
+        if (_queue.TryAdd(new VoiceFrame { Data = pcm, Count = sampleCount, Channel = channel }))
+        {
+            // ★ R-01：只在实际入队的帧上推进记账——队列满丢帧时不推进，
+            //   时间轴采样号与 WAV 实际位置保持严格一致（否则丢帧越多漂移越大）
+            ChannelSamples[channel] = startSample + sampleCount;
+            _cumulativeSamples += sampleCount;
+        }
+        else
         {
             Interlocked.Increment(ref _droppedFrames);
             if (now - _lastDropWarn > 5f)
@@ -378,6 +388,20 @@ public static class VoiceRecorder
             try { stream?.Dispose(); } catch { }
             Log.Error($"[SLDataAPI] 录音通道 {channel} 创建失败: {ex.Message}");
         }
+    }
+
+    /// <summary>清洗时间轴文本字段：剥控制字符 / Tab / 换行（X-01，防证据污染）。</summary>
+    private static string CleanField(string? s)
+    {
+        s ??= ""; // net48 的 IsNullOrEmpty 无 NotNullWhen 注解，编译器无法据此收窄可空性
+        if (s.Length == 0) return s;
+        var sb = new StringBuilder(s.Length);
+        foreach (char c in s)
+        {
+            if (c == '\r' || c == '\n' || c == '\t' || c < 0x20) continue;
+            sb.Append(c);
+        }
+        return sb.ToString();
     }
 
     private static string SafeChannelName(byte channel)
@@ -485,7 +509,7 @@ public static class VoiceRecorder
 
     private static void AppendTimelineHeader()
     {
-        _timeline!.AppendLine("# SLDataAPI 语音时间轴（v2.5 Bay of Pigs Invasion）");
+        _timeline!.AppendLine("# SLDataAPI 语音时间轴（v2.5 Apollo 11's Tapes）");
         _timeline.AppendLine($"# 局号: {_roundNumber}  回合开始: {_roundStart:yyyy-MM-dd HH:mm:ss.fff}  采样率: {SampleRate}Hz");
         _timeline.AppendLine("# 列: 回合内秒\t绝对时间\t事件\t昵称\tsteamid\t角色\t频道\tnetid\t详情");
         _timeline.AppendLine("# 对齐: 采样号 = 所属频道 WAV 文件内字节位置 ÷ 2（连续拼接，静默不占文件空间；按频道累计，可精确跳转/切段）");

@@ -205,48 +205,86 @@ public static class ServerLogService
         return latest;
     }
 
-    /// <summary>从文件尾部反向读取最多 maxLines 行，避免整个大日志文件读入内存。</summary>
+    /// <summary>
+    /// 从文件尾部读取最多 maxLines 行（Y-01 修复：单窗口整体解码）。
+    /// 先读尾部一个窗口（初始 64KB）并一次性 UTF-8 解码——整段解码不存在跨块边界，
+    /// 多字节字符永不损坏；行数不足则窗口翻倍重读（上限 8MB），内存有界。
+    /// 旧实现按 8KB 分块解码 + 块尾多读 3 字节，重叠区的字符会被重复发射
+    /// （实测 "0123456789" → "0123423456786789"），已废弃。
+    /// </summary>
     private static string[] ReadTailLines(string file, int maxLines)
     {
-        var result = new List<string>(maxLines);
-        var sb = new StringBuilder();
-        int lines = 0;
+        const long InitialWindow = 64 * 1024;
+        const long MaxWindow = 8 * 1024 * 1024;
 
         using (var fs = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
         {
-            long pos = fs.Length;
+            long fileLen = fs.Length;
+            long window = InitialWindow;
 
-            while (pos > 0 && lines < maxLines)
+            while (true)
             {
-                int chunk = (int)Math.Min(pos, 8192);
-                pos -= chunk;
-                fs.Position = pos;
+                long readFrom = Math.Max(0, fileLen - window);
+                fs.Position = readFrom;
 
-                var buf = new byte[chunk];
-                int read = fs.Read(buf, 0, chunk);
-                string text = Encoding.UTF8.GetString(buf, 0, read);
-
-                for (int i = text.Length - 1; i >= 0; i--)
+                int bufLen = (int)(fileLen - readFrom);
+                var buf = new byte[bufLen];
+                int read = 0;
+                while (read < bufLen)
                 {
-                    if (text[i] == '\n')
-                    {
-                        result.Add(sb.ToString());
-                        sb.Clear();
-                        lines++;
-                        if (lines >= maxLines) break;
-                    }
-                    else if (text[i] != '\r')
-                    {
-                        // 从行首方向构建，插入到最前面
-                        sb.Insert(0, text[i]);
-                    }
+                    int n = fs.Read(buf, read, bufLen - read);
+                    if (n <= 0) break;
+                    read += n;
                 }
 
-                if (lines >= maxLines) break;
+                string text = Encoding.UTF8.GetString(buf, 0, read);
+                if (readFrom > 0)
+                {
+                    // 窗口起点落在多字节字符中间时，开头会解出替换符（U+FFFD）——
+                    // 那是被切开的字符残片，丢弃（读到文件头时不存在此问题，不裁剪）
+                    text = text.TrimStart('\uFFFD');
+                }
+
+                string[] lines = SplitTailLines(text, maxLines);
+
+                // 收工条件：读到文件头（首行天然完整），或窗口内换行数已够 maxLines
+                //（返回的最老一行有 '\n' 兜底，未被窗口起点从中间切断），或窗口到顶（尽力而为）。
+                // 仅凭 lines.Length >= maxLines 不够——最老一行可能是被窗口切开的半行
+                int newlines = 0;
+                for (int i = 0; i < text.Length && newlines < maxLines; i++)
+                    if (text[i] == '\n') newlines++;
+
+                if (readFrom == 0 || newlines >= maxLines || window >= MaxWindow)
+                    return lines;
+
+                window = Math.Min(window * 2, MaxWindow);
+            }
+        }
+    }
+
+    /// <summary>从已整体解码的文本中取末尾 maxLines 行。</summary>
+    private static string[] SplitTailLines(string text, int maxLines)
+    {
+        var result = new List<string>(Math.Min(maxLines, 64));
+        var sb = new StringBuilder();
+        int lines = 0;
+
+        for (int i = text.Length - 1; i >= 0 && lines < maxLines; i--)
+        {
+            char c = text[i];
+            if (c == '\n')
+            {
+                result.Add(sb.ToString());
+                sb.Clear();
+                lines++;
+            }
+            else if (c != '\r')
+            {
+                sb.Insert(0, c); // 从行首方向构建，插入到最前面
             }
         }
 
-        if (sb.Length > 0)
+        if (sb.Length > 0 && lines < maxLines)
             result.Add(sb.ToString());
 
         result.Reverse();

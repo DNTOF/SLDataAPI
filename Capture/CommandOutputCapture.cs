@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Reflection;
 using System.Text;
 using HarmonyLib;
@@ -20,8 +21,9 @@ namespace SLDataAPI.Capture;
 public static class CommandOutputCapture
 {
     private static readonly object Lock = new object();
-    private static readonly StringBuilder Buffer = new StringBuilder();
-    private static bool _capturing;
+    // 会话栈：并发 /control/command（多请求同时捕获）各自独立缓冲，End 弹栈取回自己的输出——
+    // 修复"全局单缓冲串台"（A 的输出被 B 的 End 取走）
+    private static readonly Stack<StringBuilder> CaptureStack = new Stack<StringBuilder>();
 
     private static Harmony? _harmony;
 
@@ -110,25 +112,22 @@ public static class CommandOutputCapture
         _harmony = null;
     }
 
-    /// <summary>开始捕获（命令执行前调用）。</summary>
+    /// <summary>开始捕获（命令执行前调用）；支持并发嵌套（栈式，各会话独立缓冲）。</summary>
     public static void BeginCapture()
     {
         lock (Lock)
         {
-            Buffer.Clear();
-            _capturing = true;
+            CaptureStack.Push(new StringBuilder());
         }
     }
 
-    /// <summary>结束捕获并返回期间积累的输出（命令执行后调用）。</summary>
+    /// <summary>结束捕获并返回本会话积累的输出（命令执行后调用）。</summary>
     public static string EndCapture()
     {
         lock (Lock)
         {
-            _capturing = false;
-            string text = Buffer.ToString().TrimEnd('\r', '\n');
-            Buffer.Clear();
-            return text;
+            if (CaptureStack.Count == 0) return "";
+            return CaptureStack.Pop().ToString().TrimEnd('\r', '\n');
         }
     }
 
@@ -149,8 +148,8 @@ public static class CommandOutputCapture
     {
         lock (Lock)
         {
-            if (_capturing && message != null)
-                Buffer.AppendLine(message);
+            if (CaptureStack.Count > 0 && message != null)
+                CaptureStack.Peek().AppendLine(message);
         }
     }
 }

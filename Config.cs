@@ -46,6 +46,8 @@ public class Config
     /// <summary>
     /// 检测到新版本时是否自动下载并替换插件 DLL（覆盖后下次重启游戏服务器生效，旧版备份为 .bak）。
     /// 校验：下载文件必须是合法程序集、名称一致；当前版本已强名称签名时还要求签名一致（防篡改）。
+    /// 稳定版策略：只自动接受稳定版——预发布版本（GitHub prerelease/draft 标记，
+    /// 或 tag 含 beta/alpha/rc/preview/dev 等标识）不会自动下载。
     /// 关闭时仅日志提示，需手动更新。
     /// </summary>
     public bool AutoUpdateInstall { get; set; } = true;
@@ -76,7 +78,7 @@ public class Config
     /// </summary>
     public int VoicePort { get; set; } = 8082;
 
-    // ================== 语音录音取证（v2.5 / Bay of Pigs Invasion 新增） ==================
+    // ================== 语音录音取证（v2.5 / Apollo 11's Tapes 新增） ==================
 
     /// <summary>
     /// 是否自动保存每局游戏的语音录音：一条混合音轨（WAV 48kHz/16bit/单声道）

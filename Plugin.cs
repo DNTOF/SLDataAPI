@@ -21,9 +21,9 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
     private HttpServer? server;
 
     public override string Name => "SLDataAPI";
-    public override string Description => "通过 HTTP API 向外部（WebUI / 机器人）提供服务器数据采集与远程控制能力（LabAPI 原生插件，代号 Bay of Pigs Invasion）";
+    public override string Description => "通过 HTTP API 向外部（WebUI / 机器人）提供服务器数据采集与远程控制能力（LabAPI 原生插件，代号 Apollo 11's Tapes）";
     public override string Author => "DNT_OF";
-    public override Version Version => new Version(2, 5, 2);
+    public override Version Version => new Version(2, 5, 3);
     public override Version RequiredApiVersion => new Version(1, 1, 7);
 
     public override void Enable()
@@ -52,7 +52,17 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
             $"录音={(Config.VoiceRecordEnabled ? $"开(保留 {Config.VoiceRecordMaxRounds} 局)" : "关")}。");
 
         server = new HttpServer(Config.HttpPort, Config);
-        server.Start();
+        try
+        {
+            server.Start();
+        }
+        catch (Exception ex)
+        {
+            // X-03：端口绑定失败（被占用/权限）时明确报错并跳过 HTTP 相关初始化，
+            // 其余功能（语音/采集/更新）继续——避免插件"半死"状态且无日志
+            Log.Error($"[SLDataAPI] HTTP 服务启动失败（端口 {Config.HttpPort} 可能被占用）: {ex.Message} —— 数据/控制接口不可用，其余功能继续");
+            server = null;
+        }
 
         // 语音转发（v2.3）：独立 WebSocket 端口，ControlToken 鉴权
         if (Config.VoiceEnabled)
@@ -70,7 +80,7 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
         if (Config.AutoUpdateCheck)
             UpdateChecker.CheckAsync(Version, Config.AutoUpdateInstall);
 
-        Log.Info($"SLDataAPI v{Version} (Bay of Pigs Invasion / LabAPI) enabled. HTTP on port {Config.HttpPort}. Control API: {(Config.ControlEnabled ? $"{Config.ControlTransport.ToUpperInvariant()} 模式" : "关闭")}. Voice: {(Config.VoiceEnabled ? $"启用(端口 {Config.VoicePort})" : "关闭")}.");
+        Log.Info($"SLDataAPI v{Version} (Apollo 11's Tapes / LabAPI) enabled. HTTP on port {Config.HttpPort}. Control API: {(Config.ControlEnabled ? $"{Config.ControlTransport.ToUpperInvariant()} 模式" : "关闭")}. Voice: {(Config.VoiceEnabled ? $"启用(端口 {Config.VoicePort})" : "关闭")}.");
     }
 
     public override void Disable()
@@ -83,6 +93,7 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
         VoiceService.Stop();
         VoiceRecorder.EndRound(waitFinalize: true); // 兜底：停服时定稿并等待打包完成
         server?.Stop();
+        ControlController.ClearPluginStaged(); // X-05：插件重载后清空启停暂存
         WsControlService.ShutdownAll();
         DataCollector.StopTimer();
         CommandOutputCapture.Shutdown();
@@ -173,7 +184,8 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
         {
             DataCollector.UpdateDataNow();
             MapLayoutService.CaptureLayout(); // 采集本回合随机布局（LCZ/HCZ 每回合不同）
-            VoiceRecorder.BeginRound(); // 语音录音取证：本局开始
+            if (Config.VoiceEnabled)
+                VoiceRecorder.BeginRound(); // 语音录音取证：本局开始（需语音管线运行）
             NotifyRecordingHint(); // 录音启用时向所有玩家声明本局将被录音（隐私告知）
             Log.Info("SLDataAPI: Round started.");
         }
@@ -200,6 +212,8 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
         const string text = "为了保证游戏公平性，本局游戏将会被录音，具体详询服务器管理员。";
         Timing.CallDelayed(1f, () =>
         {
+            // N-06：延迟期间若回合已结束/重启，不再补发（避免提示迟到打到下一回合玩家）
+            if (!Round.IsRoundStarted) return;
             try
             {
                 foreach (var p in Player.List)
@@ -221,8 +235,9 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
     {
         try
         {
-                DataCollector.UpdateDataNow();
-            VoiceRecorder.EndRound(); // 语音录音取证：定稿本局录音
+            DataCollector.UpdateDataNow();
+            if (Config.VoiceEnabled)
+                VoiceRecorder.EndRound(); // 语音录音取证：定稿本局录音
             Log.Info("SLDataAPI: Round ended.");
         }
         catch (Exception ex)

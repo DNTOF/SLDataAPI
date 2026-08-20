@@ -76,3 +76,12 @@ body:
       render: text
     validations:
       required: false
+
+  - type: checkboxes
+    id: pr_consent
+    attributes:
+      label: 是否愿意提交 Pull Request（PR）修复此问题
+      description: 勾选即视为同意贡献修复代码（作为 PR 提交）
+      options:
+        - label: 我愿意提交 PR 修复此问题
+          required: false

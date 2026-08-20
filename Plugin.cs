@@ -65,7 +65,6 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
         VoiceRecorder.Configure(Config.VoiceRecordEnabled, Config.VoiceRecordMaxRounds, Config.VoiceRecordDir);
 
         // 插件启用时立即采集一次真实数据，并启动定时循环
-        DataCollector.IsRoundActive = Round.IsRoundStarted;
         DataCollector.InitData(Config.PushIntervalSeconds);
 
         if (Config.AutoUpdateCheck)
@@ -162,7 +161,6 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
 
     private void OnWaitingForPlayers()
     {
-        DataCollector.IsRoundActive = false;
         DataCollector.UpdateDataNow();
         MapLayoutService.Clear(); // 上一回合的地图布局失效
         MapLayoutService.CaptureLayout(); // 等待玩家时地图已生成，立即采集（失败自动重试）
@@ -173,7 +171,6 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
     {
         try
         {
-            DataCollector.IsRoundActive = true;
             DataCollector.UpdateDataNow();
             MapLayoutService.CaptureLayout(); // 采集本回合随机布局（LCZ/HCZ 每回合不同）
             VoiceRecorder.BeginRound(); // 语音录音取证：本局开始
@@ -224,8 +221,7 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
     {
         try
         {
-            DataCollector.IsRoundActive = false;
-            DataCollector.UpdateDataNow();
+                DataCollector.UpdateDataNow();
             VoiceRecorder.EndRound(); // 语音录音取证：定稿本局录音
             Log.Info("SLDataAPI: Round ended.");
         }

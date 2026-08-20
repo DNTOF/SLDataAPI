@@ -13,7 +13,6 @@ namespace SLDataAPI.Services;
 public static class DataCollector
 {
     public static volatile ServerData CachedData = new ServerData(); // volatile：快照引用原子替换，主线程单写、HTTP 线程只读引用，无字段撕裂
-    public static bool IsRoundActive = false;
 
     private static CoroutineHandle _handle;
 
@@ -171,6 +170,8 @@ public static class DataCollector
             //   BuildJson() 是被 HttpServer 的后台线程直接调用的，
             //   在后台线程里访问 Player.Position 等游戏对象存在线程安全风险。
             fresh.dntof_plugins = DntofDetector.Collect();
+
+            CachedData = fresh; // ★ F-01：快照构建完毕，原子替换发布（volatile 保证可见性）——缺失会导致 /get_sl_data 永远空数据
         }
         catch (System.Exception ex)
         {

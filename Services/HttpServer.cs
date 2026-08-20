@@ -30,9 +30,6 @@ public class HttpServer
     // 只约束"读请求"阶段，不影响控制端点最长 5s 的主线程派发与响应写出。
     private const int RequestDeadlineMs = 15000;
 
-    // ★ 串行化 JSON 构建，避免并发请求同时写 CachedData 造成字段错乱
-    private static readonly object _jsonLock = new object();
-
     public HttpServer(int port, Config config)
     {
         _port = port;
@@ -272,8 +269,8 @@ public class HttpServer
                     return;
                 }
 
-                string json;
-                lock (_jsonLock) { json = DataCollector.BuildJson(); }
+                // 快照模式：BuildJson 只读 volatile 快照 + 局部 Clone + 主线程派发，无共享可变状态，无需加锁
+                string json = DataCollector.BuildJson();
                 SendJson(stream, 200, json);
                 return;
             }

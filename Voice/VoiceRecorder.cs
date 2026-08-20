@@ -51,7 +51,8 @@ public static class VoiceRecorder
     private static readonly System.Diagnostics.Stopwatch Clock = System.Diagnostics.Stopwatch.StartNew();
     private static double Now => Clock.Elapsed.TotalSeconds;
     private static double _roundStartTime;
-    private static long _cumulativeSamples; // 全局累计样本数（文件内位置 = 累计样本数，主线程独占）
+    private static long _cumulativeSamples; // 全局累计样本数（内容时长用，主线程独占）
+    private static readonly Dictionary<byte, long> ChannelSamples = new(); // 每频道累计样本数（时间轴文件采样号按频道独立，与各轨 WAV 实际位置一致，主线程独占）
 
     private static BlockingCollection<object>? _queue;  // VoiceFrame（音频帧）与 VoiceOpenChannel（开轨控制消息）
     private static Thread? _writer;
@@ -133,9 +134,13 @@ public static class VoiceRecorder
             _queue = new BlockingCollection<object>(MaxQueuedFrames);
             _droppedFrames = 0;
             _cumulativeSamples = 0;
-            _writerTracks = null;
+            ChannelSamples.Clear();
             PendingChannels.Clear();
-            _writer = new Thread(WriterLoop) { IsBackground = true, Name = "SLDataAPI-VoiceRecorder" };
+            // L-01n：每局闭包捕获独立 holder——跨局旧写盘线程只会写自己捕获的列表，
+            // 不会覆盖新局的 _writerTracks（跨局覆盖窗口关闭）
+            var holder = new List<ChannelTrack>();
+            _writerTracks = holder;
+            _writer = new Thread(() => WriterLoop(holder)) { IsBackground = true, Name = "SLDataAPI-VoiceRecorder" };
             _writer.Start();
             Log.Info($"[SLDataAPI] 本局语音录音开始: {_baseName}（目录: {_dir}，频道分轨）");
         }
@@ -187,7 +192,7 @@ public static class VoiceRecorder
             tracks = _writerTracks ?? new List<ChannelTrack>();
             foreach (var t in tracks)
                 AppendTimeline("通道归档",
-                    $"{SafeChannelName(t.Channel)}\t{Path.GetFileName(t.FilePath)}\t样本数={t.SamplesWritten}\t终点采样={roundEndSample}");
+                    $"{SafeChannelName(t.Channel)}\t{Path.GetFileName(t.FilePath)}\t样本数={t.SamplesWritten}");
             timelineText = _timeline?.ToString();
         }
         catch (Exception ex)
@@ -286,12 +291,14 @@ public static class VoiceRecorder
             if (!_queue.TryAdd(new VoiceOpenChannel { Channel = channel }))
             {
                 PendingChannels.Remove(channel); // 开轨消息入队失败则撤销，下一包重试
-                _droppedFrames++;
+                Interlocked.Increment(ref _droppedFrames);
             }
         }
 
-        // 本帧在文件内的起始采样号 = 累计样本数（连续拼接：无论处理时刻抖动，音频按到达顺序连续写）
-        long startSample = _cumulativeSamples;
+        // 本帧在「所属频道文件内」的起始采样号 = 该频道累计样本数（连续拼接：与各轨 WAV 实际位置一致，
+        // 时间轴的采样号可精确跳转到对应频道文件；全局累计仅用于内容时长）
+        long startSample = ChannelSamples.TryGetValue(channel, out long ch) ? ch : 0;
+        ChannelSamples[channel] = startSample + sampleCount;
         _cumulativeSamples += sampleCount;
 
         // 讲话段判定：距该说话者最近一包超过阈值视为新一轮讲话（先收尾上一段，再开新段）
@@ -309,7 +316,7 @@ public static class VoiceRecorder
 
         if (!_queue.TryAdd(new VoiceFrame { Data = pcm, Count = sampleCount, StartSample = startSample, Channel = channel }))
         {
-            _droppedFrames++;
+            Interlocked.Increment(ref _droppedFrames);
             if (now - _lastDropWarn > 5f)
             {
                 _lastDropWarn = now;
@@ -331,9 +338,11 @@ public static class VoiceRecorder
         {
             if (BurstMeta.TryGetValue(netId, out var meta))
             {
+                // F-02：终点采样用该说话者所属频道的累计样本数（与对应 WAV 文件位置一致）
+                long chEnd = ChannelSamples.TryGetValue(meta.Channel, out long ce) ? ce : burst.StartSample;
                 AppendTimeline("说话结束",
                     $"{meta.Name}\t{meta.UserId}\t{meta.Role}\t{meta.Channel}\t{netId}\t" +
-                    $"时长={now - burst.StartTime:F3}s 文件起点采样={burst.StartSample} 文件终点采样={_cumulativeSamples}");
+                    $"时长={now - burst.StartTime:F3}s 文件起点采样={burst.StartSample} 文件终点采样={chEnd}");
             }
             OpenBursts.Remove(netId);
         }
@@ -389,7 +398,7 @@ public static class VoiceRecorder
     /// 本局轨道表为写盘线程独占（无共享字典）：开轨控制消息与音频帧经同一队列串行处理，
     /// 动态注册对写盘线程天然可见。线程退出时把轨道产出给主线程（EndRound 在 Join 成功后才读取）。
     /// </summary>
-    private static void WriterLoop()
+    private static void WriterLoop(List<ChannelTrack> holder)
     {
         var trackMap = new Dictionary<byte, ChannelTrack>();
         try
@@ -408,9 +417,9 @@ public static class VoiceRecorder
         }
         finally
         {
-            // 产出给主线程；不在此处 Close（定稿由 FinalizeRound 统一补头后关闭，
-            // 避免双重关闭/未补头散件）。若 Join 超时跳过定稿，文件句柄由 GC 兜底释放。
-            _writerTracks = trackMap.Values.ToList();
+            // 产出到本局闭包捕获的 holder（跨局旧线程只写自己的列表，不碰静态状态）；
+            // 不在此处 Close（定稿由 FinalizeRound 统一补头后关闭）。Join 超时跳过定稿时句柄由 GC 兜底。
+            holder.AddRange(trackMap.Values);
         }
     }
 
@@ -418,7 +427,12 @@ public static class VoiceRecorder
     private static void WritePcm(VoiceFrame frame, Dictionary<byte, ChannelTrack> trackMap)
     {
         if (!trackMap.TryGetValue(frame.Channel, out var track) || track.Writer == null || frame.Count <= 0)
+        {
+            // L-02n：落到无轨道的帧也计入丢帧（开轨失败/队列竞态的可见性），线程安全计数
+            if (frame.Count > 0)
+                Interlocked.Increment(ref _droppedFrames);
             return;
+        }
 
         int n = Math.Min(frame.Count, frame.Data.Length);
         for (int i = 0; i < n; i++)
@@ -474,7 +488,7 @@ public static class VoiceRecorder
         _timeline!.AppendLine("# SLDataAPI 语音时间轴（v2.5 Bay of Pigs Invasion）");
         _timeline.AppendLine($"# 局号: {_roundNumber}  回合开始: {_roundStart:yyyy-MM-dd HH:mm:ss.fff}  采样率: {SampleRate}Hz");
         _timeline.AppendLine("# 列: 回合内秒\t绝对时间\t事件\t昵称\tsteamid\t角色\t频道\tnetid\t详情");
-        _timeline.AppendLine("# 对齐: 采样号 = WAV 文件内字节位置 ÷ 2（连续拼接，静默不占文件空间；用采样号可精确跳转/切段）");
+        _timeline.AppendLine("# 对齐: 采样号 = 所属频道 WAV 文件内字节位置 ÷ 2（连续拼接，静默不占文件空间；按频道累计，可精确跳转/切段）");
         _timeline.AppendLine("# 分轨: 每个语音频道（Proximity/Radio/Intercom/Spectator/Scp…）独立一个 WAV，频道间不混合");
     }
 

@@ -179,6 +179,18 @@ public static class WsControlService
         return true;
     }
 
+    /// <summary>
+    /// 向所有已连接且订阅了事件的会话广播事件（线程安全，任意线程可调用）。
+    /// 供 Plugin 的事件处理器转发 LabAPI 事件到平台端。
+    /// </summary>
+    public static void BroadcastEvent(string eventType, JObject data)
+    {
+        Session[] snapshot;
+        lock (RegistryLock) snapshot = Sessions.ToArray();
+        foreach (var s in snapshot)
+            s.PushEvent(eventType, data);
+    }
+
     /// <summary>插件停用时由 Plugin.Disable 调用：停清扫器并断开全部会话。</summary>
     public static void ShutdownAll()
     {
@@ -259,6 +271,7 @@ public static class WsControlService
         private volatile bool _closed;
 
         public DateTime LastActivity = DateTime.UtcNow;
+        public volatile bool EventsSubscribed; // 是否订阅服务器事件推送（subscribe_events 消息控制）
 
         public Session(Stream stream, string remoteIp)
         {
@@ -270,6 +283,20 @@ public static class WsControlService
         {
             _closed = true;
             try { _stream.Close(); } catch { /* 忽略 */ }
+        }
+
+        /// <summary>向该会话推送一条事件（线程安全，任意线程可调用）。</summary>
+        public void PushEvent(string eventType, JObject data)
+        {
+            if (_closed || !EventsSubscribed) return;
+            var o = new JObject
+            {
+                ["type"] = "event",
+                ["event"] = eventType,
+                ["utc"] = DateTime.UtcNow.ToString("o"),
+                ["data"] = data,
+            };
+            SendJson(o);
         }
 
         /// <summary>阻塞读循环：握手已完成，处理 WS 帧直到连接关闭。运行在 HttpServer 工作线程。</summary>
@@ -383,12 +410,22 @@ public static class WsControlService
                     SendJson(new JObject { ["type"] = "pong" });
                     return;
 
+                case "subscribe_events":
+                    EventsSubscribed = true;
+                    SendJson(new JObject { ["type"] = "events_subscribed" });
+                    return;
+
+                case "unsubscribe_events":
+                    EventsSubscribed = false;
+                    SendJson(new JObject { ["type"] = "events_unsubscribed" });
+                    return;
+
                 case "call":
                     HandleCall(msg);
                     return;
 
                 default:
-                    SendJson(new JObject { ["type"] = "error", ["message"] = $"未知消息类型: {type}（支持 ping / call）" });
+                    SendJson(new JObject { ["type"] = "error", ["message"] = $"未知消息类型: {type}（支持 ping / subscribe_events / call）" });
                     return;
             }
         }

@@ -78,7 +78,7 @@ public class Config
     /// </summary>
     public int VoicePort { get; set; } = 8082;
 
-    // ================== 语音录音取证（v2.5 / FI-STM 新增） ==================
+    // ================== 语音录音取证（v2.5 / ENIGMA 新增） ==================
 
     /// <summary>
     /// 是否自动保存每局游戏的语音录音：一条混合音轨（WAV 48kHz/16bit/单声道）

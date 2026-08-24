@@ -15,12 +15,12 @@
 >
 > 强烈建议：仅在内网/受信网络使用；对外暴露时务必经反向代理加 HTTPS/WSS（详见下方「安全注意事项」）。
 
-版本： 2.5.3-Patch（开发代号 FI-STM）  
+版本： 2.5.4-preview（开发代号 ENIGMA）  
 **架构：** **LabAPI 原生插件**（v2.4 起脱离 EXILED，运行于 Northwood 官方 LabAPI 框架）  
 **依赖：** LabAPI（游戏服务器自带） · MEC · Newtonsoft.Json · Harmony（服务器自带，不打包）  
 **用途：** 在 SCP:SL 游戏服务器上暴露一个轻量 HTTP 接口，供 WebUI / AstrBot 等外部程序轮询实时服务器数据，并通过 `/control/*` 控制接口远程执行管理操作；内置**语音转发**（WebSocket 实时收听全频道语音，代号 SPY）；v2.5 起新增**控制接口 WebSocket 长连接**。
 
-> **v2.4.0（现代号 FI-STM）—— 架构迁移说明：** 本插件已从 EXILED 插件迁移为 **LabAPI 原生插件**（不再依赖 EXILED），并完成源码目录/命名空间分类重构。
+> **v2.4.0（代号 Rebirth）—— 架构迁移说明：** 本插件已从 EXILED 插件迁移为 **LabAPI 原生插件**（不再依赖 EXILED），并完成源码目录/命名空间分类重构。
 > - 安装位置变更：`LabAPI/plugins/global/`（不再是 `EXILED/Plugins/`）
 > - 配置位置变更：`LabAPI/configs/<端口>/SLDataAPI/config.yml`（旧 EXILED 配置文件不会被读取，需把值抄到新文件；键名同为 snake_case，删掉 `is_enabled` 即可）
 > - 插件启停由 LabAPI 的 `properties.yml` 管理（`/control/plugins` 可代写）
@@ -34,6 +34,7 @@
 |------|------|
 | 实时数据查询 | `GET /get_sl_data`：人数、回合、核弹、玩家列表（含 SteamID / 坐标）、DNT_OF 系列插件状态 |
 | 控制接口 | `/control/` 公用控制命名空间，按 `control_transport` 二选一：`POST /control/*`（命令执行、玩家管理、回合控制、CASSIE、核弹、地图、封禁、日志、文件等）**或** WebSocket 长连接（升级 `/control`，call 信封调用同样的端点，见下文） |
+| 事件流推送（v2.5.4） | 控制长连接 `subscribe_events` 订阅后实时推送服务器事件：回合开始/结束、玩家加入/离开/死亡、电梯使用、权限门交互（见「控制接口 WebSocket」章节） |
 | 命令输出捕获 | Harmony 补丁捕获 `ServerConsole.AddLog` / `CommandSender` 输出，`/control/command` 可拿到命令回显；点命令（`.m` 等）在 DotCommandHandler 上直连执行、响应直接返回（v2.5 修复：原生路径在专用服上不执行且无回显） |
 | 地图数据 | 按 seed 提供本回合布局（LCZ/HCZ 每回合随机），可导出 atlas 等原始数据供外部重建地图 |
 | 插件管理 | 列表读取配置文件启停状态（LabAPI 插件 + 同服 EXILED 插件）；启停走"暂存 → 保存"批量模式，LabAPI 插件重启生效（SLDataAPI 自身禁止禁用） |
@@ -89,7 +90,7 @@ log_directory: ''                     # 服务器日志目录；留空=自动探
 voice_enabled: false                  # 是否启用语音转发 WebSocket（默认关闭）
 voice_port: 8082                      # 语音 WebSocket 监听端口（独立于 http_port）
 
-# ===== 语音录音取证（v2.5 / FI-STM）=====
+# ===== 语音录音取证（v2.5 / ENIGMA）=====
 voice_record_enabled: false           # 每局自动保存录音（WAV 混合音轨 + 时间轴日志）；需 voice_enabled=true
 voice_record_max_rounds: 10           # 最多保留多少局录音（0/负数=不清理；参考 5.5MB/分钟/局）
 voice_record_dir: ''                  # 录音保存目录（留空=默认 %AppData%/SCP Secret Laboratory/SLDataAPI/VoiceRecords）
@@ -268,9 +269,13 @@ Content-Type: application/json
 
 | 方向 | 消息 | 说明 |
 |------|------|------|
-| S→C | `{"type":"hello","version":"2.5.0","endpoints":"/control/*"}` | 建连后立即推送 |
+| S→C | `{"type":"hello","version":"<插件版本>","endpoints":"/control/*"}` | 建连后立即推送 |
 | C→S | `{"type":"ping"}` | 心跳（建议 ~25s 一次） |
 | S→C | `{"type":"pong"}` | 心跳应答 |
+| C→S | `{"type":"subscribe_events"}` | 订阅服务器事件推送（v2.5.4，见下方「事件推送」） |
+| C→S | `{"type":"unsubscribe_events"}` | 取消事件订阅 |
+| S→C | `{"type":"events_subscribed"}` / `{"type":"events_unsubscribed"}` | 订阅状态确认 |
+| S→C | `{"type":"event","event":"player_died","utc":"...","data":{...}}` | 服务器事件推送（仅订阅后） |
 | C→S | `{"type":"call","reqId":"c1","path":"/control/player/kick","body":{...}}` | 控制调用；`path` + `body` 与 HTTP POST 完全一致 |
 | S→C | `{"type":"result","reqId":"c1","ok":true,"status":200,"data":{"success":true,...}}` | 调用结果；`data` 即 HTTP 响应体；失败时 `ok:false` 且带 `message`（对应 400/403/500 文案） |
 | S→C | `{"type":"error","message":"..."}` | 协议层错误（非法 JSON / 未知类型等） |
@@ -278,6 +283,22 @@ Content-Type: application/json
 - `reqId` 由调用方生成，仅需连接内唯一；**结果允许乱序返回**（并发调用时按完成顺序回包）
 - 限制：全局连接上限 8；单连接并发 `call` 上限 4（超出立即回 `result{ok:false,status:429}`）；单消息上限 256KB；90s 无入站消息判定超时断开
 - 除 JSON 层 `ping/pong` 外，协议层 WS ping 帧也会被应答
+
+**事件推送（v2.5.4 · 订阅制）：**
+
+订阅 `subscribe_events` 后，服务器实时推送以下事件（`type:"event"`，`event` 为事件名，`data` 为负载）：
+
+| 事件名 | 触发时机 | data 字段 |
+|--------|----------|-----------|
+| `round_started` | 回合开始 | `started_at`（UTC ISO8601） |
+| `round_ended` | 回合结束 | `leading_team`（胜利阵营）、`ended_at` |
+| `player_joined` | 玩家加入 | `nickname`、`userid` |
+| `player_left` | 玩家离开 | `nickname`、`userid` |
+| `player_died` | 玩家死亡 | `nickname`、`userid`、`old_role`、`attacker_nickname`、`attacker_userid`（无攻击者时缺省） |
+| `elevator_used` | 玩家使用电梯 | `nickname`、`userid`、`elevator_group`（如 Nuke01 / LczA01） |
+| `door_opened` | 玩家交互门（含权限门） | `nickname`、`userid`、`door`（DoorName 枚举名）、`can_open`（该玩家是否有权打开） |
+
+推送与 `call` 调用互不阻塞（同一连接复用）；事件为尽力而为投递——连接断开期间的事件不补发，重连后需重新 `subscribe_events`。
 
 **关闭码 / 状态码语义**（供上游中继实现退避与错误透传，不应重试风暴）：
 
@@ -325,7 +346,7 @@ Content-Type: application/json
 
 ---
 
-## 语音录音取证（v2.5 / FI-STM）
+## 语音录音取证（v2.5 / ENIGMA）
 
 开启 `voice_record_enabled`（需同时开启 `voice_enabled`）后，**每局游戏自动保存一个压缩包**到录音目录（默认 `%AppData%/SCP Secret Laboratory/SLDataAPI/VoiceRecords`）：
 
@@ -344,7 +365,7 @@ voice_round_3_20260818_223100.zip
 **时间轴格式**（制表符分隔，可导入 Excel / 脚本解析；**与音频采样级对齐**）：
 
 ```
-# SLDataAPI 语音时间轴（v2.5 FI-STM）
+# SLDataAPI 语音时间轴（v2.5 ENIGMA）
 # 局号: 3  回合开始: 2026-08-18 22:31:00.123  采样率: 48000Hz
 # 列: 回合内秒	绝对时间	事件	昵称	steamid	角色	频道	netid	详情
 # 对齐: 采样号 = 回合内秒 × 48000 = 任一频道 WAV 文件内精确位置（帧间已补静默，可直接切段取证）

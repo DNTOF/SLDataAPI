@@ -60,6 +60,7 @@ public static class ControlController
                 "/control/player/effect" => PlayerAction(body, "effect"),
                 "/control/player/state" => PlayerAction(body, "state"),
                 "/control/map" => MapAction(body),
+                "/control/wave" => WaveAction(body),
                 "/control/map/export" => MapExportAction(),
                 "/control/round" => RoundAction(body),
                 "/control/cassie" => CassieAction(body),
@@ -91,6 +92,59 @@ public static class ControlController
             // 不向客户端回显异常细节（可能含服务器路径等敏感信息），细节只进服务器日志
             return (500, Json(false, "内部错误"));
         }
+    }
+
+    // ------------------------------------------------------------------
+    // /control/wave —— 重生波次控制（instant / set 倒计时与代币 / status）
+    // faction: mtf | chaos；elevator 式双命名不需要，波次只有主波两类
+    // ------------------------------------------------------------------
+    private static (int, string) WaveAction(string body)
+    {
+        var req = Parse<WaveRequest>(body);
+        if (req == null || string.IsNullOrWhiteSpace(req.action))
+            return (400, Json(false, "缺少 action 字段"));
+
+        var (status, json) = MainThreadExecutor.RunOnMainThread(() =>
+        {
+            LabApi.Features.Wrappers.RespawnWave? wave = (req.faction ?? "").Trim().ToLowerInvariant() switch
+            {
+                "mtf" => LabApi.Features.Wrappers.RespawnWaves.PrimaryMtfWave,
+                "chaos" => LabApi.Features.Wrappers.RespawnWaves.PrimaryChaosWave,
+                _ => throw new InvalidOperationException($"未知阵营: {req.faction}（支持 mtf / chaos）"),
+            };
+            if (wave == null)
+                throw new InvalidOperationException("该阵营当前没有待生成的波次");
+
+            string action = req.action.Trim().ToLowerInvariant();
+            switch (action)
+            {
+                case "instant":
+                    wave.InstantRespawn();
+                    break;
+                case "set":
+                    if (req.seconds >= 0) wave.TimeLeft = req.seconds;
+                    break;
+                case "status":
+                    break;
+                default:
+                    throw new InvalidOperationException($"未知 action: {req.action}（支持 instant / set / status）");
+            }
+
+            var payload = new Dictionary<string, object?>
+            {
+                ["faction"] = req.faction,
+                ["time_left"] = Math.Max(0f, wave.TimeLeft),
+            };
+            int tokens;
+            try { tokens = wave.RespawnTokens; } catch { tokens = -1; }
+            if (tokens >= 0) payload["tokens"] = tokens;
+
+            return (200, Json(true, "ok", payload));
+        }, out var err);
+
+        if (err != null)
+            return (400, Json(false, err.Message));
+        return (status, json);
     }
 
     // ------------------------------------------------------------------
@@ -262,13 +316,26 @@ public static class ControlController
                     break;
 
                 case "mute":
-                    if (req.mute == true)
-                        player.Mute(isTemporary: false);
-                    else if (req.mute == false)
-                        player.Unmute(revokeMute: false);
-                    else
+                {
+                    if (req.mute == null)
                         throw new InvalidOperationException("缺少 mute 字段（true=语音禁言 / false=解除）");
+
+                    // 四档化：voice（全局语音）/ intercom（对讲机）× persistent（持久写入本地静音存储）
+                    bool intercom = string.Equals(req.mute_scope?.Trim(), "intercom", StringComparison.OrdinalIgnoreCase);
+                    bool persistent = req.persistent == true;
+
+                    if (req.mute == true)
+                    {
+                        if (intercom) player.IntercomMute(isTemporary: !persistent);
+                        else player.Mute(isTemporary: !persistent);
+                    }
+                    else
+                    {
+                        if (intercom) player.IntercomUnmute(revokeMute: persistent);
+                        else player.Unmute(revokeMute: persistent);
+                    }
                     break;
+                }
 
                 case "msg":
                     if (string.IsNullOrWhiteSpace(req.message))

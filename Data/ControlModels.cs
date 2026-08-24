@@ -39,6 +39,14 @@ public class PlayerActionRequest
     /// <summary>mute 用：true=语音禁言，false=解除。</summary>
     public bool? mute { get; set; }
 
+    /// <summary>mute 用：作用范围 voice（全局语音，默认）| intercom（仅对讲机）。</summary>
+    public string mute_scope { get; set; } = "voice";
+
+    /// <summary>
+    /// mute 用：是否持久。false = 临时（重连失效，默认）；true = 持久（写入游戏本地静音存储，重连仍生效）。
+    /// </summary>
+    public bool? persistent { get; set; }
+
     /// <summary>msg 用：消息内容。</summary>
     public string message { get; set; } = "";
 
@@ -86,6 +94,22 @@ public class CassieRequest
     /// 游戏内字幕显示 translation（纯文本，不解析音效代码）。空 = 现有行为。
     /// </summary>
     public string translation { get; set; } = "";
+}
+
+/// <summary>POST /control/wave —— 重生波次控制</summary>
+public class WaveRequest
+{
+    /// <summary>阵营：mtf（九尾狐主波）| chaos（混沌分裂者主波）。</summary>
+    public string faction { get; set; } = "mtf";
+
+    /// <summary>action：instant（立即生成）| set（设置倒计时/代币）| status（查询状态）。</summary>
+    public string action { get; set; } = "";
+
+    /// <summary>action=set 时：剩余秒数（≥0）。</summary>
+    public float seconds { get; set; } = -1f;
+
+    /// <summary>action=set 时可选：重生代币数（≥0；不填则只改倒计时）。</summary>
+    public int tokens { get; set; } = -1;
 }
 
 /// <summary>POST /control/warhead，action: start | stop | detonate</summary>

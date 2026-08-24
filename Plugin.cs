@@ -1,4 +1,5 @@
 using System;
+using Newtonsoft.Json.Linq;
 using System.IO;
 using LabApi.Events.Arguments.PlayerEvents;
 using LabApi.Events.Arguments.ServerEvents;
@@ -21,9 +22,9 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
     private HttpServer? server;
 
     public override string Name => "SLDataAPI";
-    public override string Description => "通过 HTTP API 向外部（WebUI / 机器人）提供服务器数据采集与远程控制能力（LabAPI 原生插件，代号 FI-STM）";
+    public override string Description => "通过 HTTP API 向外部（WebUI / 机器人）提供服务器数据采集与远程控制能力（LabAPI 原生插件，代号 ENIGMA）";
     public override string Author => "DNT_OF";
-    public override Version Version => new Version(2, 5, 3);
+    public override Version Version => new Version(2, 5, 4);
     public override Version RequiredApiVersion => new Version(1, 1, 7);
 
     public override void Enable()
@@ -33,6 +34,11 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
         LabApi.Events.Handlers.ServerEvents.WaitingForPlayers += OnWaitingForPlayers;
         LabApi.Events.Handlers.ServerEvents.RoundStarted    += OnRoundStarted;
         LabApi.Events.Handlers.ServerEvents.RoundEnded      += OnRoundEnded;
+        LabApi.Events.Handlers.PlayerEvents.Joined             += OnPlayerJoined;
+        LabApi.Events.Handlers.PlayerEvents.Left               += OnPlayerLeft;
+        LabApi.Events.Handlers.PlayerEvents.Death              += OnPlayerDeath;
+        LabApi.Events.Handlers.PlayerEvents.InteractedElevator += OnInteractedElevator;
+        LabApi.Events.Handlers.PlayerEvents.InteractedDoor     += OnInteractedDoor;
 
         // 命令输出捕获（patch ServerConsole.AddLog）
         CommandOutputCapture.Init();
@@ -80,7 +86,7 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
         if (Config.AutoUpdateCheck)
             UpdateChecker.CheckAsync(Version, Config.AutoUpdateInstall);
 
-        Log.Info($"SLDataAPI v{Version} (FI-STM / LabAPI) enabled. HTTP on port {Config.HttpPort}. Control API: {(Config.ControlEnabled ? $"{Config.ControlTransport.ToUpperInvariant()} 模式" : "关闭")}. Voice: {(Config.VoiceEnabled ? $"启用(端口 {Config.VoicePort})" : "关闭")}.");
+        Log.Info($"SLDataAPI v{Version} (ENIGMA / LabAPI) enabled. HTTP on port {Config.HttpPort}. Control API: {(Config.ControlEnabled ? $"{Config.ControlTransport.ToUpperInvariant()} 模式" : "关闭")}. Voice: {(Config.VoiceEnabled ? $"启用(端口 {Config.VoicePort})" : "关闭")}.");
     }
 
     public override void Disable()
@@ -88,6 +94,11 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
         LabApi.Events.Handlers.ServerEvents.WaitingForPlayers -= OnWaitingForPlayers;
         LabApi.Events.Handlers.ServerEvents.RoundStarted    -= OnRoundStarted;
         LabApi.Events.Handlers.ServerEvents.RoundEnded      -= OnRoundEnded;
+        LabApi.Events.Handlers.PlayerEvents.Joined             -= OnPlayerJoined;
+        LabApi.Events.Handlers.PlayerEvents.Left               -= OnPlayerLeft;
+        LabApi.Events.Handlers.PlayerEvents.Death              -= OnPlayerDeath;
+        LabApi.Events.Handlers.PlayerEvents.InteractedElevator -= OnInteractedElevator;
+        LabApi.Events.Handlers.PlayerEvents.InteractedDoor     -= OnInteractedDoor;
         LabApi.Events.Handlers.PlayerEvents.SendingVoiceMessage -= OnSendingVoiceMessage;
 
         VoiceService.Stop();
@@ -99,6 +110,90 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
         CommandOutputCapture.Shutdown();
 
         Instance = null;
+    }
+
+    // ────────────── WS 事件流推送（订阅了事件的会话实时接收） ──────────────
+
+    private void OnPlayerJoined(PlayerJoinedEventArgs ev)
+    {
+        var p = ev.Player;
+        WsControlService.BroadcastEvent("player_joined", new JObject
+        {
+            ["nickname"] = p.Nickname ?? "?",
+            ["userid"] = p.UserId ?? "",
+        });
+    }
+
+    private void OnPlayerLeft(PlayerLeftEventArgs ev)
+    {
+        var p = ev.Player;
+        WsControlService.BroadcastEvent("player_left", new JObject
+        {
+            ["nickname"] = p.Nickname ?? "?",
+            ["userid"] = p.UserId ?? "",
+        });
+    }
+
+    private void OnPlayerDeath(PlayerDeathEventArgs ev)
+    {
+        try
+        {
+            var p = ev.Player;
+            var d = new JObject
+            {
+                ["nickname"] = p.Nickname ?? "?",
+                ["userid"] = p.UserId ?? "",
+                ["old_role"] = ev.OldRole.ToString(),
+            };
+            if (ev.Attacker != null)
+            {
+                d["attacker_nickname"] = ev.Attacker.Nickname ?? "?";
+                d["attacker_userid"] = ev.Attacker.UserId ?? "";
+            }
+            WsControlService.BroadcastEvent("player_died", d);
+        }
+        catch (Exception ex)
+        {
+            // 事件链保护：推送失败只丢事件，不得影响游戏回合流程
+            Log.Debug($"[SLDataAPI] Death 事件推送异常（忽略）: {ex.Message}");
+        }
+    }
+
+    private void OnInteractedElevator(PlayerInteractedElevatorEventArgs ev)
+    {
+        try
+        {
+            var p = ev.Player;
+            WsControlService.BroadcastEvent("elevator_used", new JObject
+            {
+                ["nickname"] = p.Nickname ?? "?",
+                ["userid"] = p.UserId ?? "",
+                ["elevator_group"] = ev.Elevator?.Group.ToString() ?? "?",
+            });
+        }
+        catch (Exception ex)
+        {
+            Log.Debug($"[SLDataAPI] InteractedElevator 事件推送异常（忽略）: {ex.Message}");
+        }
+    }
+
+    private void OnInteractedDoor(PlayerInteractedDoorEventArgs ev)
+    {
+        try
+        {
+            var p = ev.Player;
+            WsControlService.BroadcastEvent("door_opened", new JObject
+            {
+                ["nickname"] = p.Nickname ?? "?",
+                ["userid"] = p.UserId ?? "",
+                ["door"] = ev.Door?.DoorName.ToString() ?? "?",
+                ["can_open"] = ev.CanOpen,
+            });
+        }
+        catch (Exception ex)
+        {
+            Log.Debug($"[SLDataAPI] InteractedDoor 事件推送异常（忽略）: {ex.Message}");
+        }
     }
 
     private void OnSendingVoiceMessage(PlayerSendingVoiceMessageEventArgs ev)
@@ -187,6 +282,10 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
             if (Config.VoiceEnabled)
                 VoiceRecorder.BeginRound(); // 语音录音取证：本局开始（需语音管线运行）
             NotifyRecordingHint(); // 录音启用时向所有玩家声明本局将被录音（隐私告知）
+            WsControlService.BroadcastEvent("round_started", new JObject
+            {
+                ["started_at"] = DateTime.UtcNow.ToString("o"),
+            });
             Log.Info("SLDataAPI: Round started.");
         }
         catch (Exception ex)
@@ -238,6 +337,11 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
             DataCollector.UpdateDataNow();
             if (Config.VoiceEnabled)
                 VoiceRecorder.EndRound(); // 语音录音取证：定稿本局录音
+            WsControlService.BroadcastEvent("round_ended", new JObject
+            {
+                ["leading_team"] = ev.LeadingTeam.ToString(),
+                ["ended_at"] = DateTime.UtcNow.ToString("o"),
+            });
             Log.Info("SLDataAPI: Round ended.");
         }
         catch (Exception ex)

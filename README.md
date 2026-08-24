@@ -1,11 +1,26 @@
 # SLDataAPI
 
-版本： 2.5.3（开发代号 Apollo 11's Tapes）  
+> ## ⚠️ 安全警告（请先阅读）
+>
+> **本插件的服务端链路全部为明文传输，未加密：**
+> - 数据接口 / 控制接口为裸 **HTTP**（默认端口 8081）
+> - 控制长连接为裸 **WebSocket**（`ws://`，非 `wss://`）
+> - 语音转发 / 语音录音监听为裸 **WebSocket**（默认端口 8082）
+>
+> 明文链路上的任何中间节点（路由器、运营商、公共网络、反向代理等）都可以**窃听你的 token、语音内容与控制命令**；token 一旦泄露，攻击者可完全控制你的服务器。
+>
+> **使用本插件即表示你理解并接受以下责任划分：**
+> - 服务器的安全防护（防火墙、端口白名单、反向代理 + HTTPS/WSS 加密、`control_token` 强度与保管等）由**使用者自行负责**
+> - 因未加密链路导致的 token 泄露、语音内容泄露、服务器被入侵等一切后果，**本项目与作者不承担任何责任**
+>
+> 强烈建议：仅在内网/受信网络使用；对外暴露时务必经反向代理加 HTTPS/WSS（详见下方「安全注意事项」）。
+
+版本： 2.5.3-Patch（开发代号 FI-STM）  
 **架构：** **LabAPI 原生插件**（v2.4 起脱离 EXILED，运行于 Northwood 官方 LabAPI 框架）  
 **依赖：** LabAPI（游戏服务器自带） · MEC · Newtonsoft.Json · Harmony（服务器自带，不打包）  
 **用途：** 在 SCP:SL 游戏服务器上暴露一个轻量 HTTP 接口，供 WebUI / AstrBot 等外部程序轮询实时服务器数据，并通过 `/control/*` 控制接口远程执行管理操作；内置**语音转发**（WebSocket 实时收听全频道语音，代号 SPY）；v2.5 起新增**控制接口 WebSocket 长连接**。
 
-> **v2.4.0（现代号 Apollo 11's Tapes）—— 架构迁移说明：** 本插件已从 EXILED 插件迁移为 **LabAPI 原生插件**（不再依赖 EXILED），并完成源码目录/命名空间分类重构。
+> **v2.4.0（现代号 FI-STM）—— 架构迁移说明：** 本插件已从 EXILED 插件迁移为 **LabAPI 原生插件**（不再依赖 EXILED），并完成源码目录/命名空间分类重构。
 > - 安装位置变更：`LabAPI/plugins/global/`（不再是 `EXILED/Plugins/`）
 > - 配置位置变更：`LabAPI/configs/<端口>/SLDataAPI/config.yml`（旧 EXILED 配置文件不会被读取，需把值抄到新文件；键名同为 snake_case，删掉 `is_enabled` 即可）
 > - 插件启停由 LabAPI 的 `properties.yml` 管理（`/control/plugins` 可代写）
@@ -74,7 +89,7 @@ log_directory: ''                     # 服务器日志目录；留空=自动探
 voice_enabled: false                  # 是否启用语音转发 WebSocket（默认关闭）
 voice_port: 8082                      # 语音 WebSocket 监听端口（独立于 http_port）
 
-# ===== 语音录音取证（v2.5 / Apollo 11's Tapes）=====
+# ===== 语音录音取证（v2.5 / FI-STM）=====
 voice_record_enabled: false           # 每局自动保存录音（WAV 混合音轨 + 时间轴日志）；需 voice_enabled=true
 voice_record_max_rounds: 10           # 最多保留多少局录音（0/负数=不清理；参考 5.5MB/分钟/局）
 voice_record_dir: ''                  # 录音保存目录（留空=默认 %AppData%/SCP Secret Laboratory/SLDataAPI/VoiceRecords）
@@ -310,7 +325,7 @@ Content-Type: application/json
 
 ---
 
-## 语音录音取证（v2.5 / Apollo 11's Tapes）
+## 语音录音取证（v2.5 / FI-STM）
 
 开启 `voice_record_enabled`（需同时开启 `voice_enabled`）后，**每局游戏自动保存一个压缩包**到录音目录（默认 `%AppData%/SCP Secret Laboratory/SLDataAPI/VoiceRecords`）：
 
@@ -329,7 +344,7 @@ voice_round_3_20260818_223100.zip
 **时间轴格式**（制表符分隔，可导入 Excel / 脚本解析；**与音频采样级对齐**）：
 
 ```
-# SLDataAPI 语音时间轴（v2.5 Apollo 11's Tapes）
+# SLDataAPI 语音时间轴（v2.5 FI-STM）
 # 局号: 3  回合开始: 2026-08-18 22:31:00.123  采样率: 48000Hz
 # 列: 回合内秒	绝对时间	事件	昵称	steamid	角色	频道	netid	详情
 # 对齐: 采样号 = 回合内秒 × 48000 = 任一频道 WAV 文件内精确位置（帧间已补静默，可直接切段取证）

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -432,6 +433,8 @@ public static class ControlController
         var req = Parse<CassieRequest>(body);
         if (req == null || string.IsNullOrWhiteSpace(req.message))
             return (400, Json(false, "缺少 message 字段"));
+        if (req.message.Length > 500)
+            return (400, Json(false, $"message 过长（{req.message.Length} 字符，上限 500）"));
 
         MainThreadExecutor.RunOnMainThread(() =>
         {
@@ -521,7 +524,7 @@ public static class ControlController
             return RunConsoleCommand($".m fetch {url}", "正在拉取云端歌单...");
         }
 
-        return MainThreadExecutor.RunOnMainThread(() =>
+        var (slStatus, slJson) = MainThreadExecutor.RunOnMainThread(() =>
         {
             object controller = SlPlayerController.GetController();
 
@@ -559,6 +562,13 @@ public static class ControlController
                     return (404, Json(false, $"未知 action: {req.action}（支持 status/list/play/next/stop/volume/shuffle/reload/fetch）"));
             }
         }, out var err);
+
+        // ★ 补 err 检查（与 MapAction 同款缺陷）：lambda 内异常（如 SLPlayer 插件未加载）
+        //   会让 RunOnMainThread 返回 (0, null) 泄漏，触发顶层兜底 500 + ERROR 刷屏——
+        //   改为明确的业务错误 400（平台端可据此识别"该服务器无 SLPlayer"并停止轮询）
+        if (err != null)
+            return (400, Json(false, err.Message));
+        return (slStatus, slJson);
     }
 
     /// <summary>通过服务器控制台执行命令并捕获输出（fetch 用）。</summary>
@@ -595,7 +605,8 @@ public static class ControlController
     //   - reload 仅热重载各插件的配置文件（等价控制台 reload configs），
     //     不会重载插件 DLL，也不会应用启停变更。
     //   - 同服的 EXILED 插件在 apply 后会立即 ReloadPlugins 生效（走 EXILED 自身机制）。
-    private static readonly Dictionary<string, bool> PluginStaged = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+    // 并发安全：WS/HTTP 多请求可同时 stage/clear/apply（普通 Dictionary 并发写会抛竞态异常）
+    private static readonly ConcurrentDictionary<string, bool> PluginStaged = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>是否 SLDataAPI 自身（禁止禁用）。</summary>
     private static bool IsSelfPlugin(LabPlugin p) =>

@@ -66,12 +66,18 @@ public static class DataCollector
         var snap = CachedData ?? new ServerData();
         var resp = Clone(snap);
 
-        var (nukeStatus, nukeCountdown) = MainThreadExecutor.RunOnMainThread(
-            () => (GetNukeStatus(), GetNukeCountdown()), out var err);
-        if (err == null)
+        // 核弹实时读取：仅当回合进行中才派发主线程（快照的 round_started 由主线程写入，
+        // HTTP 线程只读纯数据字段）；回合未开始/结束时核弹必然"未激活"，直接用快照值，
+        // 避免高频轮询时每次请求都做一次主线程派发
+        if (resp.round_started)
         {
-            resp.nuke_status = nukeStatus;
-            resp.nuke_countdown = nukeCountdown;
+            var (nukeStatus, nukeCountdown) = MainThreadExecutor.RunOnMainThread(
+                () => (GetNukeStatus(), GetNukeCountdown()), out var err);
+            if (err == null)
+            {
+                resp.nuke_status = nukeStatus;
+                resp.nuke_countdown = nukeCountdown;
+            }
         }
 
         return Newtonsoft.Json.JsonConvert.SerializeObject(resp);

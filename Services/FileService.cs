@@ -139,7 +139,8 @@ public static class FileService
         catch (Exception ex) { throw new InvalidOperationException($"FileRoot 非法: {ex.Message}"); }
 
         if (!Directory.Exists(fullRoot))
-            throw new InvalidOperationException($"FileRoot 目录不存在: {fullRoot}");
+            // 不回显完整绝对路径（错误响应会直达客户端，避免泄露服务器目录结构）
+            throw new InvalidOperationException($"FileRoot 目录不存在（{Path.GetFileName(fullRoot)}）");
 
         // X-09：拒绝含冒号的相对路径（Windows 盘符外的 ":" 即 NTFS 备用数据流，
         // 如 "a.cfg:b.cfg" 可绕过扩展名白名单写入 ADS 隐藏数据）

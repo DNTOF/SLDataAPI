@@ -12,7 +12,7 @@ public class Config
     public int HttpPort { get; set; } = 8081;
     public int PushIntervalSeconds { get; set; } = 8;
 
-    // ================== 控制接口（v2.1 新增） ==================
+    // ================== 控制接口（v2.1 推出；v2.5.0 WebSocket 长连接化，代号 Yagami Light） ==================
 
     /// <summary>
     /// 是否启用控制接口（/control/*）。默认关闭。
@@ -65,7 +65,7 @@ public class Config
     /// </summary>
     public string LogDirectory { get; set; } = "";
 
-    // ================== 语音转发（v2.3 新增） ==================
+    // ================== 语音转发（v2.3 推出，代号 SPY） ==================
 
     /// <summary>
     /// 是否启用游戏内语音转发（WebSocket 实时语音流）。默认关闭。
@@ -78,7 +78,8 @@ public class Config
     /// </summary>
     public int VoicePort { get; set; } = 8082;
 
-    // ================== 语音录音取证（v2.5 / ENIGMA 新增） ==================
+    // ================== 语音录音取证（v2.5.1 推出，代号 Yagami Light；v2.5.2 连续拼接音质修复，代号 Bay of Pigs Invasion；
+    //    v2.5.3 时间轴按频道对齐，代号 Bay of Pigs Invasion / Apollo 11's Tapes；v2.5.3-Patch 稳定性加固，代号 FI-STM） ==================
 
     /// <summary>
     /// 是否自动保存每局游戏的语音录音：一条混合音轨（WAV 48kHz/16bit/单声道）
@@ -98,4 +99,25 @@ public class Config
     /// %AppData%/SCP Secret Laboratory/SLDataAPI/VoiceRecords。
     /// </summary>
     public string VoiceRecordDir { get; set; } = "";
+
+    // ================== 举报功能（v2.5.4 推出，代号 GIS,GNSS,RS!：SSS UI + 平台端点） ==================
+
+    /// <summary>
+    /// 是否启用举报功能（默认关闭）：玩家在 Esc → 服务器设置 面板中
+    /// 下拉选择在线玩家、填写原因、长按按钮提交举报；
+    /// 平台端通过 /control/reports 端点读取未处理记录并标记已处理。
+    /// </summary>
+    public bool ReportEnabled { get; set; } = false;
+
+    /// <summary>
+    /// 举报记录最大条数。超出后自动删除最旧的已处理记录；
+    /// 未处理记录不删除，若全部未处理则在 LocalAdmin 输出 WARN 提示。
+    /// </summary>
+    public int ReportMaxRecords { get; set; } = 50;
+
+    /// <summary>限流窗口内（report_rate_window_minutes 分钟）每人最多提交举报次数。</summary>
+    public int ReportRateLimit { get; set; } = 5;
+
+    /// <summary>举报限流窗口（分钟），默认 30（半小时）。</summary>
+    public int ReportRateWindowMinutes { get; set; } = 30;
 }

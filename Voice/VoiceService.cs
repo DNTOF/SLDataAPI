@@ -16,7 +16,7 @@ using Player = LabApi.Features.Wrappers.Player;
 namespace SLDataAPI.Voice;
 
 /// <summary>
-/// 游戏内语音转发服务（v2.3 新增）。
+/// 游戏内语音转发服务（v2.3 推出，代号 SPY；当前代号 GIS,GNSS,RS!）。
 ///
 /// 原理：LabAPI 的 SendingVoiceMessage 事件打在
 /// VoiceTransceiver.ServerReceiveMessage 上——服务器端收到的所有语音

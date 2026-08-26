@@ -252,3 +252,13 @@ public class MapControlRequest
     /// <summary>lights 用：关灯持续秒数（默认 30）。</summary>
     public float duration { get; set; } = 30f;
 }
+
+/// <summary>POST /control/reports —— 举报记录管理（需 report_enabled=true）</summary>
+public class ReportRequest
+{
+    /// <summary>action：list（读取全部未处理记录）| handle（标记已处理，需 id）。</summary>
+    public string action { get; set; } = "";
+
+    /// <summary>action=handle 时：举报记录 id（list 返回中的 id 字段）。</summary>
+    public string id { get; set; } = "";
+}

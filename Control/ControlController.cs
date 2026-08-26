@@ -61,6 +61,7 @@ public static class ControlController
                 "/control/player/state" => PlayerAction(body, "state"),
                 "/control/map" => MapAction(body),
                 "/control/wave" => WaveAction(body),
+                "/control/reports" => ReportsAction(body),
                 "/control/map/export" => MapExportAction(),
                 "/control/round" => RoundAction(body),
                 "/control/cassie" => CassieAction(body),
@@ -95,7 +96,8 @@ public static class ControlController
     }
 
     // ------------------------------------------------------------------
-    // /control/wave —— 重生波次控制（instant / set 倒计时与代币 / status）
+    // /control/wave —— 重生波次控制（v2.5.4-preview 推出，代号 ENIGMA；v2.5.4 正式版，代号 GIS,GNSS,RS!）
+    // action: instant（立即生成）| set（倒计时与代币）| status（查询）
     // faction: mtf | chaos；elevator 式双命名不需要，波次只有主波两类
     // ------------------------------------------------------------------
     private static (int, string) WaveAction(string body)
@@ -145,6 +147,32 @@ public static class ControlController
         if (err != null)
             return (400, Json(false, err.Message));
         return (status, json);
+    }
+
+    // ------------------------------------------------------------------
+    // /control/reports —— 举报记录管理（v2.5.4 推出，代号 GIS,GNSS,RS!；需 report_enabled=true）
+    //   action=list   → 返回全部未处理（pending）记录（举报人/被举报人 steam64、IP、原因、时间）
+    //   action=handle → 按 id 将记录标记为已处理（handled）
+    // ------------------------------------------------------------------
+    private static (int, string) ReportsAction(string body)
+    {
+        var req = Parse<ReportRequest>(body);
+        if (req == null || string.IsNullOrWhiteSpace(req.action))
+            return (400, Json(false, "缺少 action 字段（支持 list / handle）"));
+
+        switch (req.action.Trim().ToLowerInvariant())
+        {
+            case "list":
+                return (200, Json(true, "ok", ReportService.ListPending()));
+            case "handle":
+                if (string.IsNullOrWhiteSpace(req.id))
+                    return (400, Json(false, "缺少 id 字段（举报记录 id）"));
+                return ReportService.MarkHandled(req.id.Trim())
+                    ? (200, Json(true, "已标记为已处理"))
+                    : (404, Json(false, "未找到该记录或该记录已处理"));
+            default:
+                return (400, Json(false, $"未知 action: {req.action}（支持 list / handle）"));
+        }
     }
 
     // ------------------------------------------------------------------
@@ -320,7 +348,8 @@ public static class ControlController
                     if (req.mute == null)
                         throw new InvalidOperationException("缺少 mute 字段（true=语音禁言 / false=解除）");
 
-                    // 四档化：voice（全局语音）/ intercom（对讲机）× persistent（持久写入本地静音存储）
+                    // 四档化（v2.5.4-preview 推出，代号 ENIGMA；v2.5.4 正式版，代号 GIS,GNSS,RS!）：
+                    // voice（全局语音）/ intercom（对讲机）× persistent（持久写入本地静音存储）
                     bool intercom = string.Equals(req.mute_scope?.Trim(), "intercom", StringComparison.OrdinalIgnoreCase);
                     bool persistent = req.persistent == true;
 

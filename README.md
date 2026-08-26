@@ -15,7 +15,7 @@
 >
 > 强烈建议：仅在内网/受信网络使用；对外暴露时务必经反向代理加 HTTPS/WSS（详见下方「安全注意事项」）。
 
-版本： 2.5.4-preview（开发代号 ENIGMA）  
+版本： 2.5.4（开发代号 GIS,GNSS,RS!）  
 **架构：** **LabAPI 原生插件**（v2.4 起脱离 EXILED，运行于 Northwood 官方 LabAPI 框架）  
 **依赖：** LabAPI（游戏服务器自带） · MEC · Newtonsoft.Json · Harmony（服务器自带，不打包）  
 **用途：** 在 SCP:SL 游戏服务器上暴露一个轻量 HTTP 接口，供 WebUI / AstrBot 等外部程序轮询实时服务器数据，并通过 `/control/*` 控制接口远程执行管理操作；内置**语音转发**（WebSocket 实时收听全频道语音，代号 SPY）；v2.5 起新增**控制接口 WebSocket 长连接**。
@@ -35,6 +35,7 @@
 | 实时数据查询 | `GET /get_sl_data`：人数、回合、核弹、玩家列表（含 SteamID / 坐标）、DNT_OF 系列插件状态 |
 | 控制接口 | `/control/` 公用控制命名空间，按 `control_transport` 二选一：`POST /control/*`（命令执行、玩家管理、回合控制、CASSIE、核弹、地图、封禁、日志、文件等）**或** WebSocket 长连接（升级 `/control`，call 信封调用同样的端点，见下文） |
 | 事件流推送（v2.5.4） | 控制长连接 `subscribe_events` 订阅后实时推送服务器事件：回合开始/结束、玩家加入/离开/死亡、电梯使用、权限门交互（见「控制接口 WebSocket」章节） |
+| 举报功能（v2.5.4） | 玩家在 Esc → 服务器设置 面板中下拉选择在线玩家、填写原因、长按按钮提交举报（限流+记录上限清理）；平台经 `/control/reports` 读取未处理记录并标记已处理。默认关闭 |
 | 命令输出捕获 | Harmony 补丁捕获 `ServerConsole.AddLog` / `CommandSender` 输出，`/control/command` 可拿到命令回显；点命令（`.m` 等）在 DotCommandHandler 上直连执行、响应直接返回（v2.5 修复：原生路径在专用服上不执行且无回显） |
 | 地图数据 | 按 seed 提供本回合布局（LCZ/HCZ 每回合随机），可导出 atlas 等原始数据供外部重建地图 |
 | 插件管理 | 列表读取配置文件启停状态（LabAPI 插件 + 同服 EXILED 插件）；启停走"暂存 → 保存"批量模式，LabAPI 插件重启生效（SLDataAPI 自身禁止禁用） |
@@ -90,10 +91,16 @@ log_directory: ''                     # 服务器日志目录；留空=自动探
 voice_enabled: false                  # 是否启用语音转发 WebSocket（默认关闭）
 voice_port: 8082                      # 语音 WebSocket 监听端口（独立于 http_port）
 
-# ===== 语音录音取证（v2.5 / ENIGMA）=====
+# ===== 语音录音取证（v2.5.1 推出 · 代号 Yagami Light；v2.5.2 音质修复 · Bay of Pigs Invasion；v2.5.3 时间轴对齐 · Apollo 11's Tapes；当前 GIS,GNSS,RS!）=====
 voice_record_enabled: false           # 每局自动保存录音（WAV 混合音轨 + 时间轴日志）；需 voice_enabled=true
 voice_record_max_rounds: 10           # 最多保留多少局录音（0/负数=不清理；参考 5.5MB/分钟/局）
 voice_record_dir: ''                  # 录音保存目录（留空=默认 %AppData%/SCP Secret Laboratory/SLDataAPI/VoiceRecords）
+
+# ===== 举报功能（v2.5.4 推出 · 代号 GIS,GNSS,RS!）=====
+report_enabled: false                 # 举报功能总开关（SSS 面板 + /control/reports 端点，默认关闭）
+report_max_records: 50                # 举报记录最大条数（超出自动删最旧已处理；全未处理则 WARN 提示）
+report_rate_limit: 5                  # 限流窗口内每人最多提交举报次数
+report_rate_window_minutes: 30        # 举报限流窗口（分钟），默认半小时
 ```
 
 > ⚠️ **键名必须是 snake_case**（LabAPI 使用 UnderscoredNamingConvention）：`verify_token` 而不是 `verifyToken`。
@@ -120,6 +127,9 @@ voice_record_dir: ''                  # 录音保存目录（留空=默认 %AppD
 | `voice_record_enabled` | 每局自动保存语音录音：混合音轨 WAV（48kHz/16bit/单声道）+ 时间轴日志。**需同时开启 `voice_enabled`**（复用语音解码管线）。回合开始建档、回合结束定稿；停服时兜底保存 |
 | `voice_record_max_rounds` | 最多保留的录音局数（按最近时间排序，超出自动删除最旧的 wav + 时间轴）。0/负数 = 不清理。磁盘参考：约 5.5MB/分钟/局（一小时局 ≈ 330MB） |
 | `voice_record_dir` | 录音保存目录（绝对路径）；留空 = `%AppData%/SCP Secret Laboratory/SLDataAPI/VoiceRecords`。该目录在游戏数据目录内，天然受文件端点顶级防线保护 |
+| `report_enabled` | 举报功能总开关（默认关闭）。开启后：玩家在 Esc → 服务器设置 面板中下拉选择在线玩家、填写原因、长按按钮（3 秒）提交举报；平台端通过 `/control/reports` 端点读取未处理记录并标记已处理。记录写入插件配置目录下的 `reports.json`（含举报人/被举报人 steam64、IP、原因、时间，status: pending/handled） |
+| `report_max_records` | 举报记录最大条数。超出后自动删除最旧的**已处理**记录；未处理记录不删除，若全部未处理则 LocalAdmin 输出 WARN 提示（仅提示一次，避免刷屏） |
+| `report_rate_limit` / `report_rate_window_minutes` | 举报限流：每人在窗口（默认 30 分钟）内最多提交 `report_rate_limit`（默认 5）次，超出拒绝并提示 |
 
 > ⚠️ 请确保服务器防火墙放行对应端口（默认 8081/TCP）。
 
@@ -224,6 +234,7 @@ voice_record_dir: ''                  # 录音保存目录（留空=默认 %AppD
 | `/control/round` | `action`: `restart` / `end` / `start` | 回合控制 |
 | `/control/cassie` | `message`, `isNoisy`?, `translation`? | CASSIE 播报。`translation` 非空时：语音播报 `message` 原文（含音效代码），游戏内字幕显示 `translation`（纯文本，不解析音效代码）——"英文播报 + 中文字幕"；空则仅播报。isHeld/isSubtitles 在新 TTS 体系无对应开关（忽略） |
 | `/control/warhead` | `action`: `start` / `stop` / `detonate` | 核弹控制 |
+| `/control/reports` | `action`: `list` / `handle`, `id`? | 举报记录管理（需 `report_enabled: true`）。`list` 返回全部**未处理**（pending）记录：举报人/被举报人 steam64、举报人 IP、原因、时间、记录 id；`handle` 传 `id` 将该记录标记为已处理（handled）。记录存于插件配置目录 `reports.json`，超 `report_max_records` 自动清理最旧已处理记录 |
 | `/control/map` | `action`: `seed` / `layout` / `doors` / `elevators` / `lights` | 地图信息与控制。doors 支持 `scope`: `type`(默认,按 door_type 单门) / `all`(全部门) / `all_not_list`(枚举未列出的门，机关门/随机门等)；elevators 支持 `elevator_type`(当前 ElevatorGroup 名如 Nuke01/LczA01/GateA01=单轿厢粒度，或旧名 Nuke/GateA/GateB/Scp049/LczA/LczB/ServerRoom=整组操作) + `command`: `up`/`down`/`send`（send 直达 `level` 目标楼层，对齐 RA elevator send）+ `scope`: `type`/`all` |
 | `/control/map/export` | — | 导出地图原始数据（atlas RGBA base64、glyph_pairs、zone_candidates 等），供外部重建 |
 | `/control/slplayer` | `action`: `status` / `list` / `play` / `next` / `stop` / `volume` / `shuffle` / `reload` | 控制 SLPlayer 音乐（需服务器装有 SLPlayer 插件） |
@@ -346,7 +357,7 @@ Content-Type: application/json
 
 ---
 
-## 语音录音取证（v2.5 / ENIGMA）
+## 语音录音取证（v2.5.1 推出 · 代号 Yagami Light → 当前 GIS,GNSS,RS!）
 
 开启 `voice_record_enabled`（需同时开启 `voice_enabled`）后，**每局游戏自动保存一个压缩包**到录音目录（默认 `%AppData%/SCP Secret Laboratory/SLDataAPI/VoiceRecords`）：
 
@@ -365,7 +376,7 @@ voice_round_3_20260818_223100.zip
 **时间轴格式**（制表符分隔，可导入 Excel / 脚本解析；**与音频采样级对齐**）：
 
 ```
-# SLDataAPI 语音时间轴（v2.5 ENIGMA）
+# SLDataAPI 语音时间轴（v2.5.4 · GIS,GNSS,RS!）
 # 局号: 3  回合开始: 2026-08-18 22:31:00.123  采样率: 48000Hz
 # 列: 回合内秒	绝对时间	事件	昵称	steamid	角色	频道	netid	详情
 # 对齐: 采样号 = 回合内秒 × 48000 = 任一频道 WAV 文件内精确位置（帧间已补静默，可直接切段取证）

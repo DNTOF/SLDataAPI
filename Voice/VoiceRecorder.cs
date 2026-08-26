@@ -13,7 +13,9 @@ using VoiceChat;
 namespace SLDataAPI.Voice;
 
 /// <summary>
-/// 语音录音取证（v2.5 / ENIGMA）：每局游戏自动保存为一个压缩包
+/// 语音录音取证（v2.5.1 推出，代号 Yagami Light；v2.5.2 连续拼接音质修复，代号 Bay of Pigs Invasion；
+/// v2.5.3 时间轴按频道对齐 / 字段防伪清洗，代号 Bay of Pigs Invasion / Apollo 11's Tapes；
+/// 当前代号 GIS,GNSS,RS!）：每局游戏自动保存为一个压缩包
 ///   voice_round_&lt;局号&gt;_&lt;开始时间&gt;.zip，内含：
 ///   1) 按频道分轨的音轨：&lt;局名&gt;.&lt;频道&gt;.wav（48kHz / 16bit / 单声道 PCM，
 ///      如 .Proximity / .Radio / .Intercom / .Scp …）
@@ -509,7 +511,7 @@ public static class VoiceRecorder
 
     private static void AppendTimelineHeader()
     {
-        _timeline!.AppendLine("# SLDataAPI 语音时间轴（v2.5 ENIGMA）");
+        _timeline!.AppendLine("# SLDataAPI 语音时间轴（v2.5.4 · GIS,GNSS,RS!）");
         _timeline.AppendLine($"# 局号: {_roundNumber}  回合开始: {_roundStart:yyyy-MM-dd HH:mm:ss.fff}  采样率: {SampleRate}Hz");
         _timeline.AppendLine("# 列: 回合内秒\t绝对时间\t事件\t昵称\tsteamid\t角色\t频道\tnetid\t详情");
         _timeline.AppendLine("# 对齐: 采样号 = 所属频道 WAV 文件内字节位置 ÷ 2（连续拼接，静默不占文件空间；按频道累计，可精确跳转/切段）");

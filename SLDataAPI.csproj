@@ -66,6 +66,11 @@
       <HintPath>$(SCPSL_DIR)\UnityEngine.PhysicsModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <!-- SSS 文本输入框（SSPlaintextSetting）的 ContentType 参数来自 TextMeshPro -->
+    <Reference Include="Unity.TextMeshPro">
+      <HintPath>$(SCPSL_DIR)\Unity.TextMeshPro.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
     <Reference Include="CommandSystem.Core">
       <HintPath>$(SCPSL_DIR)\CommandSystem.Core.dll</HintPath>
       <Private>false</Private>

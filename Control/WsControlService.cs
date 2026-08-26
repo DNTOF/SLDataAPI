@@ -14,7 +14,9 @@ using SLDataAPI.Services;
 namespace SLDataAPI.Control;
 
 /// <summary>
-/// /control —— 控制接口的 WebSocket 长连接端点（v2.5 新增，对应平台 ws-control-design 的 Phase 3）。
+/// /control —— 控制接口的 WebSocket 长连接端点（v2.5.0 推出，代号 Yagami Light；
+/// v2.5.4-preview 新增事件流推送 subscribe_events，代号 ENIGMA；
+/// v2.5.4 正式版定名，代号 GIS,GNSS,RS!；对应平台 ws-control-design 的 Phase 3）。
 ///
 /// /control/ 是公用的控制命名空间（与传输方式无关的地址语义）：
 ///   - 一次性调用：HTTP POST /control/*

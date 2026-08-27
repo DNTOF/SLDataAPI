@@ -448,10 +448,10 @@ voice_round_3_20260818_223100.zip
 ## 与 AstrBot 集成
 
 客户端插件：[SCP：SL 查询插件](https://github.com/DNTOF/astrbot_plugin_sl_query)
-在 AstrBot 插件中使用 `/bindex <IP> <token>` 绑定本接口后，`/sl` 命令查询时会优先调用本接口，并在服务器名称后显示 `[EX]` 标记：
+在 AstrBot 插件中使用 `/bindlab <IP> <token>` 绑定本接口后，`/sl` 命令查询时会优先调用本接口，并在服务器名称后显示 `[LAB]` 标记：
 
 ```
-名称: 我的服务器[EX]
+名称: 我的服务器[LAB]
 人数: 19/32
 玩家列表: PlayerOne[D级人员], TestUser[SCP-173], ...
 回合: 已开始 11 分钟

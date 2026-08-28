@@ -149,21 +149,7 @@ report_rate_window_minutes: 30        # 举报限流窗口（分钟），默认�
 
 > 插件本身的启停开关不再出现在此文件中：LabAPI 用插件目录下的 `properties.yml`（`is_enabled`）管理插件加载与否，可通过 `/control/plugins` 端点修改。
 
-**字段说明：**
-
-| 字段 | 说明 |
-|------|------|
-| `control_token` | 控制接口专用 token。要求长度 ≥ 8，且同时包含大写字母、小写字母、数字、特殊符号；格式不合法时本次运行会**强制禁用控制接口**并在日志报错 |
-| `control_transport` | 控制接口传输方式（**二选一硬互斥**）：`http`（默认，仅 `/control/*` HTTP POST）或 `ws`（仅 WebSocket 长连接）。选了 ws 就不留 HTTP 刷包面、选了 http 就不开放 WS，任何时刻只有一条控制通路；被拒一方返回 404 带 `data.code = "transport_mismatch"` 供平台自动切换（互斥检查在鉴权之前，刷被拒通道不消耗失败锁定额度）。只读接口 `/get_sl_data` 不受影响 |
-| `auto_update_install` | 检测到新版本时自动下载并替换 `SLDataAPI.dll`（覆盖后重启游戏服生效；旧版备份 `.bak`）。校验：下载文件必须为合法程序集、名称一致；当前已强名称签名时还要求签名一致（防篡改）。**只自动接受稳定版**：预发布版本（GitHub prerelease/draft 标记，或 tag 含 beta/alpha/rc/preview/dev 等标识）不会自动下载。关闭则仅日志提示 |
-| `file_root` | 文件管理端点的根目录（绝对路径），所有文件操作被限制在该目录内（防 `..` 路径穿越）；留空 = 禁用。建议指向 `SCPSL_Data` 或某个只读配置目录 |
-| `log_directory` | `/control/logs` 读取的日志目录。留空自动探测：`%AppData%/SCP Secret Laboratory/ServerLogs`（含端口子目录）→ `SCPSL_Data/Logs` |
-| `voice_record_enabled` | 每局自动保存语音录音：混合音轨 WAV（48kHz/16bit/单声道）+ 时间轴日志。**需同时开启 `voice_enabled`**（复用语音解码管线）。回合开始建档、回合结束定稿；停服时兜底保存 |
-| `voice_record_max_rounds` | 最多保留的录音局数（按最近时间排序，超出自动删除最旧的 wav + 时间轴）。0/负数 = 不清理。磁盘参考：约 5.5MB/分钟/局（一小时局 ≈ 330MB） |
-| `voice_record_dir` | 录音保存目录（绝对路径）；留空 = `%AppData%/SCP Secret Laboratory/SLDataAPI/VoiceRecords`。该目录在游戏数据目录内，天然受文件端点顶级防线保护 |
-| `report_enabled` | 举报功能总开关（默认关闭）。开启后：玩家在 Esc → 服务器设置 面板中下拉选择在线玩家、填写原因、长按按钮（3 秒）提交举报；平台端通过 `/control/reports` 端点读取未处理记录并标记已处理。记录写入插件配置目录下的 `reports.json`（含举报人/被举报人 steam64、IP、原因、时间，status: pending/handled） |
-| `report_max_records` | 举报记录最大条数。超出后自动删除最旧的**已处理**记录；未处理记录不删除，若全部未处理则 LocalAdmin 输出 WARN 提示（仅提示一次，避免刷屏） |
-| `report_rate_limit` / `report_rate_window_minutes` | 举报限流：每人在窗口（默认 30 分钟）内最多提交 `report_rate_limit`（默认 5）次，超出拒绝并提示 |
+> 各配置项的完整字段说明（含 `control_transport` 互斥语义、`auto_update_install` 稳定版策略、录音/举报细节等）见 wiki [Configuration](https://github.com/DNTOF/SLDataAPI/wiki/Configuration)。
 
 > ⚠️ 请确保服务器防火墙放行对应端口（默认 8081/TCP）。
 
@@ -220,19 +206,7 @@ report_rate_window_minutes: 30        # 举报限流窗口（分钟），默认�
 }
 ```
 
-**字段说明：**
-
-| 字段 | 说明 |
-|------|------|
-| `round_duration` | 回合已进行秒数 |
-| `nuke_status` | `未激活` / `倒计时:XX秒` / `已爆炸` |
-| `nuke_countdown` | 核弹倒计时秒数（实时值，不受刷新间隔影响） |
-| `d_count` | D级人员阵营（含混沌分裂者） |
-| `ping` | 所有真实玩家平均延迟（ms） |
-| `players[].steam_id` | 玩家 SteamID（`p.UserId`） |
-| `players[].x/y/z` | 玩家世界坐标（地图追踪用，只取平面 x/z + 高度 y） |
-| `players` | 仅包含已分配职业的真实玩家，排除 NPC/Dummy |
-| `dntof_plugins` | DNT_OF 系列插件（SLPlayer / OmegaWarhead）运行时信息；对应插件未加载时子字段为 `null` |
+字段说明、数据刷新机制与玩家过滤规则见 wiki [HTTP-API](https://github.com/DNTOF/SLDataAPI/wiki/HTTP-API)。
 
 **错误响应：**
 
@@ -299,20 +273,11 @@ report_rate_window_minutes: 30        # 举报限流窗口（分钟），默认�
 
 启用 `voice_enabled` 后，插件在独立端口（默认 8082）上提供语音 WebSocket，实时推送服务器内**所有频道**的语音（近距离、对讲机、Intercom 全局广播、SCP 频道、旁观者等），解码为 48kHz 单声道 float32 PCM。
 
-**端点：**
+**端点：** `GET /ws`（实时语音流）与 `GET /status`（当前说话者 JSON），均需 `control_token` 鉴权（`?key=` 或 `X-Control-Token` 头）。
 
-| 端点 | 说明 |
-|------|------|
-| `GET /ws?key=control_token`（或 `X-Control-Token` 头） | WebSocket 升级，实时语音流（需要 `control_token` 鉴权） |
-| `GET /status?key=control_token`（或 `X-Control-Token` 头） | JSON：当前正在说话的玩家（昵称/UserID/角色/频道，1.5s 无新包视为停止） |
+**帧格式：** 建连收文本帧 `{"type":"hello","sampleRate":48000,"channels":1,"format":"float32"}`；说话者变化推 `{"type":"speaker",...}` 文本帧；语音为二进制帧 `[0]=0x01 [1]=channel [2-3]=playerId(LE) [4-7]=seq(LE) [8..]=float32 PCM`（10ms Opus 帧，约 100 包/秒）。
 
-**帧格式：**
-
-- 连接成功：文本帧 `{"type":"hello","sampleRate":48000,"channels":1,"format":"float32"}`
-- 说话者信息（新一轮讲话 / 频道或角色变化时推送）：文本帧 `{"type":"speaker","nickname":"...","userid":"...","playerid":n,"role":"...","channel":n}`
-- 语音帧（二进制）：`[0]=0x01 [1]=channel [2-3]=playerId(LE) [4-7]=seq(LE) [8..]=float32 PCM`，每包为 10ms Opus 帧（480 样本，约 100 包/秒）
-
-**实现要点：** 基于 LabAPI `SendingVoiceMessage` 事件（服务器收到的每个语音包触发，内容哈希去重防重复解码）；解码器按说话者 netId 分开维护、异常自动重建；**主线程零阻塞保证**——读侧非阻塞收取、发送侧 Poll 可写检查（缓冲满跳帧）+ 3s 判死 + 250ms 发送超时兜底，对端停止收数据绝不可能冻结服务器主线程；连接上限 8、握手超时 10s、鉴权失败当场断开。
+完整协议与实现要点（主线程零阻塞保证、连接层防护）见 wiki [Voice-Forwarding](https://github.com/DNTOF/SLDataAPI/wiki/Voice-Forwarding)。
 
 ---
 
@@ -345,25 +310,6 @@ voice_round_3_20260818_223100.zip
 
 ---
 
-## 数据刷新机制
-
-- 插件启用时**立即**采集一次数据（无需等待第一个刷新周期）
-- 之后每隔 `push_interval_seconds` 秒刷新一次缓存（默认 8 秒）
-- 回合开始 / 结束 / 等待玩家阶段切换时**立即触发**一次额外刷新
-- 核弹倒计时在**每次 HTTP 请求时实时读取**，不受刷新间隔影响，始终与游戏内同步
-- 地图布局在**每回合开始时**采集（LCZ/HCZ 每回合随机）；`/control/map seed` 返回的 seed 与布局一一对应
-
----
-
-## 已知过滤规则
-
-以下类型的玩家对象会被排除在数据之外，不计入人数也不出现在玩家列表：
-
-- 通过 `dummy` 命令或插件创建的 **NPC/Dummy 玩家**（`p.IsNpc == true`）与服务器主机（`p.IsHost == true`）
-- `RoleTypeId.None` 的玩家（回合开始瞬间尚未完成职业分配，下一个刷新周期会正常出现）
-
----
-
 ## 与 AstrBot 集成
 
 客户端插件：[SCP：SL 查询插件](https://github.com/DNTOF/astrbot_plugin_sl_query)
@@ -384,21 +330,6 @@ SCP阵营: 3
 
 ---
 
-## 源文件结构（v2.4.0：LabAPI 架构 + 命名空间分类）
+## 开发者文档
 
-```
-SLDataAPI/
-├── Plugin.cs                       # [SLDataAPI] 插件入口：LabAPI 生命周期（Enable/Disable）、事件注册、服务编排
-├── Config.cs                       # [SLDataAPI] LabAPI 配置类（config.yml）
-├── Log.cs                          # [SLDataAPI] 日志门面（LabAPI Logger + Debug 开关门控）
-├── Data/                           # [SLDataAPI.Data] Models.cs（数据快照）/ ControlModels.cs（控制 DTO）
-├── Control/                        # [SLDataAPI.Control] ControlController（端点业务）/ WsControlService（WS 长连接）/ ControlAuth（鉴权）
-├── Services/                       # [SLDataAPI.Services] HttpServer / DataCollector / MainThreadExecutor / FileService / ReportService 等
-├── Voice/                          # [SLDataAPI.Voice] VoiceService（语音转发 SPY）/ VoiceRecorder（录音取证）
-├── Map/                            # [SLDataAPI.Map] 地图布局采集与导出
-├── Integrations/                   # [SLDataAPI.Integrations] EXILED 反射桥 + SLPlayer / OmegaWarhead 探测
-├── Capture/                        # [SLDataAPI.Capture] Harmony 补丁：控制台输出捕获
-└── SLDataAPI.csproj                # net48；引用本机游戏程序集 + LabApi.dll（路径可用 -p: 参数覆盖）
-```
-
-开发者上手（结构详解、端点添加流程、事件链保护/主线程派发约定、SSS UI 集成、构建发布）见 wiki [Development-Guide](https://github.com/DNTOF/SLDataAPI/wiki/Development-Guide) 与 [Architecture](https://github.com/DNTOF/SLDataAPI/wiki/Architecture)。
+源码结构、命名空间映射、添加控制端点流程、事件链保护/主线程派发约定、SSS UI 集成、构建与发布规范见 wiki [Development-Guide](https://github.com/DNTOF/SLDataAPI/wiki/Development-Guide) 与 [Architecture](https://github.com/DNTOF/SLDataAPI/wiki/Architecture)。

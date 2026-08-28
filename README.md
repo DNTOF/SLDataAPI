@@ -103,7 +103,7 @@ push_interval_seconds: 8              # 后台数据刷新间隔（秒）
 
 # ===== 控制接口（v2.1）=====
 control_enabled: false                # 是否启用 /control/*（默认关闭；关闭时一律 404）
-control_token: ''                     # 控制接口专用 token，与 verify_token 分离
+control_token: 你的token             # 控制接口专用 token，与 verify_token 分离。⚠️ 直接写裸值，不要带任何引号（见下方引号警告）
 control_transport: http             # 控制接口传输方式 http|ws（二选一硬互斥：ws 模式下 HTTP /control/* 一律 404，http 模式下 WS 握手拒绝；被拒一方收到 transport_mismatch 协商信号）
 
 # ===== 自动更新 / 文件 / 日志 =====
@@ -133,10 +133,16 @@ report_rate_window_minutes: 30        # 举报限流窗口（分钟），默认�
 > 好消息：键名风格与旧 EXILED 配置一致，直接把旧值抄过来即可（删掉 `is_enabled`，新键照上表拼写）。
 >
 > ⚠️ **任何一个值格式错误会导致整个文件被静默回退默认值**（LabAPI 的 LoadConfigs 行为，控制台无报错）：
-> 布尔值不要加引号（`true` 而非 `"true"`）、缩进用空格不要用 Tab、含 `#` 等特殊字符的 token 必须加双引号。
+> 布尔值不要加引号（`true` 而非 `"true"`）、缩进用空格不要用 Tab。
 > v2.5 起插件启动时会自检配置文件：解析失败会在控制台打出 YamlDotNet 的**精确错误（含行号）**，
 > 并输出一行"配置摘要"（端口/token 长度/开关状态），默认值状态一眼可辨。
 > 验证配置是否被读到：启动日志若出现 "VerifyToken 仍为出厂默认值" 警告，说明 `verify_token` 没有生效。
+>
+> ⚠️ **token 引号警告（重点）**：`control_token` / `verify_token` 建议直接写**裸值**（`control_token: Qq10086@`），不要带引号。
+> 如果你确实需要给含 `#`、`:` 等特殊字符的 token 加引号，**必须用 ASCII 引号 `'` 或 `"`**——
+> 从聊天软件/网页复制来的**弯引号**（`‘’“”`）不是 YAML 引号语法，会被 YamlDotNet 当成 **token 内容的一部分**
+> （长度+1、格式校验照常通过、启动零报错，但鉴权必然 403）。v2.5.4 起插件启动时会检测引号字符并直接报错点破。
+> 顺带：`''` 与 `""` 表示空字符串（禁用/留空），填值时删掉引号直接写内容即可。
 
 > 插件本身的启停开关不再出现在此文件中：LabAPI 用插件目录下的 `properties.yml`（`is_enabled`）管理插件加载与否，可通过 `/control/plugins` 端点修改。
 

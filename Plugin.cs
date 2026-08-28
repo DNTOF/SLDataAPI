@@ -50,6 +50,11 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
         if (string.Equals(Config.VerifyToken, "your_secret_token", StringComparison.Ordinal))
             Log.Warn("[SLDataAPI] VerifyToken 仍为出厂默认值 your_secret_token，请尽快修改为强随机值！");
 
+        // 数据接口 token 的引号检测（控制 token 的检测在 ValidateControlConfig，更严格：直接禁用）
+        if (ContainsQuoteChar(Config.VerifyToken))
+            Log.Warn("[SLDataAPI] VerifyToken 中检测到引号字符（可能是从聊天软件复制的弯引号 ‘ ’ “ ”）——" +
+                     "引号会被当作 token 内容导致鉴权失败，请删除引号后重启服务器。");
+
         // 生效配置摘要（一眼识别"配置没被读到、正在用默认值"的状态）
         Log.Info(
             $"[SLDataAPI] 配置摘要：http_port={Config.HttpPort}，verify_token 长度 {Config.VerifyToken?.Length ?? 0}，" +
@@ -220,6 +225,19 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
         if (!Config.ControlEnabled)
             return;
 
+        // 引号检测：' " 或弯引号 ‘ ’ “ ” 在 token 里几乎总是配置错误——弯引号不是 YAML 引号语法，
+        // 会被解析成 token 内容的一部分（长度+1、格式校验照常通过、启动零报错，但鉴权必然 403）。
+        // 典型来源：从聊天软件/网页复制 token 时引号被替换成智能引号。
+        if (ContainsQuoteChar(Config.ControlToken))
+        {
+            Log.Error(
+                "[SLDataAPI] ControlToken 中检测到引号字符（' \" 或弯引号 ‘ ’ “ ”）——" +
+                "引号会被当作 token 内容导致鉴权必然失败。请删除 token 两端的引号" +
+                "（注意从聊天软件复制来的弯引号），修正后重启服务器。本次运行将强制禁用控制接口。");
+            Config.ControlEnabled = false;
+            return;
+        }
+
         if (!ControlAuth.IsValidTokenFormat(Config.ControlToken))
         {
             Log.Error(
@@ -239,6 +257,23 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
             transport = "http";
         }
         Config.ControlTransport = transport;
+    }
+
+    /// <summary>
+    /// token 值是否包含引号字符（ASCII 单双引号或弯引号 ‘ ’ “ ”）。
+    /// 弯引号不是 YAML 引号语法，会被 YamlDotNet 当作普通字符并入 token 值，
+    /// 表现为"配置看着对、格式校验通过、鉴权却必败且无任何日志"。
+    /// </summary>
+    private static bool ContainsQuoteChar(string? s)
+    {
+        if (string.IsNullOrEmpty(s))
+            return false;
+        foreach (char c in s!) // net48 参考程序集缺 NotNullWhen 注解，编译器无法收窄，这里已判空
+        {
+            if (c == '\'' || c == '"' || c == '\u2018' || c == '\u2019' || c == '\u201C' || c == '\u201D')
+                return true;
+        }
+        return false;
     }
 
     /// <summary>

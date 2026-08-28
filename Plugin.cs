@@ -297,9 +297,22 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
             }
             catch (Exception ex)
             {
+                string detail = ex.Message.Replace("\n", " ");
+
+                // YAML 特殊字符识别：token/路径以 * & ! 开头会被当成别名/锚点/tag——
+                // * 开头直接解析失败，& 和 ! 开头值被吞成空（零报错）。给可读的排查提示
+                if (detail.IndexOf("anchor", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    detail.IndexOf("alias", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    detail.IndexOf("tag", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    detail += " —— 疑似配置值含有 YAML 特殊字符" +
+                              "（token 以 * / & / ! 开头会被当作别名/锚点/tag），" +
+                              "请用 ASCII 双引号包裹该值，如 control_token: \"你的token\"";
+                }
+
                 Log.Error(
                     "[SLDataAPI] 配置文件解析失败！LabAPI 已静默回退到全部默认值（当前正以默认配置运行，" +
-                    $"鉴权必然失败）。请修正配置文件后重启服务器。错误位置：{ex.Message.Replace("\n", " ")}");
+                    $"鉴权必然失败）。请修正配置文件后重启服务器。错误位置：{detail}");
             }
         }
         catch (Exception ex)

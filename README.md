@@ -20,6 +20,8 @@
 **依赖：** LabAPI（游戏自带） · 0Harmony（2.3.x） · Newtonsoft.Json（13.0.x）——后两者**游戏本身不自带**，由 LabAPI 依赖目录提供，缺失会加载失败，见下方「⚠️ 运行依赖要求」  
 **用途：** 在 SCP:SL 游戏服务器上暴露一个轻量 HTTP 接口，供 WebUI / AstrBot 等外部程序轮询实时服务器数据，并通过 `/control/*` 控制接口远程执行管理操作；内置**语音转发**（WebSocket 实时收听全频道语音，代号 SPY）；v2.5 起新增**控制接口 WebSocket 长连接**。
 
+> 📚 **完整文档见 Wiki**：https://github.com/DNTOF/SLDataAPI/wiki —— 接口 curl 示例与响应、WS 协议与事件 payload、配置参考、安全模型、录音格式、开发者指南等详细内容均在 wiki 中，README 仅保留安装与核心概览。
+
 > **v2.4.0（代号 Rebirth）—— 架构迁移说明：** 本插件已从 EXILED 插件迁移为 **LabAPI 原生插件**（不再依赖 EXILED），并完成源码目录/命名空间分类重构。
 > - 安装位置变更：`LabAPI/plugins/global/`（不再是 `EXILED/Plugins/`）
 > - 配置位置变更：`LabAPI/configs/<端口>/SLDataAPI/config.yml`（旧 EXILED 配置文件不会被读取，需把值抄到新文件；键名同为 snake_case，删掉 `is_enabled` 即可）
@@ -178,7 +180,7 @@ report_rate_window_minutes: 30        # 举报限流窗口（分钟），默认�
 
 > 🔒 **token 传递建议**：优先用 `X-Control-Token` 请求头——`?token=` / `?key=` 查询串会落入反向代理/访问日志，属于弱一环。三个入口（数据/控制/语音 WS）均已支持头鉴权，新客户端应一律走请求头。
 
-**暴力破解防护**（`ControlAuth.cs`）：按 IP 失败锁定**分权限级**——只读数据接口（`verify_token`）与控制/语音（`control_token`）各用一张失败表，攻击者刷数据接口不会锁死管理员的高权限通道；同一 IP 在 5 分钟窗口内失败 10 次即锁定 5 分钟，失败表周期清扫（过期条目自动移除，海量源地址不会无界增长）。token 比较使用常量时间算法，避免时序侧信道。语音 WS 未配置 `control_token` 时一律拒绝（不开放匿名监听）。
+**暴力破解防护**：按 IP 失败锁定**分权限级**（数据接口与控制/语音各一张失败表，刷数据接口不会锁死高权限通道）；5 分钟窗口失败 10 次锁 5 分钟；token 比较使用常量时间算法。语音 WS 未配置 `control_token` 时一律拒绝。详见 wiki [Security-Model](https://github.com/DNTOF/SLDataAPI/wiki/Security-Model)。
 
 ---
 
@@ -252,41 +254,19 @@ report_rate_window_minutes: 30        # 举报限流窗口（分钟），默认�
 { "success": true, "message": "操作成功", "data": { } }
 ```
 
-| 端点 | 请求字段 | 说明 |
-|------|----------|------|
-| `/control/command` | `command` | 执行服务器控制台命令（等价本机控制台权限，见安全警告）。**点命令（`.m` 等客户端命令）走专用执行通道**：以主机玩家身份在 DotCommandHandler 上执行并直接返回响应文本（原生控制台路径在专用服上是死胡同，命令不会执行更没有回显） |
-| `/control/player/kick` | `target`, `reason` | 踢出玩家（target 支持昵称/ID/SteamID） |
-| `/control/player/ban` | `target`, `reason`, `duration` | 封禁玩家（duration 单位：分钟，0=永久） |
-| `/control/player/role` | `target`, `role` | 设置玩家角色 |
-| `/control/player/teleport` | `target`, `x`, `y`, `z` | 传送玩家到指定坐标 |
-| `/control/player/mute` | `target`, `mute` | 语音禁言/解除（bool） |
-| `/control/player/msg` | `target`, `message`, `msg_type`(`hint`/`broadcast`), `duration_seconds` | 私聊消息/广播 |
-| `/control/player/effect` | `target`, `effect`, `effect_duration` | 施加状态效果 |
-| `/control/player/state` | `target`, `godmode`?, `bypass`?, `health`?, `intercom`? | 查询/设置玩家状态（均为可选字段） |
-| `/control/round` | `action`: `restart` / `end` / `start` | 回合控制 |
-| `/control/cassie` | `message`, `isNoisy`?, `translation`? | CASSIE 播报。`translation` 非空时：语音播报 `message` 原文（含音效代码），游戏内字幕显示 `translation`（纯文本，不解析音效代码）——"英文播报 + 中文字幕"；空则仅播报。isHeld/isSubtitles 在新 TTS 体系无对应开关（忽略） |
-| `/control/warhead` | `action`: `start` / `stop` / `detonate` | 核弹控制 |
-| `/control/reports` | `action`: `list` / `handle`, `id`? | 举报记录管理（需 `report_enabled: true`）。`list` 返回全部**未处理**（pending）记录：举报人/被举报人 steam64、举报人 IP、原因、时间、记录 id；`handle` 传 `id` 将该记录标记为已处理（handled）。记录存于插件配置目录 `reports.json`，超 `report_max_records` 自动清理最旧已处理记录 |
-| `/control/map` | `action`: `seed` / `layout` / `doors` / `elevators` / `lights` | 地图信息与控制。doors 支持 `scope`: `type`(默认,按 door_type 单门) / `all`(全部门) / `all_not_list`(枚举未列出的门，机关门/随机门等)；elevators 支持 `elevator_type`(当前 ElevatorGroup 名如 Nuke01/LczA01/GateA01=单轿厢粒度，或旧名 Nuke/GateA/GateB/Scp049/LczA/LczB/ServerRoom=整组操作) + `command`: `up`/`down`/`send`（send 直达 `level` 目标楼层，对齐 RA elevator send）+ `scope`: `type`/`all` |
-| `/control/map/export` | — | 导出地图原始数据（atlas RGBA base64、glyph_pairs、zone_candidates 等），供外部重建 |
-| `/control/slplayer` | `action`: `status` / `list` / `play` / `next` / `stop` / `volume` / `shuffle` / `reload` | 控制 SLPlayer 音乐（需服务器装有 SLPlayer 插件） |
-| `/control/plugins` | `action`?: `stage`/`clear`/`apply`/`reload`（空=列表） | 插件管理。列表同时列出 **LabAPI 原生插件**（`source: labapi`）与同服 **EXILED 插件**（`source: exiled`，需装有 EXILED）；`enabled` 读配置文件；`stage` 暂存启停（不写文件，SLDataAPI 自身禁止禁用）；`apply` 统一写入——LabAPI 插件写 `properties.yml` 后**重启服务器生效**，EXILED 插件立即重载生效；`reload` 仅热重载各插件**配置文件**（等价控制台 `reload configs`，不重载插件本体） |
-| `/control/ban_list` | — | 游戏封禁列表 |
-| `/control/ban/add` | `userId`?, `reason`, `duration` | 添加封禁 |
-| `/control/ban/revoke` | `userId` | 解除封禁 |
-| `/control/logs` | `lines`?（默认 200）, `filter`?, `path`?, `action`? | 读取服务器日志尾部（自动探测日志目录）。`action=list` 列出全部可用日志文件（名称/大小/时间）；`path` 指定读取某个日志文件（仅限日志目录内 .log/.txt，防任意文件读取） |
-| `/control/files/list` | `path` | 列出目录（受 `file_root` 白名单限制） |
-| `/control/files/read` | `path` | 读取文件内容 |
-| `/control/files/write` | `path`, `content` | 写入文件 |
+**端点一览**（请求字段、curl 示例与响应示例见 wiki [HTTP-API](https://github.com/DNTOF/SLDataAPI/wiki/HTTP-API)）：
 
-**示例：**
-```
-POST /control/round
-X-Control-Token: 你的control_token
-Content-Type: application/json
-
-{ "action": "restart" }
-```
+| 类别 | 端点 |
+|------|------|
+| 命令 | `/control/command`（含点命令直连执行） |
+| 玩家 | `/control/player/{kick|ban|role|teleport|mute|msg|effect|state}` |
+| 回合 | `/control/round`（restart/end/start）、`/control/wave`（重生波次） |
+| 播报/核弹 | `/control/cassie`（含中文字幕）、`/control/warhead` |
+| 地图 | `/control/map`（layout/doors/elevators/lights/seed）、`/control/map/export` |
+| 举报 | `/control/reports`（list/handle，需 `report_enabled: true`） |
+| 插件 | `/control/plugins`（列表/暂存/apply/reload）、`/control/slplayer` |
+| 封禁 | `/control/ban_list`、`/control/ban/add`、`/control/ban/revoke` |
+| 运维 | `/control/logs`、`/control/files/{list|read|write}`（受 `file_root` 白名单限制） |
 
 **错误响应：**
 
@@ -302,62 +282,16 @@ Content-Type: application/json
 
 ## 控制接口 WebSocket（v2.5 · `/control`）
 
-`/control/` 是公用的控制命名空间：一次性调用走 HTTP POST，高频调用走 WebSocket 长连接（复用连接、仅剩帧级开销），两种方式调用同样的端点、语义完全一致——但**同一时刻只有一条通路开放**（`control_transport` 二选一硬互斥，不设双通道，避免选了 ws 还留着 HTTP 刷包面）。`/get_sl_data` 数据接口始终走 HTTP 不变。
+`/control/` 是公用的控制命名空间：一次性调用走 HTTP POST，高频调用走 WebSocket 长连接（复用连接、仅剩帧级开销），两种方式调用同样的端点、语义完全一致——但**同一时刻只有一条通路开放**（`control_transport` 二选一硬互斥）。`/get_sl_data` 数据接口始终走 HTTP 不变。
 
-**端点：** `ws://<服务器IP>:8081/control?key=<control_token>`（也接受别名 `/ws/control`；与 HTTP 同端口；token 支持 `?token=` 或 `X-Control-Token` 请求头）
+**端点：** `ws://<服务器IP>:8081/control?key=<control_token>`（别名 `/ws/control`；token 支持 `?token=` 或 `X-Control-Token` 头）
 
-**门控：** 需要 `control_transport: ws`；`http` 模式下握手 404（带 `transport_mismatch` 协商信号）；`control_enabled: false` 时一律 404；鉴权失败 403 并计入按 IP 的失败锁定。
+**协议要点**（JSON 文本帧，完整消息示例与七类事件 payload 见 wiki [WS-Control-Protocol](https://github.com/DNTOF/SLDataAPI/wiki/WS-Control-Protocol)）：
 
-**协议（JSON 文本帧）：**
-
-| 方向 | 消息 | 说明 |
-|------|------|------|
-| S→C | `{"type":"hello","version":"<插件版本>","endpoints":"/control/*"}` | 建连后立即推送 |
-| C→S | `{"type":"ping"}` | 心跳（建议 ~25s 一次） |
-| S→C | `{"type":"pong"}` | 心跳应答 |
-| C→S | `{"type":"subscribe_events"}` | 订阅服务器事件推送（v2.5.4，见下方「事件推送」） |
-| C→S | `{"type":"unsubscribe_events"}` | 取消事件订阅 |
-| S→C | `{"type":"events_subscribed"}` / `{"type":"events_unsubscribed"}` | 订阅状态确认 |
-| S→C | `{"type":"event","event":"player_died","utc":"...","data":{...}}` | 服务器事件推送（仅订阅后） |
-| C→S | `{"type":"call","reqId":"c1","path":"/control/player/kick","body":{...}}` | 控制调用；`path` + `body` 与 HTTP POST 完全一致 |
-| S→C | `{"type":"result","reqId":"c1","ok":true,"status":200,"data":{"success":true,...}}` | 调用结果；`data` 即 HTTP 响应体；失败时 `ok:false` 且带 `message`（对应 400/403/500 文案） |
-| S→C | `{"type":"error","message":"..."}` | 协议层错误（非法 JSON / 未知类型等） |
-
-- `reqId` 由调用方生成，仅需连接内唯一；**结果允许乱序返回**（并发调用时按完成顺序回包）
-- 限制：全局连接上限 8；单连接并发 `call` 上限 4（超出立即回 `result{ok:false,status:429}`）；单消息上限 256KB；90s 无入站消息判定超时断开
-- 除 JSON 层 `ping/pong` 外，协议层 WS ping 帧也会被应答
-
-**事件推送（v2.5.4 · 订阅制）：**
-
-订阅 `subscribe_events` 后，服务器实时推送以下事件（`type:"event"`，`event` 为事件名，`data` 为负载）：
-
-| 事件名 | 触发时机 | data 字段 |
-|--------|----------|-----------|
-| `round_started` | 回合开始 | `started_at`（UTC ISO8601） |
-| `round_ended` | 回合结束 | `leading_team`（胜利阵营）、`ended_at` |
-| `player_joined` | 玩家加入 | `nickname`、`userid` |
-| `player_left` | 玩家离开 | `nickname`、`userid` |
-| `player_died` | 玩家死亡 | `nickname`、`userid`、`old_role`、`attacker_nickname`、`attacker_userid`（无攻击者时缺省） |
-| `elevator_used` | 玩家使用电梯 | `nickname`、`userid`、`elevator_group`（如 Nuke01 / LczA01） |
-| `door_opened` | 玩家交互门（含权限门） | `nickname`、`userid`、`door`（DoorName 枚举名）、`can_open`（该玩家是否有权打开） |
-
-推送与 `call` 调用互不阻塞（同一连接复用）；事件为尽力而为投递——连接断开期间的事件不补发，重连后需重新 `subscribe_events`。
-
-**关闭码 / 状态码语义**（供上游中继实现退避与错误透传，不应重试风暴）：
-
-| 码 | 阶段 | 含义 | 上游应对 |
-|----|------|------|----------|
-| HTTP `400` | 握手前 | 非升级请求 / 缺 Sec-WebSocket-Key | 客户端实现缺陷，修代码而非重试 |
-| HTTP `403` | 握手前 | 鉴权失败（token 错误/锁定中） | 丢弃连接 + 错误透传；**不要立即重试**（会计入按 IP 失败锁定，5 分钟 10 次锁 5 分钟） |
-| HTTP `404` | 握手前 | 控制接口未启用 / 当前为 HTTP 模式（互斥） | 错误透传，提示管理员改配置 |
-| HTTP `503` | 握手前 | 连接数满（上限 8） | 丢弃连接 + 指数退避重连（服务端负载信号） |
-| WS `1000` | 会话中 | 对端正常关闭 | 正常清理 |
-| WS `1002` | 会话中 | 协议错误（RSV 位 / 未知 opcode / 意外续帧） | 客户端实现缺陷，修代码 |
-| WS `1003` | 会话中 | 收到二进制帧（仅支持文本） | 同上 |
-| WS `1008` | 会话中 | **消息组装超时**（分片慢速滴流防护，单消息 30s 上限） | 丢弃连接 + 退避重连（可能是滥用/网络劣化信号） |
-| WS `1009` | 会话中 | 消息超过 256KB 上限 | 客户端把请求拆小 |
-
-另：服务端 90s 无入站消息主动断开（无 close 码层面的区分，对端表现为连接被关闭）——中继侧靠心跳维持，断开后常规退避重连即可。
+- 建连即收 `hello`；`ping/pong` 心跳（建议 ~25s，90s 无入站消息断开）
+- `call{reqId,path,body}` → `result{reqId,ok,status,data}`：path+body 与 HTTP POST 完全一致，结果可乱序返回
+- `subscribe_events` / `unsubscribe_events` 订阅事件流：`round_started` / `round_ended` / `player_joined` / `player_left` / `player_died` / `elevator_used` / `door_opened` 七类事件，尽力而为投递
+- 限制：全局 8 连接 / 单连接 4 并发 call（超限 429）/ 单消息 256KB；关闭码语义见 wiki
 
 ---
 
@@ -378,14 +312,7 @@ Content-Type: application/json
 - 说话者信息（新一轮讲话 / 频道或角色变化时推送）：文本帧 `{"type":"speaker","nickname":"...","userid":"...","playerid":n,"role":"...","channel":n}`
 - 语音帧（二进制）：`[0]=0x01 [1]=channel [2-3]=playerId(LE) [4-7]=seq(LE) [8..]=float32 PCM`，每包为 10ms Opus 帧（480 样本，约 100 包/秒）
 
-**实现要点：**
-
-- 基于 LabAPI `PlayerEvents.SendingVoiceMessage` 事件（挂在 `VoiceTransceiver.ServerReceiveMessage` 上，服务器收到的每个语音包都会触发；保留按内容哈希去重的纵深防御，避免重复解码破坏 Opus 解码器状态）
-- 解码器按说话者（netId）分开维护；解码异常时自动重建自愈
-- 所有状态以 netId 为键，不用 ReferenceHub（玩家断开后 Hub 销毁会抛 NRE）
-- 主循环 MEC 协程内全程 try/catch 保护，任何异常都不会杀死转发管道
-- **主线程零阻塞保证（v2.5）**：读侧仅在有数据时非阻塞收取；发送侧先经 `Poll` 可写检查（缓冲满跳帧，实时流允许丢帧），持续 3 秒不可写判死连接，外加 250ms 发送超时兜底——对端停止收数据绝不可能冻结服务器主线程
-- 连接层防护：监听连接上限 8（满载时**新连接在 TCP 层直接被关闭**，中继侧应对为退避重连，不会得到 WS 层错误码）、握手超时 10 秒、鉴权失败当场断开
+**实现要点：** 基于 LabAPI `SendingVoiceMessage` 事件（服务器收到的每个语音包触发，内容哈希去重防重复解码）；解码器按说话者 netId 分开维护、异常自动重建；**主线程零阻塞保证**——读侧非阻塞收取、发送侧 Poll 可写检查（缓冲满跳帧）+ 3s 判死 + 250ms 发送超时兜底，对端停止收数据绝不可能冻结服务器主线程；连接上限 8、握手超时 10s、鉴权失败当场断开。
 
 ---
 
@@ -403,58 +330,18 @@ voice_round_3_20260818_223100.zip
    └─ voice_round_3_20260818_223100.timeline.log   # 时间轴：谁在什么时候说了多久
 ```
 
-> **按频道分轨**：每个语音频道独立一个 WAV（48kHz/16bit/单声道），**频道之间绝不混合**——SCP 频道与人类频道是游戏里独立的听觉流，混在一起会丢失阵营听觉信息。只有**同频道内**多人同时说话才逐采样混合（那是真实“同听”关系）。未产生流量的频道不生成文件。
+**核心特性**：按频道分轨（SCP 与人类频道独立 WAV 绝不混合，仅同频道多人同时说话逐采样混合）；时间轴 TSV 与音频**采样级对齐**（`采样号 = 回合内秒 × 48000 = WAV 内字节位置 ÷ 2`，跨频道同一采样号对齐同一瞬间，可直接切段取证）；回合开始建档、结束定稿，zip 打包在后台线程完成、停服同步等待；隐私告知（每局开局向玩家显示录音声明）；按 `voice_record_max_rounds` 自动清理最旧局。
 
-**时间轴格式**（制表符分隔，可导入 Excel / 脚本解析；**与音频采样级对齐**）：
-
-```
-# SLDataAPI 语音时间轴（v2.5.4 · GIS,GNSS,RS!）
-# 局号: 3  回合开始: 2026-08-18 22:31:00.123  采样率: 48000Hz
-# 列: 回合内秒	绝对时间	事件	昵称	steamid	角色	频道	netid	详情
-# 对齐: 采样号 = 回合内秒 × 48000 = 任一频道 WAV 文件内精确位置（帧间已补静默，可直接切段取证）
-# 分轨: 每个语音频道（Proximity/Radio/Intercom/Spectator/Scp…）独立一个 WAV，频道间不混合；同频道多人同时说话才混合
-0.000	22:31:00.123	回合开始
-1.200	22:31:01.323	通道开始	Proximity	0	voice_round_3_20260818_223100.Proximity.wav
-12.345	22:31:12.468	说话开始	PlayerOne	76561198000000000	D级人员	0	1234	起点采样=592560
-16.789	22:31:16.912	说话结束	PlayerOne	76561198000000000	D级人员	0	1234	时长=4.444s 起点采样=592560 终点采样=805872
-42.000	22:31:42.123	说话开始	Scp173Fan	76561198123456789	SCP-173	4	5678	起点采样=2016000
-...
-623.456	22:41:23.579	回合结束	时长=623.333s 丢帧=0 终点采样=29920000
-623.500	22:41:23.623	通道归档	Proximity	voice_round_3_20260818_223100.Proximity.wav	终点采样=29920000
-623.500	22:41:23.623	通道归档	Scp	voice_round_3_20260818_223100.Scp.wav	终点采样=29920000
-```
-
-**对齐原理**：各频道 WAV 在说话帧之间**补写了静默**、文件末尾补齐到回合结束点，因此对所有频道文件统一成立 `采样号 = 回合内秒 × 48000 = WAV 内字节位置 ÷ 2`——跨频道对照时用同一个采样号即可对齐同一时刻（如“SCP 频道第 2016000 采样”与“近距离频道第 2016000 采样”是同一瞬间）。用任意支持按采样定位的播放器/编辑器跳转，或用脚本按 `起点采样/终点采样` 直接切段导出。
-
-**行为说明：**
-
-- 回合开始建档、回合结束定稿；**定稿与 zip 打包在后台线程完成**（快照隔离，不占主线程、不阻塞下一局），服务器停服时同步等待打包结束
-- **隐私告知**：录音启用时，每局开始 1 秒后向所有玩家显示 3 秒声明"为了保证游戏公平性，本局游戏将会被录音，具体详询服务器管理员。"（中途加入的玩家不重复提示，仅开局告知）
-- 打包格式：标准 zip（PCM 压缩率约 40%-60%），内含各频道 WAV + 时间轴；打包完成后删除散件。若打包失败（磁盘满等），散件文件保留在录音目录并记日志，下局清理兜底
-- **采样级对齐**：帧间补静默，时间轴秒数 × 48000 = **任一频道文件**内的精确采样位置，跨频道对照用同一采样号
-- **频道隔离**：SCP / 人类（近距离/对讲机/Intercom）等各自独立 WAV，不混合；**同频道多人同时说话 = 逐采样混合**（求和钳制防溢出，任何一方不丢失），实现为 0.4s 混合窗口延迟落盘
-- 说话段按静默 0.8s 划分；说话者静默 1.5s 被清理时收尾其讲话段（与转发管线的状态一致）
-- 磁盘写入在**后台线程**完成，主线程只入队（有界队列 ≈9MB）；写入过慢时丢帧并限频告警，丢帧数记入时间轴末行
-- 磁盘占用参考：**每个有流量的频道**约 5.5MB/分钟原始 PCM（一小时局 ≈ 330MB/频道），zip 后约 40%-60%；按 `voice_record_max_rounds` 清理
-- 按 `voice_record_max_rounds` 自动清理最旧局（wav 与时间轴成对删除）；`0` 或负数 = 不清理
-- 录音目录位于游戏数据目录内，天然受文件端点顶级防线保护（无法通过 `/control/files/*` 读写）
+完整格式、对齐原理与行为细节见 wiki [Voice-Recording](https://github.com/DNTOF/SLDataAPI/wiki/Voice-Recording)。
 
 ---
 
 ## 安全注意事项
 
-- `/control/command` **等价于本机控制台权限**：大多数 RA 命令通过 `GameConsoleCommandHandler` 同时注册，可在此执行。`control_token` 一旦泄露即完全沦陷——务必只通过受信内网或反向代理白名单暴露，`control_enabled` 默认关闭是有意为之。
+- `/control/command` **等价于本机控制台权限**：`control_token` 一旦泄露即完全沦陷——务必只通过受信内网或反向代理白名单暴露，`control_enabled` 默认关闭是有意为之。
 - `control_token` 与 `verify_token` 分离：只读查询可以放心交给监控/机器人，控制权限单独保管。
-- **连接层 DoS 防护**（v2.5 全面加固）：
-  - **Slowloris 防护**：HTTP 请求头+体必须在 **15 秒**内整体送达，超时回 408 并断开——慢速滴字节无法绕过（单次 Read 超时会被周期性字节重置，必须总时限兜底）；每个连接最长占用 ≈ 一个时限 + 单次读取超时（30s），64 并发闸位不会被长期钉死
-  - **WS 控制通道**：单条消息组装超时 30 秒（防"慢发分片 + 夹 ping 保活"绕过空闲超时）+ 90s 无入站消息空闲断开 + 256KB 消息上限 + 全局 8 连接上限 + 单连接 4 并发调用上限
-  - **语音监听**：连接数上限 8（超出立即拒绝）+ 握手超时 10 秒（连上不完成握手的连接强制断开）+ 鉴权失败的连接当场关闭
-- 文件端点默认关闭；开启后所有操作都被限制在 `file_root` 内（路径规范化 + 前缀校验，防 `..` 穿越）。
-- **文件端点四重防线**（任何角色一视同仁，读/写同规则）：
-  1. 路径白名单：仅 `file_root` 内（防 `..` 穿越）
-  2. 系统目录保护：**Windows 目录及其子目录禁止浏览/读取/写入**
-  3. 扩展名白名单：**只允许操作配置文件**（`yml/yaml/txt/json/cfg/ini/conf/config/xml/properties`），exe/dll/bat/ps1 等一律拒绝（列表中以黄色标记且无法打开）
-  4. 顶级防线：**游戏数据目录**（`%AppData%/SCP Secret Laboratory`，LabAPI 的插件/依赖/配置目录都在其中）与 **SLDataAPI 自身配置目录**（`LabAPI/configs/<端口>/SLDataAPI/`）禁止读/写/访问（列表中以黄色标记且无法打开）——防止篡改游戏配置/管理员名单实现提权，或改写插件自身配置
+- **连接层 DoS 防护**：HTTP Slowloris 总时限 15s（408）；WS 控制分片组装 30s + 空闲 90s + 256KB/连接/并发上限；语音监听连接上限 8 + 握手超时 10s + 发送 Poll 守卫（对端停收数据不冻结主线程）。
+- **文件端点四重防线**：路径白名单（`file_root` 内，防 `..` 穿越）→ Windows 系统目录禁读禁写 → 仅配置文件扩展名（yml/yaml/txt/json/cfg/ini/conf/config/xml/properties）→ **游戏数据目录与插件自身配置目录禁止访问**（防提权/防改写自身配置）。完整安全模型见 wiki [Security-Model](https://github.com/DNTOF/SLDataAPI/wiki/Security-Model)。
 
 ---
 
@@ -504,31 +391,14 @@ SLDataAPI/
 ├── Plugin.cs                       # [SLDataAPI] 插件入口：LabAPI 生命周期（Enable/Disable）、事件注册、服务编排
 ├── Config.cs                       # [SLDataAPI] LabAPI 配置类（config.yml）
 ├── Log.cs                          # [SLDataAPI] 日志门面（LabAPI Logger + Debug 开关门控）
-├── Data/
-│   ├── Models.cs                   # [SLDataAPI.Data] ServerData / PlayerInfo / DntofInfo 数据模型
-│   └── ControlModels.cs            # [SLDataAPI.Data] 控制接口请求/响应 DTO
-├── Control/
-│   ├── ControlAuth.cs              # [SLDataAPI.Control] 鉴权：token 格式校验、常量时间比较、按 IP 失败锁定
-│   ├── ControlController.cs        # [SLDataAPI.Control] /control/* 端点业务逻辑（游戏调用经主线程派发）
-│   └── WsControlService.cs         # [SLDataAPI.Control] /ws/control 控制长连接（v2.5，call/result 信封）
-├── Services/
-│   ├── HttpServer.cs               # [SLDataAPI.Services] TcpListener HTTP 实现（0.0.0.0 绑定，不依赖 http.sys）
-│   ├── DataCollector.cs            # [SLDataAPI.Services] 数据采集、缓存、定时刷新
-│   ├── MainThreadExecutor.cs       # [SLDataAPI.Services] 游戏调用主线程派发 + 同步等待
-│   ├── FileService.cs              # [SLDataAPI.Services] 文件端点：FileRoot 白名单、路径防穿越
-│   ├── ServerLogService.cs         # [SLDataAPI.Services] 服务器日志尾部读取（自动探测日志目录）
-│   └── UpdateChecker.cs            # [SLDataAPI.Services] GitHub Releases 自动更新检查/替换
-├── Voice/
-│   ├── VoiceService.cs             # [SLDataAPI.Voice] 语音转发（SPY）：WebSocket、Opus 解码、PCM 推送
-│   └── VoiceRecorder.cs            # [SLDataAPI.Voice] 每局语音录音取证（WAV 混合音轨 + 时间轴日志，v2.5）
-├── Map/
-│   ├── MapLayoutService.cs         # [SLDataAPI.Map] 本回合房间布局采集（RoomIdentifier 反射）
-│   └── MapExportService.cs         # [SLDataAPI.Map] 地图原始数据导出（atlas / glyph / 候选权重）
-├── Integrations/
-│   ├── ExiledInterop.cs            # [SLDataAPI.Integrations] EXILED 运行时反射桥（零编译期依赖，未装时安全降级）
-│   ├── DntofDetector.cs            # [SLDataAPI.Integrations] 探测 SLPlayer / OmegaWarhead 运行时状态
-│   └── SlPlayerController.cs       # [SLDataAPI.Integrations] 反射控制 SLPlayer 音乐控制器
-├── Capture/
-│   └── CommandOutputCapture.cs     # [SLDataAPI.Capture] Harmony 补丁：捕获 ServerConsole.AddLog / CommandSender 输出
+├── Data/                           # [SLDataAPI.Data] Models.cs（数据快照）/ ControlModels.cs（控制 DTO）
+├── Control/                        # [SLDataAPI.Control] ControlController（端点业务）/ WsControlService（WS 长连接）/ ControlAuth（鉴权）
+├── Services/                       # [SLDataAPI.Services] HttpServer / DataCollector / MainThreadExecutor / FileService / ReportService 等
+├── Voice/                          # [SLDataAPI.Voice] VoiceService（语音转发 SPY）/ VoiceRecorder（录音取证）
+├── Map/                            # [SLDataAPI.Map] 地图布局采集与导出
+├── Integrations/                   # [SLDataAPI.Integrations] EXILED 反射桥 + SLPlayer / OmegaWarhead 探测
+├── Capture/                        # [SLDataAPI.Capture] Harmony 补丁：控制台输出捕获
 └── SLDataAPI.csproj                # net48；引用本机游戏程序集 + LabApi.dll（路径可用 -p: 参数覆盖）
 ```
+
+开发者上手（结构详解、端点添加流程、事件链保护/主线程派发约定、SSS UI 集成、构建发布）见 wiki [Development-Guide](https://github.com/DNTOF/SLDataAPI/wiki/Development-Guide) 与 [Architecture](https://github.com/DNTOF/SLDataAPI/wiki/Architecture)。

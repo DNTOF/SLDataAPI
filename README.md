@@ -17,7 +17,7 @@
 
 版本： 2.5.4（开发代号 GIS,GNSS,RS!）  
 **架构：** **LabAPI 原生插件**（v2.4 起脱离 EXILED，运行于 Northwood 官方 LabAPI 框架）  
-**依赖：** LabAPI（游戏服务器自带） · MEC · Newtonsoft.Json · Harmony（服务器自带，不打包）  
+**依赖：** LabAPI（游戏自带） · 0Harmony（2.3.x） · Newtonsoft.Json（13.0.x）——后两者**游戏本身不自带**，由 LabAPI 依赖目录提供，缺失会加载失败，见下方「⚠️ 运行依赖要求」  
 **用途：** 在 SCP:SL 游戏服务器上暴露一个轻量 HTTP 接口，供 WebUI / AstrBot 等外部程序轮询实时服务器数据，并通过 `/control/*` 控制接口远程执行管理操作；内置**语音转发**（WebSocket 实时收听全频道语音，代号 SPY）；v2.5 起新增**控制接口 WebSocket 长连接**。
 
 > **v2.4.0（代号 Rebirth）—— 架构迁移说明：** 本插件已从 EXILED 插件迁移为 **LabAPI 原生插件**（不再依赖 EXILED），并完成源码目录/命名空间分类重构。
@@ -46,15 +46,40 @@
 
 ---
 
+## ⚠️ 运行依赖要求（重点）
+
+插件运行时需要两个程序集，**游戏本身不自带**（`SCPSL_Data/Managed/` 里没有），由 LabAPI 的依赖目录提供——**手动安装/精简安装 LabAPI 的服务器很可能缺失**，缺失时插件会加载失败或启动即报错：
+
+| 依赖 | 版本要求 | 缺失现象 |
+|------|----------|----------|
+| `0Harmony.dll` | 2.3.x（建议与 LabAPI 自带一致） | 插件加载失败 / 事件补丁不生效 |
+| `Newtonsoft.Json.dll` | 13.0.x（程序集版本 13.0.0.0） | 插件加载失败 / 启动即崩 |
+
+**检查方法**：确认以下目录存在这两个文件（`%AppData%/SCP Secret Laboratory/` 为服务器数据根目录）：
+
+```
+LabAPI/dependencies/global/0Harmony.dll
+LabAPI/dependencies/global/Newtonsoft.Json.dll
+```
+
+**获取渠道**：
+- `0Harmony.dll`：Harmony 官方仓库 https://github.com/pardeike/Harmony/releases （选择 **net472** 版本，文件名为 `0Harmony.dll`）
+- `Newtonsoft.Json.dll`：NuGet https://www.nuget.org/packages/Newtonsoft.Json （13.0.x 版本）；或在已装 LabAPI 的其他服务器上直接复制（LabAPI 完整安装自带这两个文件，位于上述 `dependencies/global/`）
+
+**安装路径**：将两个 DLL 放入 `%AppData%/SCP Secret Laboratory/LabAPI/dependencies/global/`（所有端口共享的全局依赖目录；LabAPI 从这里加载插件依赖）。放入后重启服务器生效。
+
+---
+
 ## 安装
 
 1. 运行：
 ```
 dotnet build -c Release
 ```
-2. 将 `SLDataAPI.dll` 放入服务器的 `LabAPI/plugins/global/` 目录（`%AppData%/SCP Secret Laboratory/LabAPI/plugins/global/`）
-3. 启动服务器，LabAPI 会自动生成配置文件
-4. 按需修改配置（见下方），重启服务器生效
+2. 确认依赖齐全（见上方「⚠️ 运行依赖要求」：`LabAPI/dependencies/global/` 下有 `0Harmony.dll` 与 `Newtonsoft.Json.dll`）
+3. 将 `SLDataAPI.dll` 放入服务器的 `LabAPI/plugins/global/` 目录（`%AppData%/SCP Secret Laboratory/LabAPI/plugins/global/`）
+4. 启动服务器，LabAPI 会自动生成配置文件
+5. 按需修改配置（见下方），重启服务器生效
 
 > ⚠️ 许可证说明：游戏程序集（`Assembly-CSharp.dll` 等）禁止二次分发，仓库不携带这些 DLL。编译要求本机已安装 SCP:SL 专用服务器（自带 `LabApi.dll`），程序集默认按下列路径引用（其它机器可用 MSBuild 参数覆盖）：
 >

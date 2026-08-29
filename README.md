@@ -35,16 +35,14 @@
 | 能力 | 说明 |
 |------|------|
 | 实时数据查询 | `GET /get_sl_data`：人数、回合、核弹、玩家列表（含 SteamID / 坐标）、DNT_OF 系列插件状态 |
-| 控制接口 | `/control/` 公用控制命名空间，按 `control_transport` 二选一：`POST /control/*`（命令执行、玩家管理、回合控制、CASSIE、核弹、地图、封禁、日志、文件等）**或** WebSocket 长连接（升级 `/control`，call 信封调用同样的端点，见下文） |
-| 事件流推送（v2.5.4） | 控制长连接 `subscribe_events` 订阅后实时推送服务器事件：回合开始/结束、玩家加入/离开/死亡、电梯使用、权限门交互（见「控制接口 WebSocket」章节） |
-| 举报功能（v2.5.4） | 玩家在 Esc → 服务器设置 面板中下拉选择在线玩家、填写原因、长按按钮提交举报（限流+记录上限清理）；平台经 `/control/reports` 读取未处理记录并标记已处理。默认关闭 |
-| 命令输出捕获 | Harmony 补丁捕获 `ServerConsole.AddLog` / `CommandSender` 输出，`/control/command` 可拿到命令回显；点命令（`.m` 等）在 DotCommandHandler 上直连执行、响应直接返回（v2.5 修复：原生路径在专用服上不执行且无回显） |
-| 地图数据 | 按 seed 提供本回合布局（LCZ/HCZ 每回合随机），可导出 atlas 等原始数据供外部重建地图 |
-| 插件管理 | 列表读取配置文件启停状态（LabAPI 插件 + 同服 EXILED 插件）；启停走"暂存 → 保存"批量模式，LabAPI 插件重启生效（SLDataAPI 自身禁止禁用） |
-| 文件防线 | 文件端点四重防线：路径白名单 / Windows 目录禁写 / 仅配置文件扩展名 / 游戏数据与自身配置目录禁访问 |
-| 自动更新 | 启动时检查 GitHub Releases；检测到新版本自动下载并替换 DLL（程序集/名称/强名称签名三重校验，重启游戏服生效，旧版备份 .bak） |
-| 语音转发（SPY） | WebSocket 实时推送全频道语音（近距离/对讲机/Intercom/SCP 频道等），Opus 解码为 48kHz float32 PCM，含说话者信息帧与 `/status` 状态查询，ControlToken 鉴权 |
-| 语音录音取证（v2.5） | 每局自动保存混合音轨（WAV 48kHz/16bit/单声道）+ 时间轴日志（谁在何时说了多久），用于游戏不公平问题取证；按 `voice_record_max_rounds` 自动清理旧局 |
+| 控制接口 | `/control/*` 控制端点：命令执行（含点命令回显）、玩家管理、回合/波次、CASSIE、核弹、地图、封禁、日志、文件、插件管理等；支持 HTTP POST 或 WebSocket 长连接（二选一） |
+| 事件流推送（v2.5.4） | 控制长连接订阅后实时推送服务器事件：回合开始/结束、玩家进出/死亡、电梯使用、权限门交互 |
+| 举报功能（v2.5.4） | 玩家在 Esc → 服务器设置 面板中举报违规玩家（下拉选人 + 原因 + 长按提交）；平台经 `/control/reports` 读取/处理记录。默认关闭 |
+| 地图数据 | 按 seed 提供本回合布局（LCZ/HCZ 每回合随机），可导出原始数据供外部重建地图 |
+| 插件管理 | LabAPI 插件 + 同服 EXILED 插件列表/启停暂存/apply/reload |
+| 自动更新 | 启动时检查 GitHub Releases，自动下载替换 DLL（程序集/名称/强名称签名三重校验） |
+| 语音转发（SPY） | WebSocket 实时推送全频道语音（近距离/对讲机/Intercom/SCP 频道等），ControlToken 鉴权 |
+| 语音录音取证（v2.5） | 每局自动保存分轨 WAV + 时间轴日志（谁在何时说了多久），用于不公平问题取证，自动清理旧局 |
 
 ---
 
@@ -130,27 +128,9 @@ report_rate_limit: 5                  # 限流窗口内每人最多提交举报�
 report_rate_window_minutes: 30        # 举报限流窗口（分钟），默认半小时
 ```
 
-> ⚠️ **键名必须是 snake_case**（LabAPI 使用 UnderscoredNamingConvention）：`verify_token` 而不是 `verifyToken`。
-> 错误的键名会被**静默忽略**（无任何报错），对应配置保持默认值——鉴权失败但"token 明明是对的"基本就是这个原因。
-> 好消息：键名风格与旧 EXILED 配置一致，直接把旧值抄过来即可（删掉 `is_enabled`，新键照上表拼写）。
+> ⚠️ **配置常见坑**（键名必须 snake_case、值格式错误导致整个文件回退默认值、token 写法与弯引号/特殊字符坑、启动自检说明）与各配置项完整字段说明见 wiki [Configuration](https://github.com/DNTOF/SLDataAPI/wiki/Configuration)。
 >
-> ⚠️ **任何一个值格式错误会导致整个文件被静默回退默认值**（LabAPI 的 LoadConfigs 行为，控制台无报错）：
-> 布尔值不要加引号（`true` 而非 `"true"`）、缩进用空格不要用 Tab。
-> v2.5 起插件启动时会自检配置文件：解析失败会在控制台打出 YamlDotNet 的**精确错误（含行号）**，
-> 并输出一行"配置摘要"（端口/token 长度/开关状态），默认值状态一眼可辨。
-> 验证配置是否被读到：启动日志若出现 "VerifyToken 仍为出厂默认值" 警告，说明 `verify_token` 没有生效。
->
-> ⚠️ **token 写法建议（重点）**：`control_token` / `verify_token` **推荐用 ASCII 双引号包裹**，如 `control_token: "Qq10086@"`。实测过的坑：
->
-> - **裸值特殊字符坑**：token 以 `*` 开头（如 `*Arisl14514`）会被 YAML 当成**别名引用**——整个配置文件解析失败、**全部配置回退默认值**；以 `&` 或 `!` 开头（如 `&abc` / `!abc`）值会被**吞成空字符串**（零报错但 token 变空）。token 中的 `#`（前面有空格时）会被当成注释截断。
-> - **弯引号坑**：从聊天软件/网页复制来的弯引号（`‘’“”`）不是 YAML 引号语法，会被当成 **token 内容的一部分**（长度+1、格式校验照常通过、启动零报错，但鉴权必然 403）。
-> - **引号包裹则全部安全**：`*` / `&` / `!` / `#` 等特殊字符在 ASCII 引号内都是普通字符（双引号内 `\` 与 `"` 需转义；单引号内 `'` 需写两个 `''`）。
-> v2.5.4 起插件启动时会检测引号字符并直接报错点破；配置解析失败时也会输出含行号的精确错误与特殊字符提示。
-
 > 插件本身的启停开关不再出现在此文件中：LabAPI 用插件目录下的 `properties.yml`（`is_enabled`）管理插件加载与否，可通过 `/control/plugins` 端点修改。
-
-> 各配置项的完整字段说明（含 `control_transport` 互斥语义、`auto_update_install` 稳定版策略、录音/举报细节等）见 wiki [Configuration](https://github.com/DNTOF/SLDataAPI/wiki/Configuration)。
-
 > ⚠️ 请确保服务器防火墙放行对应端口（默认 8081/TCP）。
 
 ---
@@ -172,100 +152,20 @@ report_rate_window_minutes: 30        # 举报限流窗口（分钟），默认�
 
 ## HTTP 接口
 
-### `GET /get_sl_data`
+- **数据接口**：`GET /get_sl_data?token=<verify_token>` —— 服务器实时状态快照（人数/回合/核弹/玩家列表/插件状态）
+- **控制接口**：`POST /control/*`，请求体 JSON，鉴权 `X-Control-Token` 头，响应统一 `{success, message, data}`
 
-| 参数 | 类型 | 说明 |
-|------|------|------|
-| `token` | string | 必填，与配置中 `verify_token` 一致 |
-
-**响应示例：**
-```json
-{
-  "success": true,
-  "server_name": "我的服务器",
-  "online": true,
-  "players_count": 19,
-  "max_players": 32,
-  "round_started": true,
-  "round_duration": 674,
-  "current_phase": "进行中",
-  "nuke_status": "未激活",
-  "nuke_countdown": 0,
-  "d_count": 7,
-  "foundation_count": 6,
-  "scp_count": 3,
-  "spectator_count": 3,
-  "ping": 42,
-  "players": [
-    { "nickname": "PlayerOne", "steam_id": "76561198000000000", "role": "D级人员", "team": "D级", "x": 12.3, "y": 100.5, "z": -45.6 }
-  ],
-  "dntof_plugins": {
-    "sl_player": { "present": true, "source_mode": "local", "remote_url": null, "now_playing": "SCP-2295 主题曲" },
-    "omega_warhead": { "present": true, "phase": "collecting", "coin_holders": [ { "nickname": "PlayerOne", "count": 3, "position": "LCZ" } ], "controller_holder": null, "countdown": null }
-  }
-}
-```
-
-字段说明、数据刷新机制与玩家过滤规则见 wiki [HTTP-API](https://github.com/DNTOF/SLDataAPI/wiki/HTTP-API)。
-
-**错误响应：**
-
-| HTTP 状态码 | 含义 |
-|------------|------|
-| `403` | token 错误或缺失 |
-| `404` | 路径不存在 |
-| `405` | 方法不允许（`/get_sl_data` 仅支持 GET） |
-
----
-
-### `POST /control/*`
-
-所有控制端点：**仅 POST**，请求体为 JSON，鉴权用 `X-Control-Token` 请求头。响应统一为：
-
-> 需要 `control_transport: http`（默认）。ws 模式下本节端点返回 404（带 `transport_mismatch` 协商信号，平台应改走 WS call 通道）。
-
-```json
-{ "success": true, "message": "操作成功", "data": { } }
-```
-
-**端点一览**（请求字段、curl 示例与响应示例见 wiki [HTTP-API](https://github.com/DNTOF/SLDataAPI/wiki/HTTP-API)）：
-
-| 类别 | 端点 |
-|------|------|
-| 命令 | `/control/command`（含点命令直连执行） |
-| 玩家 | `/control/player/{kick|ban|role|teleport|mute|msg|effect|state}` |
-| 回合 | `/control/round`（restart/end/start）、`/control/wave`（重生波次） |
-| 播报/核弹 | `/control/cassie`（含中文字幕）、`/control/warhead` |
-| 地图 | `/control/map`（layout/doors/elevators/lights/seed）、`/control/map/export` |
-| 举报 | `/control/reports`（list/handle，需 `report_enabled: true`） |
-| 插件 | `/control/plugins`（列表/暂存/apply/reload）、`/control/slplayer` |
-| 封禁 | `/control/ban_list`、`/control/ban/add`、`/control/ban/revoke` |
-| 运维 | `/control/logs`、`/control/files/{list|read|write}`（受 `file_root` 白名单限制） |
-
-**错误响应：**
-
-| HTTP 状态码 | 含义 |
-|------------|------|
-| `403` | token 错误/缺失，或该来源已被暴力破解锁定 |
-| `404` | 控制接口未启用（`control_enabled: false`），或端点不存在 |
-| `405` | 控制接口仅支持 POST |
-| `413` | 请求体超过 64KB |
-| `400/500` | 业务错误（响应 `message` 内附详情） |
+每个端点的 curl 示例、响应示例、字段说明、错误码见 wiki [HTTP-API](https://github.com/DNTOF/SLDataAPI/wiki/HTTP-API)。
 
 ---
 
 ## 控制接口 WebSocket（v2.5 · `/control`）
 
-`/control/` 是公用的控制命名空间：一次性调用走 HTTP POST，高频调用走 WebSocket 长连接（复用连接、仅剩帧级开销），两种方式调用同样的端点、语义完全一致——但**同一时刻只有一条通路开放**（`control_transport` 二选一硬互斥）。`/get_sl_data` 数据接口始终走 HTTP 不变。
+`/control/` 是公用的控制命名空间：一次性调用走 HTTP POST，高频调用走 WebSocket 长连接（复用连接、仅剩帧级开销），两种方式调用同样的端点、语义完全一致——但**同一时刻只有一条通路开放**（`control_transport` 二选一硬互斥）。
 
 **端点：** `ws://<服务器IP>:8081/control?key=<control_token>`（别名 `/ws/control`；token 支持 `?token=` 或 `X-Control-Token` 头）
 
-**协议要点**（JSON 文本帧，完整消息示例与七类事件 payload 见 wiki [WS-Control-Protocol](https://github.com/DNTOF/SLDataAPI/wiki/WS-Control-Protocol)）：
-
-- 建连即收 `hello`；`ping/pong` 心跳（建议 ~25s，90s 无入站消息断开）
-- `call{reqId,path,body}` → `result{reqId,ok,status,data}`：path+body 与 HTTP POST 完全一致，结果可乱序返回
-- `subscribe_events` / `unsubscribe_events` 订阅事件流：`round_started` / `round_ended` / `player_joined` / `player_left` / `player_died` / `elevator_used` / `door_opened` 七类事件，尽力而为投递
-- 限制：全局 8 连接 / 单连接 4 并发 call（超限 429）/ 单消息 256KB；关闭码语义见 wiki
+**协议：** `call/result` 信封（path+body 与 HTTP POST 完全一致）+ `ping/pong` 心跳 + `subscribe_events` 事件流（七类服务器事件，尽力而为投递）。完整消息示例、事件 payload 与关闭码语义见 wiki [WS-Control-Protocol](https://github.com/DNTOF/SLDataAPI/wiki/WS-Control-Protocol)。
 
 ---
 
@@ -333,3 +233,14 @@ SCP阵营: 3
 ## 开发者文档
 
 源码结构、命名空间映射、添加控制端点流程、事件链保护/主线程派发约定、SSS UI 集成、构建与发布规范见 wiki [Development-Guide](https://github.com/DNTOF/SLDataAPI/wiki/Development-Guide) 与 [Architecture](https://github.com/DNTOF/SLDataAPI/wiki/Architecture)。
+
+---
+
+## 社区与支持
+
+- 需要**开箱即用的管理平台**或想**提出新功能建议**？欢迎加入 QQ 群：**984840871**
+- 问题反馈：https://github.com/DNTOF/SLDataAPI/issues
+
+## 许可证
+
+本项目基于 [GNU General Public License v3.0](LICENSE)（GPLv3）开源发布。

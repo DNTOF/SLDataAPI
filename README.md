@@ -161,43 +161,19 @@ report_rate_window_minutes: 30        # 举报限流窗口（分钟），默认�
 
 ## 控制接口 WebSocket（v2.5 · `/control`）
 
-`/control/` 是公用的控制命名空间：一次性调用走 HTTP POST，高频调用走 WebSocket 长连接（复用连接、仅剩帧级开销），两种方式调用同样的端点、语义完全一致——但**同一时刻只有一条通路开放**（`control_transport` 二选一硬互斥）。
-
-**端点：** `ws://<服务器IP>:8081/control?key=<control_token>`（别名 `/ws/control`；token 支持 `?token=` 或 `X-Control-Token` 头）
-
-**协议：** `call/result` 信封（path+body 与 HTTP POST 完全一致）+ `ping/pong` 心跳 + `subscribe_events` 事件流（七类服务器事件，尽力而为投递）。完整消息示例、事件 payload 与关闭码语义见 wiki [WS-Control-Protocol](https://github.com/DNTOF/SLDataAPI/wiki/WS-Control-Protocol)。
+控制接口的 WebSocket 长连接通道（`control_transport: ws` 时可用，与 HTTP 二选一硬互斥）：`call/result` 信封调用与 HTTP POST 完全同义，另支持 `subscribe_events` 七类服务器事件流推送。端点 `ws://<服务器IP>:8081/control?key=<control_token>`（别名 `/ws/control`）。完整协议、消息示例与事件 payload 见 wiki [WS-Control-Protocol](https://github.com/DNTOF/SLDataAPI/wiki/WS-Control-Protocol)。
 
 ---
 
 ## 语音转发（v2.3 / 代号 SPY）
 
-启用 `voice_enabled` 后，插件在独立端口（默认 8082）上提供语音 WebSocket，实时推送服务器内**所有频道**的语音（近距离、对讲机、Intercom 全局广播、SCP 频道、旁观者等），解码为 48kHz 单声道 float32 PCM。
-
-**端点：** `GET /ws`（实时语音流）与 `GET /status`（当前说话者 JSON），均需 `control_token` 鉴权（`?key=` 或 `X-Control-Token` 头）。
-
-**帧格式：** 建连收文本帧 `{"type":"hello","sampleRate":48000,"channels":1,"format":"float32"}`；说话者变化推 `{"type":"speaker",...}` 文本帧；语音为二进制帧 `[0]=0x01 [1]=channel [2-3]=playerId(LE) [4-7]=seq(LE) [8..]=float32 PCM`（10ms Opus 帧，约 100 包/秒）。
-
-完整协议与实现要点（主线程零阻塞保证、连接层防护）见 wiki [Voice-Forwarding](https://github.com/DNTOF/SLDataAPI/wiki/Voice-Forwarding)。
+启用 `voice_enabled` 后，插件在独立端口（默认 8082）实时推送服务器内**所有频道**的语音（近距离/对讲机/Intercom/SCP 频道等，48kHz float32 PCM），`control_token` 鉴权。端点（`/ws` 语音流、`/status` 说话者查询）、帧格式与实现要点见 wiki [Voice-Forwarding](https://github.com/DNTOF/SLDataAPI/wiki/Voice-Forwarding)。
 
 ---
 
 ## 语音录音取证（v2.5.1 推出 · 代号 Yagami Light → 当前 GIS,GNSS,RS!）
 
-开启 `voice_record_enabled`（需同时开启 `voice_enabled`）后，**每局游戏自动保存一个压缩包**到录音目录（默认 `%AppData%/SCP Secret Laboratory/SLDataAPI/VoiceRecords`）：
-
-```
-voice_round_3_20260818_223100.zip
-└─ 内含:
-   ├─ voice_round_3_20260818_223100.Proximity.wav  # 近距离频道音轨（人类阵营主频道）
-   ├─ voice_round_3_20260818_223100.Radio.wav      # 对讲机频道音轨
-   ├─ voice_round_3_20260818_223100.Intercom.wav   # Intercom 频道音轨
-   ├─ voice_round_3_20260818_223100.Scp.wav        # SCP 频道音轨（SCP 阵营专用）
-   └─ voice_round_3_20260818_223100.timeline.log   # 时间轴：谁在什么时候说了多久
-```
-
-**核心特性**：按频道分轨（SCP 与人类频道独立 WAV 绝不混合，仅同频道多人同时说话逐采样混合）；时间轴 TSV 与音频**采样级对齐**（`采样号 = 回合内秒 × 48000 = WAV 内字节位置 ÷ 2`，跨频道同一采样号对齐同一瞬间，可直接切段取证）；回合开始建档、结束定稿，zip 打包在后台线程完成、停服同步等待；隐私告知（每局开局向玩家显示录音声明）；按 `voice_record_max_rounds` 自动清理最旧局。
-
-完整格式、对齐原理与行为细节见 wiki [Voice-Recording](https://github.com/DNTOF/SLDataAPI/wiki/Voice-Recording)。
+开启 `voice_record_enabled`（需 `voice_enabled`）后，**每局自动保存一个压缩包**到录音目录（默认 `%AppData%/SCP Secret Laboratory/SLDataAPI/VoiceRecords`）：按频道分轨 WAV（SCP 与人类频道绝不混合）+ 时间轴日志（TSV，与音频采样级对齐，可直接切段取证）；回合结束定稿、自动清理旧局。完整格式与行为细节见 wiki [Voice-Recording](https://github.com/DNTOF/SLDataAPI/wiki/Voice-Recording)。
 
 ---
 

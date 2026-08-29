@@ -13,6 +13,7 @@ using LabApi.Loader.Features.Plugins;
 using LabApi.Loader.Features.Plugins.Configuration;
 using LabApi.Loader.Features.Yaml;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using PlayerRoles;
 using RemoteAdmin;
 using SLDataAPI.Capture;
@@ -85,6 +86,17 @@ public static class ControlController
                 Log.Error($"[SLDataAPI][Control] 端点 {path} 返回了无效结果 (status={status})——内部错误未正确传播，已兜底为 500");
                 return (500, Json(false, "内部错误"));
             }
+
+            // 控制操作审计日志（v2.5.5-preview 推出，代号 Everest C1）：只记录主动侵入性操作（排除只读/自动化流程），
+            // 不计 IP，只记时间 + 端点 + 请求体 + 结果。HTTP 与 WS call 通道都汇聚到这里，自动全覆盖
+            if (!IsReadOnlyOperation(path, body))
+            {
+                bool ok = status >= 200 && status < 300;
+                string msg = "";
+                try { msg = JObject.Parse(json)["message"]?.ToString() ?? ""; } catch { /* 解析失败留空 */ }
+                ControlLogService.Record(path, body, ok, msg);
+            }
+
             return (status, json);
         }
         catch (Exception ex)
@@ -92,6 +104,52 @@ public static class ControlController
             Log.Error($"[SLDataAPI][Control] 顶层异常: {ex}");
             // 不向客户端回显异常细节（可能含服务器路径等敏感信息），细节只进服务器日志
             return (500, Json(false, "内部错误"));
+        }
+    }
+
+    /// <summary>
+    /// 判断一次控制调用是否只读（自动化/查询类，不进审计日志）。
+    /// 读/写按端点 + 请求体语义判定：写操作（命令、玩家管理、回合/播报/核弹/波次、
+    /// 门/电梯/灯光、举报处理、插件启停、封禁、文件写入、SLPlayer 播放）一律记录。
+    /// 判定失败时按写操作处理（保守：宁可多记不可漏记）。
+    /// </summary>
+    private static bool IsReadOnlyOperation(string path, string body)
+    {
+        try
+        {
+            switch (path)
+            {
+                case "/control/map":
+                    // 仅 layout/seed 是只读自动化流程；doors/elevators/lights 是主动控制
+                    return Parse<MapControlRequest>(body)?.action is "layout" or "seed";
+                case "/control/map/export":
+                    return true; // 地图导出：自动化重建流程
+                case "/control/reports":
+                    return Parse<ReportRequest>(body)?.action == "list"; // handle 是主动处理
+                case "/control/ban_list":
+                case "/control/logs":
+                case "/control/files/list":
+                case "/control/files/read":
+                    return true;
+                case "/control/player/state":
+                    // 纯查询（未携带任何设置字段）不记录；带了任一设置字段 = 主动修改
+                    var st = Parse<PlayerActionRequest>(body);
+                    return st != null && st.godmode == null && st.bypass == null && st.health == null && st.intercom == null;
+                case "/control/wave":
+                    return Parse<WaveRequest>(body)?.action == "status"; // instant/set 是主动控制
+                case "/control/slplayer":
+                    return Parse<SlPlayerRequest>(body)?.action is "status" or "list"; // 播放/音量等是主动控制
+                case "/control/plugins":
+                    return string.IsNullOrWhiteSpace(Parse<PluginsRequest>(body)?.action); // 仅列表只读，stage/apply 等是主动操作
+                default:
+                    // command / player 管理 / round / cassie / warhead / ban add|revoke /
+                    // files write 等：全部是主动侵入性操作
+                    return false;
+            }
+        }
+        catch
+        {
+            return false; // 解析异常按写操作记录（保守）
         }
     }
 

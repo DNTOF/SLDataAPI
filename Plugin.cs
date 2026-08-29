@@ -22,9 +22,9 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
     private HttpServer? server;
 
     public override string Name => "SLDataAPI";
-    public override string Description => "通过 HTTP API 向外部（WebUI / 机器人）提供服务器数据采集与远程控制能力（LabAPI 原生插件，代号 GIS,GNSS,RS!）";
+    public override string Description => "通过 HTTP API 向外部（WebUI / 机器人）提供服务器数据采集与远程控制能力（LabAPI 原生插件，代号 Everest C1）";
     public override string Author => "DNT_OF";
-    public override Version Version => new Version(2, 5, 4);
+    public override Version Version => new Version(2, 5, 5);
     public override Version RequiredApiVersion => new Version(1, 1, 7);
 
     public override void Enable()
@@ -90,13 +90,16 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
         try { reportConfigDir = Path.GetDirectoryName(ConfigurationLoader.GetConfigPath(this, ConfigFileName)) ?? ""; } catch { /* 目录获取失败则按禁用处理 */ }
         ReportService.Init(Config.ReportEnabled, Config.ReportMaxRecords, Config.ReportRateLimit, Config.ReportRateWindowMinutes, reportConfigDir);
 
+        // 控制操作审计日志（v2.5.5-preview 推出，代号 Everest C1）：主动侵入性操作记录，默认开启
+        ControlLogService.Init(Config.ControlLogEnabled, Config.ControlLogMaxRecords, reportConfigDir);
+
         // 插件启用时立即采集一次真实数据，并启动定时循环
         DataCollector.InitData(Config.PushIntervalSeconds);
 
         if (Config.AutoUpdateCheck)
             UpdateChecker.CheckAsync(Version, Config.AutoUpdateInstall);
 
-        Log.Info($"SLDataAPI v{Version} (GIS,GNSS,RS! / LabAPI) enabled. HTTP on port {Config.HttpPort}. Control API: {(Config.ControlEnabled ? $"{Config.ControlTransport.ToUpperInvariant()} 模式" : "关闭")}. Voice: {(Config.VoiceEnabled ? $"启用(端口 {Config.VoicePort})" : "关闭")}.");
+        Log.Info($"SLDataAPI v{Version} (Everest C1 / LabAPI) enabled. HTTP on port {Config.HttpPort}. Control API: {(Config.ControlEnabled ? $"{Config.ControlTransport.ToUpperInvariant()} 模式" : "关闭")}. Voice: {(Config.VoiceEnabled ? $"启用(端口 {Config.VoicePort})" : "关闭")}.");
     }
 
     public override void Disable()

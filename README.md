@@ -15,7 +15,7 @@
 >
 > 强烈建议：仅在内网/受信网络使用；对外暴露时务必经反向代理加 HTTPS/WSS（详见下方「安全注意事项」）。
 
-版本： 2.5.4（开发代号 GIS,GNSS,RS!）  
+版本： 2.5.5-preview（开发代号 Everest C1）  
 **架构：** **LabAPI 原生插件**（v2.4 起脱离 EXILED，运行于 Northwood 官方 LabAPI 框架）  
 **依赖：** LabAPI（游戏自带） · 0Harmony（2.3.x） · Newtonsoft.Json（13.0.x）——后两者**游戏本身不自带**，由 LabAPI 依赖目录提供，缺失会加载失败，见下方「⚠️ 运行依赖要求」  
 **用途：** 在 SCP:SL 游戏服务器上暴露一个轻量 HTTP 接口，供 WebUI / AstrBot 等外部程序轮询实时服务器数据，并通过 `/control/*` 控制接口远程执行管理操作；内置**语音转发**（WebSocket 实时收听全频道语音，代号 SPY）；v2.5 起新增**控制接口 WebSocket 长连接**。
@@ -43,6 +43,7 @@
 | 自动更新 | 启动时检查 GitHub Releases，自动下载替换 DLL（程序集/名称/强名称签名三重校验） |
 | 语音转发（SPY） | WebSocket 实时推送全频道语音（近距离/对讲机/Intercom/SCP 频道等），ControlToken 鉴权 |
 | 语音录音取证（v2.5） | 每局自动保存分轨 WAV + 时间轴日志（谁在何时说了多久），用于不公平问题取证，自动清理旧局 |
+| 控制操作审计日志（v2.5.5-preview） | 远程控制的主动侵入性操作自动记录到 `control_log.json`（不计 IP，只记时间与操作细节），管理层问题追责用，默认开启 |
 
 ---
 
@@ -126,6 +127,10 @@ report_enabled: false                 # 举报功能总开关（SSS 面板 + /co
 report_max_records: 50                # 举报记录最大条数（超出自动删最旧已处理；全未处理则 WARN 提示）
 report_rate_limit: 5                  # 限流窗口内每人最多提交举报次数
 report_rate_window_minutes: 30        # 举报限流窗口（分钟），默认半小时
+
+# ===== 控制操作审计日志（v2.5.5-preview 推出 · 代号 Everest C1）=====
+control_log_enabled: true             # 记录远程控制的主动侵入性操作（命令/玩家管理/回合/播报/核弹/波次/门梯灯/举报处理/插件/封禁/文件写等），不计 IP，只记时间与操作细节
+control_log_max_records: 500          # 控制日志最大条数（超出删最旧；0/负数=不清理）
 ```
 
 > ⚠️ **配置常见坑**（键名必须 snake_case、值格式错误导致整个文件回退默认值、token 写法与弯引号/特殊字符坑、启动自检说明）与各配置项完整字段说明见 wiki [Configuration](https://github.com/DNTOF/SLDataAPI/wiki/Configuration)。

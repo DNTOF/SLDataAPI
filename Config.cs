@@ -120,4 +120,18 @@ public class Config
 
     /// <summary>举报限流窗口（分钟），默认 30（半小时）。</summary>
     public int ReportRateWindowMinutes { get; set; } = 30;
+
+    // ================== 控制操作审计日志（v2.5.5-preview 推出，代号 Everest C1） ==================
+
+    /// <summary>
+    /// 是否记录远程控制的主动侵入性操作（命令执行、玩家管理、回合/播报/核弹/波次控制、
+    /// 门/电梯/灯光、举报处理、插件启停、封禁、文件写入等）。
+    /// 写入插件配置目录 control_log.json：不计 IP，只记时间 + 端点 + 请求体 + 结果，
+    /// 用于管理层问题追责。只读/自动化流程（数据查询、地图布局/导出、日志读取等）不记录。
+    /// 默认开启——审计日志不暴露攻击面，默认开启才有追责意义。
+    /// </summary>
+    public bool ControlLogEnabled { get; set; } = true;
+
+    /// <summary>控制日志最大条数，超出自动删除最旧条目（0/负数 = 不清理）。</summary>
+    public int ControlLogMaxRecords { get; set; } = 500;
 }

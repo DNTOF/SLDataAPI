@@ -151,7 +151,7 @@ control_log_max_records: 500          # 控制日志最大条数（超出删最�
 - 生成：游戏内 / LocalAdmin 命令 `sldataapi apikey create <id> <duty|admin>`；`revoke` / `list`。
 - 模板：`duty`（只读信息含地图读，默认无传送/管理/语音）· `admin`（控制面全开）。可用 `endpoints_override` 细调。
 - `control_token` **已废弃**（启动警告并忽略）；`control_enabled` 仍门控控制面。
-- 路径已按 RA 面板重分（旧扁平路径 **404**，无别名）。契约见 [`docs/AUTH_AND_API_CONTRACT_2.6.md`](docs/AUTH_AND_API_CONTRACT_2.6.md)。
+- 路径已按 RA 面板重分（旧扁平路径无别名（多返回 ACL **403**））。契约与端点见 GitHub Wiki [[Preview-HTTP-API]](https://github.com/DNTOF/SLDataAPI/wiki/Preview-HTTP-API)。
 
 **暴力破解防护**：数据口与控制/语音分表锁定；API Key 用 SHA-256 指纹比对。详见 wiki [Security-Model](https://github.com/DNTOF/SLDataAPI/wiki/Security-Model)。
 ## HTTP 接口

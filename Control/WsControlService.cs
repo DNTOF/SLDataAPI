@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using SLDataAPI.Data;
+using SLDataAPI.Auth;
 using SLDataAPI.Services;
 
 namespace SLDataAPI.Control;
@@ -33,8 +34,8 @@ namespace SLDataAPI.Control;
 /// path 必须是现有 /control/* 端点；语义与 HTTP POST 完全一致（同一个 ControlController 分发），
 /// 平台可把 HTTP 调用一对一映射到 WS call，reqId 关联请求与响应（结果允许乱序返回）。
 ///
-/// 鉴权：与 HTTP 控制接口同一套——升级前在 HTTP 层校验 ?key= / ?token= / X-Control-Token，
-/// 走 ControlAuth（常量时间比较 + 按 IP 失败锁定）；ControlEnabled=false 时一律 404。
+/// 鉴权（v2.6.0-preview-DevOnly 推出，代号 Kerckhoffs）：与 HTTP 控制面同一套 API Key
+/// （Authorization: Bearer / X-SLDataAPI-Key）；握手不再接受 ?key= / ?token= / X-Control-Token；ControlEnabled=false 时一律 404。
 ///
 /// 连接方式互斥（Config.ControlTransport）：仅 "ws" 模式下本端点可用；
 /// "http" 模式下握手直接 404（反之 ws 模式下 HTTP /control/* 同样 404），
@@ -100,16 +101,12 @@ public static class WsControlService
             return true;
         }
 
-        // token 传参方式与语音 WS（?key=）、HTTP 控制接口（X-Control-Token / ?token=）对齐
-        string key = HttpServer.ExtractQueryValue(query, "key");
-        if (string.IsNullOrEmpty(key)) key = HttpServer.ExtractQueryValue(query, "token");
-        if (string.IsNullOrEmpty(key) && headers.TryGetValue("X-Control-Token", out var headerToken))
-            key = headerToken;
-
-        if (!ControlAuth.TryAuthenticate(remoteIp, key, config.ControlToken ?? "", out string authErr))
+        // v2.6.0-preview-DevOnly 推出，代号 Kerckhoffs：握手必须带 Authorization: Bearer 或 X-SLDataAPI-Key（不再接受 ?key= / ?token= / X-Control-Token）
+        string? key = ApiKeyService.ExtractKeyFromHeaders(headers);
+        if (!ApiKeyService.TryAuthenticate(remoteIp, key, out var principal, out string authErr) || principal == null)
         {
-            Log.Warn($"[SLDataAPI][WsControl] 鉴权失败 from {remoteIp}: {authErr} {ControlAuth.DescribeMismatch(key, config.ControlToken)}");
-            WriteHttpJson(stream, 403, authErr);
+            Log.Warn($"[SLDataAPI][WsControl] 鉴权失败 from {remoteIp}: {authErr}");
+            WriteHttpJson(stream, 401, authErr);
             return true;
         }
 
@@ -151,7 +148,7 @@ public static class WsControlService
         // 长连接不设接收超时（心跳由协议层 ping/pong + 空闲清扫器负责）
         client.ReceiveTimeout = 0;
 
-        var session = new Session(stream, remoteIp);
+        var session = new Session(stream, remoteIp, principal);
         int current;
         lock (RegistryLock)
         {
@@ -268,6 +265,7 @@ public static class WsControlService
     {
         private readonly Stream _stream;
         private readonly string _remoteIp;
+        private readonly ApiKeyPrincipal _principal;
         private readonly object _sendLock = new();
         private int _pendingCalls;
         private volatile bool _closed;
@@ -275,10 +273,11 @@ public static class WsControlService
         public DateTime LastActivity = DateTime.UtcNow;
         public volatile bool EventsSubscribed; // 是否订阅服务器事件推送（subscribe_events 消息控制）
 
-        public Session(Stream stream, string remoteIp)
+        public Session(Stream stream, string remoteIp, ApiKeyPrincipal principal)
         {
             _stream = stream;
             _remoteIp = remoteIp;
+            _principal = principal;
         }
 
         public void Close()
@@ -413,6 +412,11 @@ public static class WsControlService
                     return;
 
                 case "subscribe_events":
+                    if (!_principal.Allows("ws:subscribe_events", wantWrite: false))
+                    {
+                        SendJson(new JObject { ["type"] = "error", ["message"] = "API Key 未授权 ws:subscribe_events" });
+                        return;
+                    }
                     EventsSubscribed = true;
                     SendJson(new JObject { ["type"] = "events_subscribed" });
                     return;
@@ -452,12 +456,19 @@ public static class WsControlService
 
             string bodyJson = msg["body"] == null ? "" : JsonConvert.SerializeObject(msg["body"]);
 
+            bool wantWrite = EndpointAcl.IsWriteOperation(path, bodyJson);
+            if (!_principal.Allows(path, wantWrite))
+            {
+                SendResult(reqId, ok: false, status: 403, message: "API Key 有效但未授权该端点");
+                return;
+            }
+
             // 分发到线程池：读循环不被慢调用（主线程派发最长 5s）阻塞，可继续处理心跳
             Task.Run(() =>
             {
                 try
                 {
-                    var (status, json) = ControlController.Handle(path, bodyJson);
+                    var (status, json) = ControlController.Handle(path, bodyJson, _principal.Id);
                     JToken data;
                     try { data = JToken.Parse(json); }
                     catch { data = new JObject(); } // 解析失败兜底为空对象，绝不能是 JValue（索引会抛 InvalidOperationException）

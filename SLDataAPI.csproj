@@ -97,4 +97,11 @@
     </Reference>
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Remove="tests\**\*" />
+    <None Remove="tests\**\*" />
+    <EmbeddedResource Remove="tests\**\*" />
+    <Compile Remove="_write_*.py" />
+  </ItemGroup>
+
 </Project>

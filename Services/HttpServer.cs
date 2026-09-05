@@ -299,14 +299,12 @@ public class HttpServer
                     return;
                 }
 
-                string reqToken = headers.TryGetValue("X-Control-Token", out var h)
-                    ? h
-                    : ExtractQueryValue(query, "token");
-
-                if (!ControlAuth.TryAuthenticate(remoteIp, reqToken, _config.ControlToken, out string authErr))
+                // v2.6.0-preview-DevOnly 推出，代号 Kerckhoffs：控制面 API Key（Bearer / X-SLDataAPI-Key）；不再接受 X-Control-Token / ?token=
+                string? apiKey = SLDataAPI.Auth.ApiKeyService.ExtractKeyFromHeaders(headers);
+                if (!SLDataAPI.Auth.ApiKeyService.TryAuthenticate(remoteIp, apiKey, out var principal, out string authErr))
                 {
-                    Log.Warn($"[SLDataAPI][Control] 鉴权失败 from {remoteIp}: {authErr} {ControlAuth.DescribeMismatch(reqToken, _config.ControlToken)}");
-                    SendJson(stream, 403, Err(authErr));
+                    Log.Warn($"[SLDataAPI][Control] 鉴权失败 from {remoteIp}: {authErr}");
+                    SendJson(stream, 401, Err(authErr));
                     return;
                 }
 
@@ -316,7 +314,15 @@ public class HttpServer
                     return;
                 }
 
-                var (status, json) = ControlController.Handle(path, body);
+                bool wantWrite = SLDataAPI.Auth.EndpointAcl.IsWriteOperation(path, body);
+                if (principal == null || !principal.Allows(path, wantWrite))
+                {
+                    Log.Warn($"[SLDataAPI][Control] 端点未授权 key={principal?.Id} path={path} write={wantWrite}");
+                    SendJson(stream, 403, Err("API Key 有效但未授权该端点"));
+                    return;
+                }
+
+                var (status, json) = ControlController.Handle(path, body, principal.Id);
                 SendJson(stream, status, json);
                 return;
             }
@@ -356,6 +362,7 @@ public class HttpServer
         {
             case 200: return "OK";
             case 400: return "Bad Request";
+            case 401: return "Unauthorized";
             case 403: return "Forbidden";
             case 404: return "Not Found";
             case 405: return "Method Not Allowed";

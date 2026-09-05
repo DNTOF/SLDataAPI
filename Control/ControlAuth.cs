@@ -5,11 +5,11 @@ using System.Threading;
 namespace SLDataAPI.Control;
 
 /// <summary>
-/// 控制接口鉴权：token 格式校验、常量时间比较、按 IP 的暴力破解锁定。
+/// 控制接口鉴权（v2.6.0-preview-DevOnly 推出，代号 Kerckhoffs：双轨 verify_token + API Key）：格式校验、常量时间比较、按 IP 的暴力破解锁定。
 /// 锁定按权限分级（M-02）：
 ///   - 只读数据接口（/get_sl_data，verify_token 低权限）单独一张失败表——
 ///     攻击者刷数据接口不会锁死管理员的高权限通道；
-///   - 控制/语音（control_token 高权限）共用另一张失败表。
+///   - 控制/语音（API Key 高权限）共用另一张失败表。
 /// 失败表带周期清扫（窗口过期 + 锁定期即删），IPv6 海量源地址不会造成无界内存增长。
 /// </summary>
 public static class ControlAuth
@@ -90,7 +90,7 @@ public static class ControlAuth
 
     /// <summary>
     /// 对某个 IP 的一次鉴权尝试。失败会计入对应权限级的锁定窗口；达到锁定条件的 IP 直接拒绝，不再比较 token。
-    /// highPrivilege=false 用于只读数据接口（verify_token），true 用于控制/语音（control_token）。
+    /// highPrivilege=false 用于只读数据接口（verify_token），true 用于控制/语音（API Key）。
     /// </summary>
     public static bool TryAuthenticate(string ip, string providedToken, string configuredToken, out string error,
         bool highPrivilege = true)
@@ -179,4 +179,16 @@ public static class ControlAuth
     private static void ResetFailures(string ip,
         ConcurrentDictionary<string, (int Count, DateTime WindowStart)> table) =>
         table.TryRemove(ip, out _);
+
+    /// <summary>控制/语音通道是否因失败过多被锁定（供 API Key 鉴权复用）。</summary>
+    public static bool IsControlLocked(string ip, out TimeSpan remaining) =>
+        IsLocked(ip ?? "unknown", ControlFailures, out remaining);
+
+    /// <summary>登记一次控制面鉴权失败。</summary>
+    public static void RegisterControlFailure(string ip) =>
+        RegisterFailure(ip ?? "unknown", ControlFailures);
+
+    /// <summary>鉴权成功后清除控制面失败计数。</summary>
+    public static void ResetControlFailures(string ip) =>
+        ResetFailures(ip ?? "unknown", ControlFailures);
 }

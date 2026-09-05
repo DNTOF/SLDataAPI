@@ -11,6 +11,7 @@ namespace SLDataAPI.Services;
 public class ControlLogEntry
 {
     public string time { get; set; } = "";       // UTC ISO8601
+    public string actor { get; set; } = "";      // API Key id（v2.6.0-preview-DevOnly / Kerckhoffs）
     public string endpoint { get; set; } = "";   // /control/xxx
     public string body { get; set; } = "";       // 请求体原文（操作细节）
     public bool success { get; set; }            // 是否执行成功
@@ -57,7 +58,7 @@ public static class ControlLogService
     public static void Dispose() => _enabled = false;
 
     /// <summary>记录一条主动侵入性操作（HTTP 与 WS call 通道均经 ControlController.Handle 调用）。</summary>
-    public static void Record(string endpoint, string body, bool success, string message)
+    public static void Record(string endpoint, string body, bool success, string message, string? actor = null)
     {
         if (!_enabled || string.IsNullOrEmpty(_filePath))
             return;
@@ -68,6 +69,7 @@ public static class ControlLogService
             all.Add(new ControlLogEntry
             {
                 time = DateTime.UtcNow.ToString("o"),
+                actor = actor ?? "",
                 endpoint = endpoint,
                 body = body ?? "",
                 success = success,
@@ -79,6 +81,17 @@ public static class ControlLogService
                 all.RemoveRange(0, all.Count - _maxRecords);
 
             SaveAllUnlocked(all);
+        }
+    }
+
+    /// <summary>供 /control/audit/list 读取最近条目（新→旧）。</summary>
+    public static List<ControlLogEntry> List(int limit)
+    {
+        if (limit <= 0) limit = 100;
+        lock (FileLock)
+        {
+            var all = LoadAllUnlocked();
+            return all.AsEnumerable().Reverse().Take(limit).ToList();
         }
     }
 

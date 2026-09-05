@@ -12,7 +12,7 @@ public class Config
     public int HttpPort { get; set; } = 8081;
     public int PushIntervalSeconds { get; set; } = 8;
 
-    // ================== 控制接口（v2.1 推出；v2.5.0 WebSocket 长连接化，代号 Yagami Light） ==================
+    // ================== 控制接口（v2.1 推出；v2.5.0 WebSocket 长连接化，代号 Yagami Light；v2.6.0-preview-DevOnly 推出 API Key 双轨鉴权，代号 Kerckhoffs） ==================
 
     /// <summary>
     /// 是否启用控制接口（/control/*）。默认关闭。
@@ -21,9 +21,7 @@ public class Config
     public bool ControlEnabled { get; set; } = false;
 
     /// <summary>
-    /// 控制接口专用 token（与 VerifyToken 分离，权限更高，务必单独保管）。
-    /// 要求：长度不少于 8，且必须同时包含大写字母、小写字母、数字、特殊符号。
-    /// 启动时格式不合法会强制在本次运行中禁用控制接口，并在日志中报错。
+    /// [已废弃 v2.6.0-preview-DevOnly，代号 Kerckhoffs] 旧版控制接口万能 token。若仍配置会在启动时警告并忽略，鉴权改走 apikey.config。
     /// </summary>
     public string ControlToken { get; set; } = "";
 

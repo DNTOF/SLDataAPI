@@ -15,7 +15,7 @@
 >
 > 强烈建议：仅在内网/受信网络使用；对外暴露时务必经反向代理加 HTTPS/WSS（详见下方「安全注意事项」）。
 
-版本： 2.5.5-preview（开发代号 Everest C1）  
+版本： 2.6.0-preview-DevOnly（开发代号 Kerckhoffs）  
 **架构：** **LabAPI 原生插件**（v2.4 起脱离 EXILED，运行于 Northwood 官方 LabAPI 框架）  
 **依赖：** LabAPI（游戏自带） · 0Harmony（2.3.x） · Newtonsoft.Json（13.0.x）——后两者**游戏本身不自带**，由 LabAPI 依赖目录提供，缺失会加载失败，见下方「⚠️ 运行依赖要求」  
 **用途：** 在 SCP:SL 游戏服务器上暴露一个轻量 HTTP 接口，供 WebUI / AstrBot 等外部程序轮询实时服务器数据，并通过 `/control/*` 控制接口远程执行管理操作；内置**语音转发**（WebSocket 实时收听全频道语音，代号 SPY）；v2.5 起新增**控制接口 WebSocket 长连接**。
@@ -140,21 +140,20 @@ control_log_max_records: 500          # 控制日志最大条数（超出删最�
 
 ---
 
-## 鉴权模型
+## 鉴权模型（2.6 双轨）
 
-系统有两种互不相同的 token：
+| 通道 | 鉴权 | 配置 |
+|------|------|------|
+| `GET /get_sl_data` | **保持原样** `verify_token`（`?token=` 等与 2.5 相同） | `config.yml` |
+| `/control/*`、控制 WS、语音口 | **API Key**（明文只在创建时显示一次） | 独立文件 `apikey.config` |
 
-| Token | 用途 | 传入方式 | 强度要求 |
-|-------|------|----------|----------|
-| `verify_token` | 只读数据接口 `/get_sl_data` | URL 查询参数 `?token=` | 无强制要求（建议复杂化） |
-| `control_token` | 所有 `/control/*` 控制接口 **和语音转发 WebSocket** | `X-Control-Token` 请求头（也兼容 `?token=`）；语音 WS 支持 `X-Control-Token` 头（也兼容 `?key=`） | 启动时强制校验格式 |
+- 控制面请求头：`Authorization: Bearer <key>` 或 `X-SLDataAPI-Key: <key>`（**已移除**控制面 `X-Control-Token` / `?token=` / `?key=`）。
+- 生成：游戏内 / LocalAdmin 命令 `sldataapi apikey create <id> <duty|admin>`；`revoke` / `list`。
+- 模板：`duty`（只读信息含地图读，默认无传送/管理/语音）· `admin`（控制面全开）。可用 `endpoints_override` 细调。
+- `control_token` **已废弃**（启动警告并忽略）；`control_enabled` 仍门控控制面。
+- 路径已按 RA 面板重分（旧扁平路径 **404**，无别名）。契约见 [`docs/AUTH_AND_API_CONTRACT_2.6.md`](docs/AUTH_AND_API_CONTRACT_2.6.md)。
 
-> 🔒 **token 传递建议**：优先用 `X-Control-Token` 请求头——`?token=` / `?key=` 查询串会落入反向代理/访问日志，属于弱一环。三个入口（数据/控制/语音 WS）均已支持头鉴权，新客户端应一律走请求头。
-
-**暴力破解防护**：按 IP 失败锁定**分权限级**（数据接口与控制/语音各一张失败表，刷数据接口不会锁死高权限通道）；5 分钟窗口失败 10 次锁 5 分钟；token 比较使用常量时间算法。语音 WS 未配置 `control_token` 时一律拒绝。详见 wiki [Security-Model](https://github.com/DNTOF/SLDataAPI/wiki/Security-Model)。
-
----
-
+**暴力破解防护**：数据口与控制/语音分表锁定；API Key 用 SHA-256 指纹比对。详见 wiki [Security-Model](https://github.com/DNTOF/SLDataAPI/wiki/Security-Model)。
 ## HTTP 接口
 
 - **数据接口**：`GET /get_sl_data?token=<verify_token>` —— 服务器实时状态快照（人数/回合/核弹/玩家列表/插件状态）

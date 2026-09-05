@@ -8,6 +8,7 @@ using LabApi.Loader;
 using LabApi.Loader.Features.Plugins;
 using LabApi.Loader.Features.Yaml;
 using MEC;
+using SLDataAPI.Auth;
 using SLDataAPI.Capture;
 using SLDataAPI.Control;
 using SLDataAPI.Map;
@@ -22,9 +23,9 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
     private HttpServer? server;
 
     public override string Name => "SLDataAPI";
-    public override string Description => "通过 HTTP API 向外部（WebUI / 机器人）提供服务器数据采集与远程控制能力（LabAPI 原生插件，代号 Everest C1）";
+    public override string Description => "通过 HTTP API 向外部（WebUI / 机器人）提供服务器数据采集与远程控制能力（LabAPI 原生插件，v2.6.0-preview-DevOnly，代号 Kerckhoffs）";
     public override string Author => "DNT_OF";
-    public override Version Version => new Version(2, 5, 5);
+    public override Version Version => new Version(2, 6, 0);
     public override Version RequiredApiVersion => new Version(1, 1, 7);
 
     public override void Enable()
@@ -58,7 +59,7 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
         // 生效配置摘要（一眼识别"配置没被读到、正在用默认值"的状态）
         Log.Info(
             $"[SLDataAPI] 配置摘要：http_port={Config.HttpPort}，verify_token 长度 {Config.VerifyToken?.Length ?? 0}，" +
-            $"control={(Config.ControlEnabled ? $"{Config.ControlTransport} 模式，token 长度 {Config.ControlToken?.Length ?? 0}" : "关闭")}，" +
+            $"control={(Config.ControlEnabled ? $"{Config.ControlTransport} 模式，API Key 鉴权" : "关闭")}，" +
             $"voice={(Config.VoiceEnabled ? $"启用(端口 {Config.VoicePort})" : "关闭")}，" +
             $"录音={(Config.VoiceRecordEnabled ? $"开(保留 {Config.VoiceRecordMaxRounds} 局)" : "关")}。");
 
@@ -90,6 +91,9 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
         try { reportConfigDir = Path.GetDirectoryName(ConfigurationLoader.GetConfigPath(this, ConfigFileName)) ?? ""; } catch { /* 目录获取失败则按禁用处理 */ }
         ReportService.Init(Config.ReportEnabled, Config.ReportMaxRecords, Config.ReportRateLimit, Config.ReportRateWindowMinutes, reportConfigDir);
 
+        // API Key（v2.6.0-preview-DevOnly 推出，代号 Kerckhoffs）：控制面 / 语音 / 控制 WS 鉴权；与 verify_token 双轨
+        ApiKeyService.Init(reportConfigDir);
+
         // 控制操作审计日志（v2.5.5-preview 推出，代号 Everest C1）：主动侵入性操作记录，默认开启
         ControlLogService.Init(Config.ControlLogEnabled, Config.ControlLogMaxRecords, reportConfigDir);
 
@@ -99,7 +103,7 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
         if (Config.AutoUpdateCheck)
             UpdateChecker.CheckAsync(Version, Config.AutoUpdateInstall);
 
-        Log.Info($"SLDataAPI v{Version} (Everest C1 / LabAPI) enabled. HTTP on port {Config.HttpPort}. Control API: {(Config.ControlEnabled ? $"{Config.ControlTransport.ToUpperInvariant()} 模式" : "关闭")}. Voice: {(Config.VoiceEnabled ? $"启用(端口 {Config.VoicePort})" : "关闭")}.");
+        Log.Info($"SLDataAPI v{Version} (v2.6.0-preview-DevOnly / Kerckhoffs / LabAPI) enabled. HTTP on port {Config.HttpPort}. Control API: {(Config.ControlEnabled ? $"{Config.ControlTransport.ToUpperInvariant()} 模式，API Key" : "关闭")}. Voice: {(Config.VoiceEnabled ? $"启用(端口 {Config.VoicePort})" : "关闭")}.");
     }
 
     public override void Disable()
@@ -220,36 +224,20 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
     }
 
     /// <summary>
-    /// 启动时校验控制接口配置。token 格式不合法则强制在本次运行中禁用控制接口，
-    /// 连接方式仅接受 http / ws（非法值回落 http）——这只影响运行时状态，不会改写配置文件。
+    /// 启动时校验控制接口配置。2.6：ControlToken 已废弃（警告后忽略）；
+    /// 连接方式仅接受 http / ws（非法值回落 http）——只影响运行时状态，不改写配置文件。
     /// </summary>
     private void ValidateControlConfig()
     {
+        if (!string.IsNullOrEmpty(Config.ControlToken))
+        {
+            Log.Warn(
+                "[SLDataAPI] control_token 已在 v2.6.0-preview-DevOnly（代号 Kerckhoffs）废弃，不再用于鉴权。" +
+                "请改用 apikey.config + 命令 sldataapi apikey create；该字段将被忽略。");
+        }
+
         if (!Config.ControlEnabled)
             return;
-
-        // 引号检测：' " 或弯引号 ‘ ’ “ ” 在 token 里几乎总是配置错误——弯引号不是 YAML 引号语法，
-        // 会被解析成 token 内容的一部分（长度+1、格式校验照常通过、启动零报错，但鉴权必然 403）。
-        // 典型来源：从聊天软件/网页复制 token 时引号被替换成智能引号。
-        if (ContainsQuoteChar(Config.ControlToken))
-        {
-            Log.Error(
-                "[SLDataAPI] ControlToken 中检测到引号字符（' \" 或弯引号 ‘ ’ “ ”）——" +
-                "引号会被当作 token 内容导致鉴权必然失败。请删除 token 两端的引号" +
-                "（注意从聊天软件复制来的弯引号），修正后重启服务器。本次运行将强制禁用控制接口。");
-            Config.ControlEnabled = false;
-            return;
-        }
-
-        if (!ControlAuth.IsValidTokenFormat(Config.ControlToken))
-        {
-            Log.Error(
-                "[SLDataAPI] ControlEnabled=true 但 ControlToken 格式不合法" +
-                "（要求长度不少于8，且同时包含大写字母/小写字母/数字/特殊符号）。" +
-                "本次运行将强制禁用控制接口，请修正配置后重启服务器。");
-            Config.ControlEnabled = false;
-            return;
-        }
 
         string transport = (Config.ControlTransport ?? "http").Trim().ToLowerInvariant();
         if (transport != "http" && transport != "ws")

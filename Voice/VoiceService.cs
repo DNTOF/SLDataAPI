@@ -1,4 +1,5 @@
 using System;
+using SLDataAPI.Auth;
 using System.Collections.Generic;
 using System.IO;
 using System.Net;
@@ -503,33 +504,32 @@ public static class VoiceService
             string method = parts[0];
             string path = parts[1];
 
-            // 鉴权：优先 X-Control-Token 请求头（L-05：不落反向代理/访问日志），
-            // 其次 query ?key=。与控制接口同一套防爆破锁定（常量时间比较 + 按 IP 锁定），
-            // 未配置 token 时一律拒绝（不裸奔监听）。
-            string? key = ExtractHeader(header, "X-Control-Token");
-            if (string.IsNullOrEmpty(key))
-                key = ExtractQuery(path, "key") ?? ExtractQuery(path, "access_key");
-            string cfgToken = Plugin.Instance?.Config.ControlToken ?? "";
-            if (string.IsNullOrEmpty(cfgToken))
-            {
-                SendHttp("403 Forbidden", "application/json", "{\"ok\":false,\"error\":\"服务端未配置 ControlToken\"}");
-                _state = -1;
-                return;
-            }
-
+            // v2.6.0-preview-DevOnly 推出，代号 Kerckhoffs：语音口 API Key（Authorization: Bearer / X-SLDataAPI-Key）；不再接受 X-Control-Token / ?key=
+            string? key = ApiKeyService.ExtractKeyFromRawHeader(header);
             string clientIp = "";
             try { clientIp = ((IPEndPoint)_socket.RemoteEndPoint).Address.ToString(); } catch { /* 忽略 */ }
 
-            if (!ControlAuth.TryAuthenticate(clientIp, key ?? "", cfgToken, out string authErr))
+            if (!ApiKeyService.TryAuthenticate(clientIp, key, out var principal, out string authErr) || principal == null)
             {
-                Log.Warn($"[SLDataAPI][Voice] 鉴权失败 from {clientIp}: {authErr} {ControlAuth.DescribeMismatch(key, cfgToken)}");
-                SendHttp("403 Forbidden", "application/json", "{\"ok\":false,\"error\":\"" + JsonEscape(authErr) + "\"}");
+                Log.Warn($"[SLDataAPI][Voice] 鉴权失败 from {clientIp}: {authErr}");
+                SendHttp("401 Unauthorized", "application/json", "{\"ok\":false,\"error\":\"" + JsonEscape(authErr) + "\"}");
                 _state = -1;
                 return;
             }
 
-            if (method == "GET" && path.StartsWith("/ws", StringComparison.OrdinalIgnoreCase))
+            // 去掉 query 再匹配路径
+            string pathOnly = path;
+            int q = pathOnly.IndexOf('?');
+            if (q >= 0) pathOnly = pathOnly.Substring(0, q);
+
+            if (method == "GET" && pathOnly.StartsWith("/ws", StringComparison.OrdinalIgnoreCase))
             {
+                if (!principal.Allows("voice:/ws", wantWrite: false))
+                {
+                    SendHttp("403 Forbidden", "application/json", "{\"ok\":false,\"error\":\"API Key 未授权 voice:/ws\"}");
+                    _state = -1;
+                    return;
+                }
                 if (TryHandshake(header))
                 {
                     _state = 1;
@@ -539,8 +539,14 @@ public static class VoiceService
                 return;
             }
 
-            if (method == "GET" && path.StartsWith("/status", StringComparison.OrdinalIgnoreCase))
+            if (method == "GET" && pathOnly.StartsWith("/status", StringComparison.OrdinalIgnoreCase))
             {
+                if (!principal.Allows("voice:/status", wantWrite: false))
+                {
+                    SendHttp("403 Forbidden", "application/json", "{\"ok\":false,\"error\":\"API Key 未授权 voice:/status\"}");
+                    _state = -1;
+                    return;
+                }
                 SendHttp("200 OK", "application/json", BuildStatusJson());
                 _state = -1;
                 return;

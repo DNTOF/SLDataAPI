@@ -45,38 +45,52 @@ namespace SLDataAPI.Control;
 /// </summary>
 public static class ControlController
 {
-    public static (int status, string json) Handle(string path, string body)
+    public static (int status, string json) Handle(string path, string body, string? actor = null)
     {
         try
         {
             var (status, json) = path switch
             {
-                "/control/command" => RunCommand(body),
-                "/control/player/kick" => PlayerAction(body, "kick"),
-                "/control/player/ban" => PlayerAction(body, "ban"),
+                // PLAYER
+                "/control/player/data" => PlayerDataAction(body),
                 "/control/player/role" => PlayerAction(body, "role"),
-                "/control/player/teleport" => PlayerAction(body, "teleport"),
-                "/control/player/mute" => PlayerAction(body, "mute"),
-                "/control/player/msg" => PlayerAction(body, "msg"),
-                "/control/player/effect" => PlayerAction(body, "effect"),
-                "/control/player/state" => PlayerAction(body, "state"),
-                "/control/map" => MapAction(body),
-                "/control/wave" => WaveAction(body),
-                "/control/reports" => ReportsAction(body),
-                "/control/map/export" => MapExportAction(),
+                "/control/player/effects" => PlayerAction(body, "effect"),
+                "/control/player/inventory" => Stub501("player/inventory"),
+                // SERVER · Moderation
+                "/control/moderation/kick" => PlayerAction(body, "kick"),
+                "/control/moderation/ban" => PlayerAction(body, "ban"),
+                "/control/moderation/mute" => PlayerAction(body, "mute"),
+                "/control/moderation/msg" => PlayerAction(body, "msg"),
+                "/control/moderation/ban_list" => BanListAction(),
+                "/control/moderation/ban/add" => BanAddAction(body),
+                "/control/moderation/ban/revoke" => BanRevokeAction(body),
+                // SERVER · Administration
+                "/control/admin/teleport" => PlayerAction(body, "teleport"),
+                "/control/admin/state" => PlayerAction(body, "state"),
+                // SERVER · Broadcasting / Staff Chat（预览占位）
+                "/control/broadcast" => Stub501("broadcast"),
+                "/control/staffchat" => Stub501("staffchat"),
+                // GAME
                 "/control/round" => RoundAction(body),
+                "/control/round/warhead" => WarheadAction(body),
+                "/control/round/wave" => WaveAction(body),
+                "/control/dummies" => Stub501("dummies"),
+                "/control/map/facility" => MapFacilityAction(body),
+                "/control/map/layout" => MapLayoutAction(),
+                "/control/map/export" => MapExportAction(),
+                "/control/map/seed" => MapSeedAction(),
                 "/control/cassie" => CassieAction(body),
-                "/control/warhead" => WarheadAction(body),
-                "/control/slplayer" => SlPlayerAction(body),
+                // 扩展
+                "/control/console/command" => RunCommand(body),
                 "/control/plugins" => PluginsAction(body),
-                "/control/ban_list" => BanListAction(),
-                "/control/ban/revoke" => BanRevokeAction(body),
-                "/control/ban/add" => BanAddAction(body),
-                "/control/logs" => LogsAction(body),
+                "/control/plugins/slplayer" => SlPlayerAction(body),
                 "/control/files/list" => FilesAction(body, "list"),
                 "/control/files/read" => FilesAction(body, "read"),
                 "/control/files/write" => FilesAction(body, "write"),
-                _ => (404, Json(false, "未知控制端点")),
+                "/control/logs" => LogsAction(body),
+                "/control/reports" => ReportsAction(body),
+                "/control/audit/list" => AuditListAction(body),
+                _ => (404, Json(false, "未知控制端点（2.6 已移除旧路径别名，请使用 RA 对齐新路径）")),
             };
 
             // ★ 最终兜底：任何端点漏检查主线程派发错误而泄漏 (0, null) 时，
@@ -94,7 +108,7 @@ public static class ControlController
                 bool ok = status >= 200 && status < 300;
                 string msg = "";
                 try { msg = JObject.Parse(json)["message"]?.ToString() ?? ""; } catch { /* 解析失败留空 */ }
-                ControlLogService.Record(path, body, ok, msg);
+                ControlLogService.Record(path, body, ok, msg, actor);
             }
 
             return (status, json);
@@ -119,31 +133,30 @@ public static class ControlController
         {
             switch (path)
             {
-                case "/control/map":
-                    // 仅 layout/seed 是只读自动化流程；doors/elevators/lights 是主动控制
-                    return Parse<MapControlRequest>(body)?.action is "layout" or "seed";
+                case "/control/map/layout":
                 case "/control/map/export":
-                    return true; // 地图导出：自动化重建流程
-                case "/control/reports":
-                    return Parse<ReportRequest>(body)?.action == "list"; // handle 是主动处理
-                case "/control/ban_list":
+                case "/control/map/seed":
+                case "/control/moderation/ban_list":
                 case "/control/logs":
                 case "/control/files/list":
                 case "/control/files/read":
+                case "/control/audit/list":
+                case "/control/player/data":
                     return true;
-                case "/control/player/state":
-                    // 纯查询（未携带任何设置字段）不记录；带了任一设置字段 = 主动修改
+                case "/control/map/facility":
+                    return false; // 门/梯/灯
+                case "/control/reports":
+                    return Parse<ReportRequest>(body)?.action == "list";
+                case "/control/admin/state":
                     var st = Parse<PlayerActionRequest>(body);
                     return st != null && st.godmode == null && st.bypass == null && st.health == null && st.intercom == null;
-                case "/control/wave":
-                    return Parse<WaveRequest>(body)?.action == "status"; // instant/set 是主动控制
-                case "/control/slplayer":
-                    return Parse<SlPlayerRequest>(body)?.action is "status" or "list"; // 播放/音量等是主动控制
+                case "/control/round/wave":
+                    return Parse<WaveRequest>(body)?.action == "status";
+                case "/control/plugins/slplayer":
+                    return Parse<SlPlayerRequest>(body)?.action is "status" or "list";
                 case "/control/plugins":
-                    return string.IsNullOrWhiteSpace(Parse<PluginsRequest>(body)?.action); // 仅列表只读，stage/apply 等是主动操作
+                    return string.IsNullOrWhiteSpace(Parse<PluginsRequest>(body)?.action);
                 default:
-                    // command / player 管理 / round / cassie / warhead / ban add|revoke /
-                    // files write 等：全部是主动侵入性操作
                     return false;
             }
         }
@@ -1099,35 +1112,87 @@ public static class ControlController
     }
 
     // ------------------------------------------------------------------
-    // /control/map —— 地图布局读取 + 门/灯控制
-    // layout 只读缓存（回合开始事件在主线程采集），doors/lights 派发主线程执行。
+    // 2.6 辅助：占位 / 玩家档案只读 / 审计列表 / 地图路径拆分
     // ------------------------------------------------------------------
-    private static (int, string) MapAction(string body)
+    private static (int, string) Stub501(string name) =>
+        (501, Json(false, $"端点尚未实现: {name}"));
+
+    private static (int, string) PlayerDataAction(string body)
+    {
+        var req = Parse<PlayerActionRequest>(body);
+        if (req == null || string.IsNullOrWhiteSpace(req.target))
+            return (400, Json(false, "缺少 target 字段"));
+
+        var (status, json) = MainThreadExecutor.RunOnMainThread(() =>
+        {
+            var p = Player.Get(req.target);
+            if (p == null)
+                throw new InvalidOperationException($"未找到玩家: {req.target}");
+            var data = new
+            {
+                nickname = p.Nickname,
+                userid = p.UserId,
+                player_id = p.PlayerId,
+                role = p.Role.ToString(),
+                health = p.Health,
+                position = new { x = p.Position.x, y = p.Position.y, z = p.Position.z },
+                room = p.Room?.Name.ToString() ?? "",
+            };
+            return (200, Json(true, "ok", data));
+        }, out var err);
+        return err != null ? (400, Json(false, err.Message)) : (status, json);
+    }
+
+    private static (int, string) AuditListAction(string body)
+    {
+        try
+        {
+            int limit = 100;
+            try
+            {
+                var jo = string.IsNullOrWhiteSpace(body) ? null : JObject.Parse(body);
+                if (jo?["limit"] != null) limit = Math.Max(1, Math.Min(500, (int)jo["limit"]!));
+            }
+            catch { /* 忽略 body 解析，用默认 limit */ }
+            var entries = ControlLogService.List(limit);
+            return (200, Json(true, "ok", new { count = entries.Count, entries }));
+        }
+        catch (Exception ex)
+        {
+            return (500, Json(false, ex.Message));
+        }
+    }
+
+    private static (int, string) MapLayoutAction()
+    {
+        object? layout = MapLayoutService.GetLayout();
+        if (layout == null)
+            return (200, Json(true, "ok", new { ready = false, count = 0, rooms = new object[0] }));
+        return (200, Json(true, "ok", layout));
+    }
+
+    private static (int, string) MapSeedAction()
+    {
+        return (200, Json(true, "ok", new
+        {
+            ready = MapLayoutService.GetLayout() != null,
+            seed = MapLayoutService.ReadSeed()
+        }));
+    }
+
+    // ------------------------------------------------------------------
+    // /control/map/facility —— 门/电梯/灯光控制（2.6；原 /control/map）
+    // layout/seed 已拆到独立路径；此处仅 doors/elevators/lights。
+    // ------------------------------------------------------------------
+    private static (int, string) MapFacilityAction(string body)
     {
         var req = Parse<MapControlRequest>(body);
         if (req == null || string.IsNullOrWhiteSpace(req.action))
-            return (400, Json(false, "缺少 action 字段"));
+            return (400, Json(false, "缺少 action 字段（doors / elevators / lights）"));
 
         string action = req.action.ToLowerInvariant();
-
-        if (action == "seed")
-        {
-            // 轻量端点：只返回回合种子。WebUI 按 seed 命中本地布局缓存时
-            // 无需再传输房间数据（同一 seed 布局恒定）。
-            return (200, Json(true, "ok", new
-            {
-                ready = MapLayoutService.GetLayout() != null,
-                seed = MapLayoutService.ReadSeed()
-            }));
-        }
-
-        if (action == "layout")
-        {
-            object? layout = MapLayoutService.GetLayout();
-            if (layout == null)
-                return (200, Json(true, "ok", new { ready = false, count = 0, rooms = new object[0] }));
-            return (200, Json(true, "ok", layout));
-        }
+        if (action is "layout" or "seed")
+            return (400, Json(false, "layout/seed 请分别调用 /control/map/layout 与 /control/map/seed"));
 
         var (mapStatus, mapJson) = MainThreadExecutor.RunOnMainThread(() =>
         {

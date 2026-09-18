@@ -17,5 +17,6 @@
   <!-- 直接编译纯逻辑源文件（无 Unity / LabAPI 依赖） -->
   <ItemGroup>
     <Compile Include="..\..\Auth\EndpointAcl.cs" Link="EndpointAcl.cs" />
+    <Compile Include="..\..\Auth\RemoteCommandGuard.cs" Link="RemoteCommandGuard.cs" />
   </ItemGroup>
 </Project>

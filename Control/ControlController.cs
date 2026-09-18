@@ -16,6 +16,7 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using PlayerRoles;
 using RemoteAdmin;
+using SLDataAPI.Auth;
 using SLDataAPI.Capture;
 using SLDataAPI.Data;
 using SLDataAPI.Integrations;
@@ -258,6 +259,16 @@ public static class ControlController
         if (req == null || string.IsNullOrWhiteSpace(req.command))
             return (400, Json(false, "缺少 command 字段"));
 
+        // 层 1：SLDataAPI 自身的管理 CLI 一律不经远程控制通道执行（所有子命令，不只 apikey）。
+        // 远程通道只能证明"持有某把 Key"，无法证明操作者身份；放行等于任何拿到 console 授权的 Key
+        // 都能无限增发新 Key 并从同一条通道取回明文。这里连命令都不派发，直接回控制面错误。
+        if (RemoteCommandGuard.IsManagementCommand(req.command))
+        {
+            Log.Warn($"[SLDataAPI][Control] 已拒绝远程执行 SLDataAPI 管理命令: {req.command}");
+            return (403, Json(false, RemoteCommandGuard.RemoteDenyMessage,
+                new { code = RemoteCommandGuard.RemoteDenyCode }));
+        }
+
         Log.Info($"[SLDataAPI][Control] 执行服务器命令: {req.command}");
 
         // 命令执行窗口内捕获控制台输出（普通命令的响应走 AddLog 管线；
@@ -293,6 +304,23 @@ public static class ControlController
     private static readonly char[] SpaceSeparator = { ' ' };
 
     /// <summary>
+    /// 远程控制通道执行服务器控制台命令的唯一入口：先过管理 CLI 硬拒绝，再进入实际执行。
+    /// </summary>
+    private static string ExecuteConsoleCommand(string command)
+    {
+        // 层 1 兜底：任何走到这里的命令都来自远程控制通道（HTTP /control/* 与 WS call 同源），
+        // 管理 CLI 在此二次硬拦；同时标记执行上下文，让层 2 的人工确认永远无法被远程"确认"通过。
+        if (RemoteCommandGuard.IsManagementCommand(command))
+        {
+            Log.Warn($"[SLDataAPI][Control] 已拒绝远程执行 SLDataAPI 管理命令（兜底）: {command}");
+            return RemoteCommandGuard.RemoteDenyMessage;
+        }
+
+        using var remoteScope = RemoteCommandGuard.RemoteExecutionScope.Enter();
+        return ExecuteConsoleCommandCore(command);
+    }
+
+    /// <summary>
     /// 执行服务器控制台命令。点命令（客户端命令，如 .m 系列）走专用通道：
     /// 当前游戏版本里 TypeCommand 会把点命令路由到 GameConsoleTransmission.SendToServer，
     /// 而专用服上 NetworkClient 未激活，该路径是死胡同——命令根本不执行、更没有回显
@@ -300,7 +328,7 @@ public static class ControlController
     /// 这里直接在 QueryProcessor.DotCommandHandler 上以主机玩家身份执行，
     /// 复刻原生 ProcessGameConsoleQuery 的语义（含 LabAPI 命令事件），响应文本直接返回。
     /// </summary>
-    private static string ExecuteConsoleCommand(string command)
+    private static string ExecuteConsoleCommandCore(string command)
     {
         string trimmed = command.TrimStart();
         if (!trimmed.StartsWith(".") || trimmed.Length <= 1)

@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Newtonsoft.Json.Linq;
 
 namespace SLDataAPI.Data;
 
@@ -40,6 +41,25 @@ public class ServerData
     // ★ 新增：DNT_OF 系列插件（SLPlayer / OmegaWarhead）运行时信息。
     // 两个子字段均可能为 null（对应插件未加载时），由 DntofDetector 每个刷新周期采集一次。
     public DntofInfo dntof_plugins { get; set; } = new();
+
+    /// <summary>
+    /// All in-process adapted plugins registered via PluginEndpointRegistry
+    /// (including DNT_OF wrappers and third-party plugins). No allowlist.
+    /// </summary>
+    public List<AdaptedPluginInfo> adapted_plugins { get; set; } = new();
+}
+
+/// <summary>Discovery entry for one adapted plugin (get_sl_data + /plugins/adapted).</summary>
+public class AdaptedPluginInfo
+{
+    public string id { get; set; } = "";
+    public string name { get; set; } = "";
+    public string version { get; set; } = "";
+    public List<string> capabilities { get; set; } = new();
+    public List<string> routes { get; set; } = new();
+
+    /// <summary>Small JSON status object from the plugin's status callback (≤4KB); null if none.</summary>
+    public JToken? status { get; set; }
 }
 
 // ===================== DNT_OF 系列插件信息 =====================

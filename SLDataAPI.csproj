@@ -5,20 +5,20 @@
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <OutputType>Library</OutputType>
-    <!-- CS8002：强签名程序集引用未签名程序集——游戏 DLL / 0Harmony 等运行时依赖本就无强名称，属预期 -->
+    <!-- CS8002锛氬己绛惧悕绋嬪簭闆嗗紩鐢ㄦ湭绛惧悕绋嬪簭闆嗏€斺€旀父鎴?DLL / 0Harmony 绛夎繍琛屾椂渚濊禆鏈氨鏃犲己鍚嶇О锛屽睘棰勬湡 -->
     <NoWarn>CS0618;CS1591;CS8002</NoWarn>
 
-    <!-- 强名称签名：本地存在 key.snk（不入库）时启用 -->
+    <!-- 寮哄悕绉扮鍚嶏細鏈湴瀛樺湪 key.snk锛堜笉鍏ュ簱锛夋椂鍚敤 -->
     <SignAssembly Condition="Exists('key.snk')">true</SignAssembly>
     <AssemblyOriginatorKeyFile Condition="Exists('key.snk')">key.snk</AssemblyOriginatorKeyFile>
 
     <!--
-      编译期引用路径（默认指向本机安装目录；其它机器用 -p: 覆盖）：
+      缂栬瘧鏈熷紩鐢ㄨ矾寰勶紙榛樿鎸囧悜鏈満瀹夎鐩綍锛涘叾瀹冩満鍣ㄧ敤 -p: 瑕嗙洊锛夛細
         -p:SCPSL_DIR="D:\...\SCP Secret Laboratory Dedicated Server\SCPSL_Data\Managed"
         -p:LABAPI_DIR="C:\Users\...\AppData\Roaming\SCP Secret Laboratory\LabAPI"
 
-      ⚠️ 许可证说明：游戏程序集（Assembly-CSharp 等）禁止二次分发，
-      因此仓库不携带这些 DLL；编译需要本机已安装 SCP:SL 专用服务器（自带 LabApi.dll）。
+      鈿狅笍 璁稿彲璇佽鏄庯細娓告垙绋嬪簭闆嗭紙Assembly-CSharp 绛夛級绂佹浜屾鍒嗗彂锛?
+      鍥犳浠撳簱涓嶆惡甯﹁繖浜?DLL锛涚紪璇戦渶瑕佹湰鏈哄凡瀹夎 SCP:SL 涓撶敤鏈嶅姟鍣紙鑷甫 LabApi.dll锛夈€?
     -->
     <SCPSL_DIR Condition="'$(SCPSL_DIR)' == ''">D:\SteamLibrary\steamapps\common\SCP Secret Laboratory Dedicated Server\SCPSL_Data\Managed</SCPSL_DIR>
     <LABAPI_DIR Condition="'$(LABAPI_DIR)' == ''">$(USERPROFILE)\AppData\Roaming\SCP Secret Laboratory\LabAPI</LABAPI_DIR>
@@ -27,12 +27,12 @@
   <ItemGroup>
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <PackageReference Include="System.Net.Http" Version="4.3.4" />
-    <!-- 语音录音打包（System.IO.Compression.FileSystem 提供 ZipFile） -->
+    <!-- 璇煶褰曢煶鎵撳寘锛圫ystem.IO.Compression.FileSystem 鎻愪緵 ZipFile锛?-->
     <Reference Include="System.IO.Compression" />
     <Reference Include="System.IO.Compression.FileSystem" />
   </ItemGroup>
 
-  <!-- 游戏 + LabAPI 程序集：编译期引用本机安装目录，运行时由游戏提供，不打包 -->
+  <!-- 娓告垙 + LabAPI 绋嬪簭闆嗭細缂栬瘧鏈熷紩鐢ㄦ湰鏈哄畨瑁呯洰褰曪紝杩愯鏃剁敱娓告垙鎻愪緵锛屼笉鎵撳寘 -->
   <ItemGroup>
     <Reference Include="Assembly-CSharp">
       <HintPath>$(SCPSL_DIR)\Assembly-CSharp.dll</HintPath>
@@ -66,7 +66,7 @@
       <HintPath>$(SCPSL_DIR)\UnityEngine.PhysicsModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
-    <!-- SSS 文本输入框（SSPlaintextSetting）的 ContentType 参数来自 TextMeshPro -->
+    <!-- SSS 鏂囨湰杈撳叆妗嗭紙SSPlaintextSetting锛夌殑 ContentType 鍙傛暟鏉ヨ嚜 TextMeshPro -->
     <Reference Include="Unity.TextMeshPro">
       <HintPath>$(SCPSL_DIR)\Unity.TextMeshPro.dll</HintPath>
       <Private>false</Private>
@@ -97,4 +97,10 @@
     </Reference>
   </ItemGroup>
 
+
+  <!-- Sample plugin is a separate project; do not compile into SLDataAPI.dll -->
+  <ItemGroup>
+    <Compile Remove="examples/**" />
+    <None Include="examples/**" />
+  </ItemGroup>
 </Project>

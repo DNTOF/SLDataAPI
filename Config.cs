@@ -122,6 +122,7 @@ public class Config
     public int ReportRateWindowMinutes { get; set; } = 30;
 
     // ================== 控制操作审计日志（v2.5.5-preview 推出，代号 Everest C1） ==================
+// ================== 适配插件端点发现：v2.5.5 正式引入（代号 Nexus） ==================
 
     /// <summary>
     /// 是否记录远程控制的主动侵入性操作（命令执行、玩家管理、回合/播报/核弹/波次控制、

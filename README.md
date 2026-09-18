@@ -2,7 +2,7 @@
 
 > **安全警告：** 数据/控制/语音链路均为明文（HTTP · `ws://`）。中间节点可窃听凭据与语音；凭据泄露等同服务器被控。防火墙、反向代理（HTTPS/WSS）、token 保管由使用者负责，相关后果作者不承担责任。建议仅内网使用，对外必须加密代理。详见 [Security-Model](https://github.com/DNTOF/SLDataAPI/wiki/Security-Model)。
 
-**版本：** 2.5.5-preview（Everest C1） · **LabAPI 原生插件**（v2.4 起，非 EXILED）  
+**版本：** 2.5.5（Nexus） · **LabAPI 原生插件**（v2.4 起，非 EXILED）  
 **依赖：** LabAPI（游戏自带）· `0Harmony` 2.3.x · `Newtonsoft.Json` 13.0.x（后两者须放在 `LabAPI/dependencies/global/`）
 
 完整接口与开发文档：[Wiki](https://github.com/DNTOF/SLDataAPI/wiki)  
@@ -21,6 +21,7 @@
 | 语音转发 | 独立端口 WS，全频道 48kHz PCM（SPY） |
 | 语音录音 | 分轨 WAV + 时间轴 TSV，按局保留 |
 | 举报 / 审计 | Esc 面板举报；侵入性控制写入 `control_log.json` |
+| 适配插件发现 | `GET /plugins/adapted` + `get_sl_data.adapted_plugins`；只读 `GET /plugins/<id>/<route>` |
 
 从 EXILED 迁过来：DLL 放 `LabAPI/plugins/global/`；配置 `LabAPI/configs/<端口>/SLDataAPI/config.yml`；启停用 `properties.yml` 或 `/control/plugins`。
 

@@ -1,0 +1,55 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <OutputType>Library</OutputType>
+    <RootNamespace>AdaptedPluginSample</RootNamespace>
+    <AssemblyName>AdaptedPluginSample</AssemblyName>
+    <NoWarn>CS0618;CS1591;CS8002</NoWarn>
+
+    <SCPSL_DIR Condition="'$(SCPSL_DIR)' == ''">D:\SteamLibrary\steamapps\common\SCP Secret Laboratory Dedicated Server\SCPSL_Data\Managed</SCPSL_DIR>
+    <LABAPI_DIR Condition="'$(LABAPI_DIR)' == ''">$(USERPROFILE)\AppData\Roaming\SCP Secret Laboratory\LabAPI</LABAPI_DIR>
+    <!-- Built SLDataAPI.dll to reference (Release output of main project) -->
+    <SLDATAAPI_DLL Condition="'$(SLDATAAPI_DLL)' == ''">$(MSBuildThisFileDirectory)..\..\bin\Release\net48\SLDataAPI.dll</SLDATAAPI_DLL>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="LabApi">
+      <HintPath>$(SCPSL_DIR)\LabApi.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Assembly-CSharp">
+      <HintPath>$(SCPSL_DIR)\Assembly-CSharp.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(SCPSL_DIR)\UnityEngine.CoreModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Mirror">
+      <HintPath>$(SCPSL_DIR)\Mirror.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="YamlDotNet">
+      <HintPath>$(SCPSL_DIR)\YamlDotNet.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="NorthwoodLib">
+      <HintPath>$(SCPSL_DIR)\NorthwoodLib.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>$(LABAPI_DIR)\dependencies\global\0Harmony.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="SLDataAPI">
+      <HintPath>$(SLDATAAPI_DLL)</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+</Project>

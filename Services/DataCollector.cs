@@ -104,6 +104,7 @@ public static class DataCollector
         ping = src.ping,
         players = src.players,
         dntof_plugins = src.dntof_plugins,
+        adapted_plugins = src.adapted_plugins,
     };
 
     private static void UpdateData()
@@ -176,6 +177,10 @@ public static class DataCollector
             //   BuildJson() 是被 HttpServer 的后台线程直接调用的，
             //   在后台线程里访问 Player.Position 等游戏对象存在线程安全风险。
             fresh.dntof_plugins = DntofDetector.Collect();
+
+            // Adapted plugin registry: status callbacks only on main thread (per-plugin try/catch + 4KB).
+            // Discovery lists ALL registrations — no third-party allowlist.
+            fresh.adapted_plugins = PluginEndpointRegistry.CollectStatusesOnMainThread();
 
             CachedData = fresh; // ★ F-01：快照构建完毕，原子替换发布（volatile 保证可见性）——缺失会导致 /get_sl_data 永远空数据
         }

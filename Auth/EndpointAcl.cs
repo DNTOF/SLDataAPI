@@ -176,7 +176,8 @@ public static class EndpointAcl
 
     /// <summary>
     /// 合并模板端点与 keys[].endpoints_override（覆盖优先）。
-    /// templateName: duty | admin；admin 展开为 catalog 全 true（再被 override 裁剪）。
+    /// templateName: duty | admin；admin（含 all_control_true）按 catalog 展开——
+    /// 目录里标 true 的端点授予，标 false 的不自动授予（再被 override 裁剪或显式放开）。
     /// </summary>
     public static Dictionary<string, EndpointGrant> MergeEffective(
         string templateName,
@@ -194,8 +195,7 @@ public static class EndpointAcl
         {
             if (IsAllControlTrueOnly(templateEndpoints))
             {
-                foreach (var kv in cat)
-                    result[kv.Key] = EndpointGrant.FromBool(true);
+                ApplyCatalog(result, cat);
             }
             else if (templateEndpoints != null && templateEndpoints.Count > 0)
             {
@@ -204,8 +204,7 @@ public static class EndpointAcl
                     if (kv.Value is string sv &&
                         string.Equals(sv, AllControlTrue, StringComparison.OrdinalIgnoreCase))
                     {
-                        foreach (var c in cat)
-                            result[c.Key] = EndpointGrant.FromBool(true);
+                        ApplyCatalog(result, cat);
                     }
                     else if (EndpointGrant.TryParse(kv.Value, out var g))
                     {
@@ -215,8 +214,7 @@ public static class EndpointAcl
             }
             else
             {
-                foreach (var kv in cat)
-                    result[kv.Key] = EndpointGrant.FromBool(true);
+                ApplyCatalog(result, cat);
             }
         }
         else
@@ -231,8 +229,7 @@ public static class EndpointAcl
                     if (kv.Value is string sv &&
                         string.Equals(sv, AllControlTrue, StringComparison.OrdinalIgnoreCase))
                     {
-                        foreach (var c in cat)
-                            result[c.Key] = EndpointGrant.FromBool(true);
+                        ApplyCatalog(result, cat);
                         continue;
                     }
                     if (EndpointGrant.TryParse(kv.Value, out var g))
@@ -251,6 +248,18 @@ public static class EndpointAcl
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// 按端点目录展开模板：尊重目录里的 bool 值。
+    /// 标 false 的条目（如 /control/console/、/control/plugins、/control/files/）不随
+    /// admin / all_control_true 自动授予——"控制面全开"不等于"把远程控制台和文件读写也一并交出去"；
+    /// 确有需要时仍可用 keys[].endpoints_override 对单把 Key 显式放开。
+    /// </summary>
+    private static void ApplyCatalog(Dictionary<string, EndpointGrant> result, IDictionary<string, bool> catalog)
+    {
+        foreach (var kv in catalog)
+            result[kv.Key] = EndpointGrant.FromBool(kv.Value);
     }
 
     private static bool IsAllControlTrueOnly(IDictionary<string, object>? endpoints)

@@ -116,9 +116,61 @@ public class TemplateMergeTests
     public void Admin_OpensCatalog()
     {
         var g = EndpointAcl.MergeEffective("admin", null, null);
-        Assert.True(EndpointAcl.IsAllowed(g, "/control/console/command", true));
         Assert.True(EndpointAcl.IsAllowed(g, "/control/moderation/ban", true));
+        Assert.True(EndpointAcl.IsAllowed(g, "/control/admin/teleport", true));
         Assert.True(EndpointAcl.IsAllowed(g, "voice:/ws", false));
+    }
+
+    [Fact]
+    public void Admin_RespectsCatalogFalse()
+    {
+        var g = EndpointAcl.MergeEffective("admin", null, null);
+        Assert.False(EndpointAcl.IsAllowed(g, "/control/console/command", true));
+        Assert.False(EndpointAcl.IsAllowed(g, "/control/console/command", false));
+        Assert.False(EndpointAcl.IsAllowed(g, "/control/plugins", true));
+        Assert.False(EndpointAcl.IsAllowed(g, "/control/files/read", false));
+        Assert.False(EndpointAcl.IsAllowed(g, "/control/player/inventory", true));
+    }
+
+    [Fact]
+    public void Admin_ExplicitTemplateAllControlTrue_RespectsCatalogFalse()
+    {
+        var tmpl = new Dictionary<string, object> { [""] = EndpointAcl.AllControlTrue };
+        var g = EndpointAcl.MergeEffective("admin", tmpl, null);
+        Assert.True(EndpointAcl.IsAllowed(g, "/control/moderation/ban", true));
+        Assert.False(EndpointAcl.IsAllowed(g, "/control/console/command", true));
+    }
+
+    [Fact]
+    public void Duty_AllControlTrue_RespectsCatalogFalse()
+    {
+        var tmpl = new Dictionary<string, object> { ["*"] = EndpointAcl.AllControlTrue };
+        var g = EndpointAcl.MergeEffective("duty", tmpl, null);
+        Assert.True(EndpointAcl.IsAllowed(g, "/control/moderation/ban", true));
+        Assert.False(EndpointAcl.IsAllowed(g, "/control/console/command", true));
+    }
+
+    [Fact]
+    public void Admin_CatalogFalse_StillGrantableViaOverride()
+    {
+        var ov = new Dictionary<string, object> { ["/control/console/"] = true };
+        var g = EndpointAcl.MergeEffective("admin", null, ov);
+        Assert.True(EndpointAcl.IsAllowed(g, "/control/console/command", true));
+    }
+
+    [Fact]
+    public void Admin_UsesSuppliedCatalogValues()
+    {
+        var catalog = new Dictionary<string, bool>
+        {
+            ["/control/round"] = true,
+            ["/control/console/"] = true,
+            ["/control/cassie"] = false,
+        };
+        var g = EndpointAcl.MergeEffective("admin", null, null, catalog);
+        Assert.True(EndpointAcl.IsAllowed(g, "/control/round", true));
+        Assert.True(EndpointAcl.IsAllowed(g, "/control/console/command", true));
+        Assert.False(EndpointAcl.IsAllowed(g, "/control/cassie", true));
     }
 
     [Fact]

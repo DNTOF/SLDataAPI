@@ -149,7 +149,9 @@ control_log_max_records: 500          # 控制日志最大条数（超出删最�
 
 - 控制面请求头：`Authorization: Bearer <key>` 或 `X-SLDataAPI-Key: <key>`（**已移除**控制面 `X-Control-Token` / `?token=` / `?key=`）。
 - 生成：游戏内 / LocalAdmin 命令 `sldataapi apikey create <id> <duty|admin>`；`revoke` / `list`。
-- 模板：`duty`（只读信息含地图读，默认无传送/管理/语音）· `admin`（控制面全开）。可用 `endpoints_override` 细调。
+  - `sldataapi` / `slda` **只能在服务器本地执行**：经 `/control/console/command`（HTTP 或控制 WS）下发一律 **403**，不派发命令。
+  - `create` / `revoke` 还需在服务器控制台（LocalAdmin）回答 `y` 确认（`api_key_confirm_timeout_seconds`，默认 20 秒，超时按拒绝）。
+- 模板：`duty`（只读信息含地图读，默认无传送/管理/语音）· `admin`（控制面全开，但 `endpoint_catalog` 中标 `false` 的端点——如 `/control/console/`、`/control/plugins`、`/control/files/`——不自动授予）。可用 `endpoints_override` 细调或显式放开。
 - `control_token` **已废弃**（启动警告并忽略）；`control_enabled` 仍门控控制面。
 - 路径已按 RA 面板重分（旧扁平路径无别名（多返回 ACL **403**））。契约与端点见 GitHub Wiki [[Preview-HTTP-API]](https://github.com/DNTOF/SLDataAPI/wiki/Preview-HTTP-API)。
 

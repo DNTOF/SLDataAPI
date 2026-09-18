@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using SLDataAPI.Control;
 using SLDataAPI.Data;
+using SLDataAPI.Integrations;
 
 namespace SLDataAPI.Services;
 
@@ -275,6 +276,92 @@ public class HttpServer
                 return;
             }
 
+
+            // ---- Adapted plugin discovery (verify_token, same as get_sl_data) ----
+            if (path == "/plugins/adapted")
+            {
+                if (method != "GET")
+                {
+                    SendJson(stream, 405, Err("Method Not Allowed"));
+                    return;
+                }
+
+                string reqTokenAp = ExtractQueryValue(query, "token");
+                if (!ControlAuth.TryAuthenticate(remoteIp, reqTokenAp, _config.VerifyToken ?? "", out string apErr, highPrivilege: false))
+                {
+                    Log.Warn($"[SLDataAPI] /plugins/adapted 鉴权失败 from {remoteIp}: {apErr} {ControlAuth.DescribeMismatch(reqTokenAp, _config.VerifyToken)}");
+                    SendJson(stream, 403, Err(apErr));
+                    return;
+                }
+
+                // Authoritative full list: use latest main-thread snapshot from DataCollector.
+                var snapAp = DataCollector.CachedData?.adapted_plugins ?? PluginEndpointRegistry.Snapshot(includeLiveStatus: false);
+                SendJson(stream, 200, Newtonsoft.Json.JsonConvert.SerializeObject(new
+                {
+                    success = true,
+                    adapted_plugins = snapAp,
+                }));
+                return;
+            }
+
+            // ---- Adapted plugin read-only subpath: GET /plugins/<id>/<route> ----
+            if (path.StartsWith("/plugins/", StringComparison.Ordinal) && path != "/plugins/adapted")
+            {
+                if (method != "GET")
+                {
+                    SendJson(stream, 405, Err("Method Not Allowed"));
+                    return;
+                }
+
+                string reqTokenRt = ExtractQueryValue(query, "token");
+                if (!ControlAuth.TryAuthenticate(remoteIp, reqTokenRt, _config.VerifyToken ?? "", out string rtErr, highPrivilege: false))
+                {
+                    Log.Warn($"[SLDataAPI] adapted route 鉴权失败 from {remoteIp}: {rtErr} {ControlAuth.DescribeMismatch(reqTokenRt, _config.VerifyToken)}");
+                    SendJson(stream, 403, Err(rtErr));
+                    return;
+                }
+
+                // Expected: /plugins/{plugin_id}/{route_path}  (exactly two segments after /plugins/)
+                string rest = path.Substring("/plugins/".Length);
+                string[] segs = rest.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+                if (segs.Length != 2)
+                {
+                    SendJson(stream, 404, Err("路径不存在（需要 /plugins/<plugin_id>/<route>）"));
+                    return;
+                }
+
+                string pluginId = Uri.UnescapeDataString(segs[0]);
+                string routePath = Uri.UnescapeDataString(segs[1]);
+
+                // Path traversal / charset guards also inside HandleRouteOnMainThread
+                if (pluginId.Contains("..") || routePath.Contains(".."))
+                {
+                    SendJson(stream, 400, Err("invalid path"));
+                    return;
+                }
+
+                var (st, routeBody) = MainThreadExecutor.RunOnMainThread(
+                    () => PluginEndpointRegistry.HandleRouteOnMainThread(pluginId, routePath),
+                    out var routeEx,
+                    timeoutMs: PluginEndpointRegistry.RouteTimeoutMs);
+
+                if (routeEx != null)
+                {
+                    Log.Warn($"[SLDataAPI] adapted route dispatch failed: {routeEx.Message}");
+                    SendJson(stream, 504, Err("route timeout or dispatch failed"));
+                    return;
+                }
+
+                if (st == 204)
+                {
+                    SendJson(stream, 200, "{}");
+                    return;
+                }
+
+                SendJson(stream, st, string.IsNullOrEmpty(routeBody) ? Err("empty") : routeBody);
+                return;
+            }
+
             // ---- 控制接口 ----
             if (path.StartsWith("/control/"))
             {
@@ -371,6 +458,7 @@ public class HttpServer
             case 431: return "Request Header Fields Too Large";
             case 500: return "Internal Server Error";
             case 501: return "Not Implemented";
+            case 504: return "Gateway Timeout";
             default: return "Unknown";
         }
     }

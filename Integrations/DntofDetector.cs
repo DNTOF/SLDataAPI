@@ -26,6 +26,9 @@ namespace SLDataAPI.Integrations;
 /// </summary>
 public static class DntofDetector
 {
+    public const string SlPlayerRegistryId = "dntof.sl_player";
+    public const string OmegaRegistryId = "dntof.omega_warhead";
+
     public static DntofInfo Collect()
     {
         var info = new DntofInfo();
@@ -36,7 +39,50 @@ public static class DntofDetector
         try { info.omega_warhead = CollectOmegaWarhead(); }
         catch (Exception ex) { Log.Debug($"[SLDataAPI] OmegaWarhead 探测异常（忽略）: {ex.Message}"); }
 
+        // Migrate into PluginEndpointRegistry wrappers while keeping legacy dntof_plugins fields.
+        SyncRegistryWrappers(info);
+
         return info;
+    }
+
+    private static void SyncRegistryWrappers(DntofInfo info)
+    {
+        try
+        {
+            if (info.sl_player != null && info.sl_player.present)
+            {
+                var snap = info.sl_player;
+                PluginEndpointRegistry.UpsertInternal(
+                    SlPlayerRegistryId,
+                    "SLPlayer",
+                    "",
+                    new[] { "dntof.sl_player", "media.now_playing" },
+                    () => Newtonsoft.Json.JsonConvert.SerializeObject(snap));
+            }
+            else
+            {
+                PluginEndpointRegistry.RemoveInternal(SlPlayerRegistryId);
+            }
+
+            if (info.omega_warhead != null && info.omega_warhead.present)
+            {
+                var snap = info.omega_warhead;
+                PluginEndpointRegistry.UpsertInternal(
+                    OmegaRegistryId,
+                    "OmegaWarhead",
+                    "",
+                    new[] { "dntof.omega_warhead", "warhead.omega" },
+                    () => Newtonsoft.Json.JsonConvert.SerializeObject(snap));
+            }
+            else
+            {
+                PluginEndpointRegistry.RemoveInternal(OmegaRegistryId);
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Debug($"[SLDataAPI] Registry wrapper sync failed: {ex.Message}");
+        }
     }
 
     /// <summary>按名称查找目标插件：先 EXILED（反射桥），再 LabAPI 注册表。</summary>

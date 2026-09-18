@@ -104,4 +104,10 @@
     <Compile Remove="_write_*.py" />
   </ItemGroup>
 
+
+  <!-- Sample plugin is a separate project; do not compile into SLDataAPI.dll -->
+  <ItemGroup>
+    <Compile Remove="examples/**" />
+    <None Include="examples/**" />
+  </ItemGroup>
 </Project>

@@ -19,7 +19,7 @@
 
 | 能力 | 说明 |
 |------|------|
-| 数据查询 | `GET /get_sl_data`：人数、回合、核弹、玩家（SteamID/坐标）、DNT_OF 插件状态 |
+| 数据查询 | `GET /get_sl_data`；适配发现：`GET /plugins/adapted` + `adapted_plugins`（`verify_token`，与 2.5.5 Nexus 对齐）：人数、回合、核弹、玩家（SteamID/坐标）、DNT_OF 插件状态 |
 | 控制接口 | `/control/*`：玩家/回合/地图/CASSIE/控制台/插件/文件/日志/举报等；HTTP 或 WS 二选一 |
 | 事件流 | 控制 WS 订阅：回合、进出、死亡、电梯、门等（v2.5.4+） |
 | 语音转发 | 独立端口 WS，全频道 48kHz PCM（SPY） |

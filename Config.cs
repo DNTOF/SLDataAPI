@@ -132,4 +132,15 @@ public class Config
 
     /// <summary>控制日志最大条数，超出自动删除最旧条目（0/负数 = 不清理）。</summary>
     public int ControlLogMaxRecords { get; set; } = 500;
+
+    // ================== API Key 管理的人工确认（v2.6.0-preview-DevOnly 安全加固） ==================
+
+    /// <summary>
+    /// `sldataapi apikey create|revoke` 的确认面板等待服务端操作者按键的秒数
+    /// （整屏接管 LocalAdmin 控制台，Y 确认 / N·Esc 取消，默认选中取消）。
+    /// 超时按拒绝处理（不创建 / 不吊销）。取值钳制在 5–120 秒；
+    /// 注意确认期间命令所在的主线程处于等待状态，不宜设置过长。
+    /// 该确认不可关闭：远程控制通道已被硬拒绝执行这些命令，本地确认是最后一道人工闸门。
+    /// </summary>
+    public int ApiKeyConfirmTimeoutSeconds { get; set; } = 20;
 }

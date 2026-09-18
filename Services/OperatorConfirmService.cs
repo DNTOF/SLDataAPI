@@ -10,14 +10,16 @@ namespace SLDataAPI.Services;
 /// 服务端敏感操作（API Key 创建 / 吊销）的人工确认（层 2）。
 ///
 /// 通道优先级：
-///   1. 远程控制通道下发的命令直接拒绝——层 1 已在 /control/console/command 处硬拦，这里再兜一层，
-///      保证层 2 永远不可能被远程"确认"通过。
-///   2. 服务器控制台（LocalAdmin / 专用服自带控制台）：提示行写到控制台，读一行标准输入。
-///      专用服多为无头/服务方式运行，所以这是主通道，不依赖任何图形环境。
-///   3. 仅当明确存在交互桌面（Windows + UserInteractive）且标准输入不可读时，退化到 MessageBox。
-/// 超时或回答不是明确的 y/yes 一律按拒绝处理，调用方不得执行变更。
+///   0. 远程控制通道下发的命令直接拒绝——层 1 已在 /control/console/command 处硬拦，
+///      这里在触碰任何界面之前再兜一层，保证层 2 永远不可能被远程"确认"通过。
+///   1. 【主通道】整屏 TUI 接管：清屏画确认面板（操作、id、模板、风险提示、倒计时、y/n 选择），
+///      读按键，结束后把原控制台缓冲/光标/颜色/输入模式原样还回去，LocalAdmin 输出继续。
+///      实现见 ConsoleTakeover（Win32 优先，其次 ANSI 备用屏）。
+///   2. 行模式：拿不到屏幕但标准输入可读时，打一行提示 + 读一行（无头/管道方式运行）。
+///   3. MessageBox：仅当上面两条都不可用且明确存在交互桌面时的最后兜底。
+/// 拒绝、超时、无可用通道一律按拒绝处理，调用方不得执行变更。
 ///
-/// 注意：标准输入读取线程在首次确认时才启动（此后常驻），启动后会持续消费本进程的标准输入；
+/// 注意：行模式的标准输入读取线程在首次用到时才启动（此后常驻）并持续消费本进程标准输入；
 /// 提示前会丢弃队列里的历史输入行，避免"提前敲 y"预先应答。
 /// </summary>
 public static class OperatorConfirmService
@@ -27,7 +29,7 @@ public static class OperatorConfirmService
     private const int MaxTimeoutSeconds = 120;
     private const int PollSliceMs = 200;
 
-    // 同一时刻只允许一个确认会话：两个提示并存会抢同一行输入
+    // 同一时刻只允许一个确认会话：两个面板/提示并存会抢同一个屏幕与同一行输入
     private static readonly object Gate = new object();
     private static readonly BlockingCollection<string> PendingLines =
         new BlockingCollection<string>(new ConcurrentQueue<string>());
@@ -36,13 +38,15 @@ public static class OperatorConfirmService
     private static volatile bool _stdinUnavailable;
 
     /// <summary>
-    /// 向服务端操作者索取一次 y/n 确认。返回 false 即调用方必须中止操作，
+    /// 向服务端操作者索取一次确认。返回 false 即调用方必须中止操作，
     /// <paramref name="reason"/> 给出可直接回显给命令发送者的原因。
     /// </summary>
-    public static bool Confirm(string prompt, out string reason)
+    public static bool Confirm(ConfirmPanelModel model, out string reason)
     {
+        if (model == null) throw new ArgumentNullException(nameof(model));
         reason = "";
 
+        // 远程执行上下文：在画任何界面之前就失败，远程通道不可能自我确认
         if (RemoteCommandGuard.IsRemoteExecution)
         {
             reason = "远程控制通道不允许该操作（只能在服务器本地控制台执行）";
@@ -50,39 +54,44 @@ public static class OperatorConfirmService
         }
 
         int timeoutSeconds = ResolveTimeoutSeconds();
+        string prompt = model.OneLinePrompt();
 
         lock (Gate)
         {
-            WriteConsole($"[SLDataAPI][安全确认] {prompt} [y/N]（{timeoutSeconds} 秒内在服务器控制台回答，超时按拒绝处理）");
-
-            if (TryConfirmViaStdin(timeoutSeconds, out bool answered, out string? line))
+            if (TryConfirmViaPanel(model, timeoutSeconds, out bool panelAnswer, out string panelReason))
             {
-                if (answered)
-                {
-                    bool ok = RemoteCommandGuard.IsAffirmative(line);
-                    if (!ok)
-                        reason = "服务端操作者未确认（回答不是 y/yes）";
-                    WriteConsole($"[SLDataAPI][安全确认] {(ok ? "已确认" : "已拒绝")}：{prompt}");
-                    return ok;
-                }
-
-                reason = $"{timeoutSeconds} 秒内未在服务器控制台收到确认，已按拒绝处理";
-                WriteConsole($"[SLDataAPI][安全确认] 超时未确认，已拒绝：{prompt}");
-                return false;
+                reason = panelReason;
+                LogDecision(prompt, panelAnswer, panelAnswer ? "面板确认" : panelReason);
+                return panelAnswer;
             }
 
-            // 标准输入不可读（以服务/守护进程方式运行，stdin 直接 EOF）
+            if (TryConfirmViaStdin(prompt, timeoutSeconds, out bool lineAnswer, out string lineReason))
+            {
+                reason = lineReason;
+                LogDecision(prompt, lineAnswer, lineAnswer ? "行模式确认" : lineReason);
+                return lineAnswer;
+            }
+
             if (TryConfirmViaMessageBox(prompt, timeoutSeconds, out bool dialogAnswer))
             {
                 if (!dialogAnswer)
                     reason = "服务端操作者在确认对话框中选择了否";
+                LogDecision(prompt, dialogAnswer, dialogAnswer ? "对话框确认" : reason);
                 return dialogAnswer;
             }
 
-            reason = "无可用的人工确认通道（服务器控制台标准输入不可读，且无交互桌面），已按拒绝处理";
+            reason = "无可用的人工确认通道（无法接管服务器控制台、标准输入不可读且无交互桌面），已按拒绝处理";
             Log.Warn($"[SLDataAPI] 人工确认通道不可用，已拒绝敏感操作：{prompt}");
             return false;
         }
+    }
+
+    private static void LogDecision(string prompt, bool confirmed, string detail)
+    {
+        string text = $"[SLDataAPI] 人工确认{(confirmed ? "通过" : "未通过")}：{prompt}" +
+                      (string.IsNullOrEmpty(detail) ? "" : $"（{detail}）");
+        if (confirmed) Log.Info(text);
+        else Log.Warn(text);
     }
 
     private static int ResolveTimeoutSeconds()
@@ -92,33 +101,84 @@ public static class OperatorConfirmService
         return Math.Max(MinTimeoutSeconds, Math.Min(MaxTimeoutSeconds, configured));
     }
 
-    /// <summary>
-    /// 读一行标准输入。返回 false 表示该通道不可用（应尝试下一个通道）；
-    /// 返回 true 时 <paramref name="answered"/>=false 表示在超时前没人回答。
-    /// </summary>
-    private static bool TryConfirmViaStdin(int timeoutSeconds, out bool answered, out string? line)
+    // ────────────── 通道 1：整屏 TUI 面板 ──────────────
+
+    private static bool TryConfirmViaPanel(
+        ConfirmPanelModel model, int timeoutSeconds, out bool answer, out string reason)
     {
-        answered = false;
-        line = null;
+        answer = false;
+        reason = "";
+
+        if (!ConsoleTakeover.TryAcquire(out IConsoleTakeover? screen) || screen == null)
+            return false;
+
+        ConfirmOutcome outcome;
+        try
+        {
+            outcome = ConfirmSession.Run(screen, model, timeoutSeconds);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"[SLDataAPI] 确认面板异常，按拒绝处理: {ex.Message}");
+            outcome = ConfirmOutcome.Denied;
+        }
+        finally
+        {
+            // 无论结果如何，先把控制台还原成接管前的样子
+            try { screen.Dispose(); }
+            catch (Exception ex) { Log.Warn($"[SLDataAPI] 控制台恢复失败: {ex.Message}"); }
+        }
+
+        switch (outcome)
+        {
+            case ConfirmOutcome.Confirmed:
+                answer = true;
+                return true;
+            case ConfirmOutcome.TimedOut:
+                reason = $"{timeoutSeconds} 秒内未在服务器控制台确认，已按拒绝处理";
+                return true;
+            default:
+                reason = "服务端操作者在确认面板中选择了取消";
+                return true;
+        }
+    }
+
+    // ────────────── 通道 2：行模式 ──────────────
+
+    /// <summary>
+    /// 打一行提示并读一行标准输入。返回 false 表示该通道不可用（应尝试下一个通道）。
+    /// </summary>
+    private static bool TryConfirmViaStdin(
+        string prompt, int timeoutSeconds, out bool answer, out string reason)
+    {
+        answer = false;
+        reason = "";
 
         if (!EnsureStdinReader())
             return false;
 
         DrainPendingLines();
+        WriteConsoleLine($"[SLDataAPI][安全确认] {prompt} [y/N]（{timeoutSeconds} 秒内在服务器控制台回答，超时按拒绝处理）");
 
         DateTime deadline = DateTime.UtcNow.AddSeconds(timeoutSeconds);
         while (DateTime.UtcNow < deadline)
         {
-            if (PendingLines.TryTake(out line, PollSliceMs))
+            if (PendingLines.TryTake(out string? line, PollSliceMs))
             {
-                answered = true;
+                answer = RemoteCommandGuard.IsAffirmative(line);
+                if (!answer)
+                    reason = "服务端操作者未确认（回答不是 y/yes）";
                 return true;
             }
             if (_stdinUnavailable)
                 return false;
         }
 
-        return !_stdinUnavailable;
+        if (_stdinUnavailable)
+            return false;
+
+        reason = $"{timeoutSeconds} 秒内未在服务器控制台收到确认，已按拒绝处理";
+        return true;
     }
 
     private static bool EnsureStdinReader()
@@ -175,7 +235,7 @@ public static class OperatorConfirmService
         while (PendingLines.TryTake(out _)) { }
     }
 
-    // ────────────── 可选的图形确认（仅在明确存在交互桌面时） ──────────────
+    // ────────────── 通道 3：图形对话框（最后兜底） ──────────────
 
     private const uint MbYesNo = 0x00000004;
     private const uint MbIconWarning = 0x00000030;
@@ -254,7 +314,7 @@ public static class OperatorConfirmService
 
     // ────────────── 控制台输出 ──────────────
 
-    private static void WriteConsole(string text)
+    private static void WriteConsoleLine(string text)
     {
         try { ServerConsole.AddLog(text, ConsoleColor.Yellow); }
         catch { /* 控制台不可用时退化到标准输出 */ }

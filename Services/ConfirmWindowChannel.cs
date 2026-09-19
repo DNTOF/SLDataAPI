@@ -285,8 +285,11 @@ internal static class ConfirmWindowChannel
                     return false;
                 if (!process.WaitForExit(waitMs))
                 {
+                    // 子进程本该自己倒计时结束退出；没退就关掉窗口，按超时处理
                     try { process.Kill(); } catch { /* 已退出 */ }
                     try { process.WaitForExit(2000); } catch { /* 忽略 */ }
+                    exitCode = ConfirmWindowProtocol.ExitTimedOut;
+                    return true;
                 }
                 exitCode = process.ExitCode;
                 return true;

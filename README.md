@@ -74,7 +74,7 @@ voice_port: 8082
 voice_record_enabled: false
 report_enabled: false
 control_log_enabled: true
-api_key_confirm_timeout_seconds: 20 # create/revoke Key 控制台确认超时
+api_key_confirm_timeout_seconds: 20 # create/revoke Key 的确认窗口等待秒数
 ```
 
 完整字段、YAML 坑、token 写法见 Wiki [[Configuration]](https://github.com/DNTOF/SLDataAPI/wiki/Configuration)。
@@ -103,9 +103,10 @@ X-SLDataAPI-Key: <api_key>
 sldataapi apikey create <id> <duty|admin> [note]
 sldataapi apikey list
 sldataapi apikey revoke <id>
+sldataapi apikey confirmtest   # 自检确认窗口，不创建也不吊销任何 Key
 ```
 
-`create` / `revoke` 需在服务器控制台确认（整屏 TUI，默认取消，超时拒绝）。`duty` 偏只读；`admin` 按端点 catalog 授权，**不会**自动开放 catalog 为 `false` 的路径（控制台、插件、文件等），可用 `endpoints_override` 单独放开。
+`create` / `revoke` 需在服务器本机确认：执行后会在服务器桌面**新弹出一个 cmd 窗口**显示确认面板（Y 确认 / N 取消，默认取消，超时拒绝），LocalAdmin 窗口不会被接管；弹不出窗口时退化为 LocalAdmin 的 `[y/N]` 行提示。`duty` 偏只读；`admin` 按端点 catalog 授权，**不会**自动开放 catalog 为 `false` 的路径（控制台、插件、文件等），可用 `endpoints_override` 单独放开。
 
 路径与 curl 示例：Wiki [[Preview-HTTP-API]](https://github.com/DNTOF/SLDataAPI/wiki/Preview-HTTP-API)。稳定 2.5 仍用 [[HTTP-API]](https://github.com/DNTOF/SLDataAPI/wiki/HTTP-API)。
 

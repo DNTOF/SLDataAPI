@@ -259,7 +259,7 @@ public static class ControlController
         if (req == null || string.IsNullOrWhiteSpace(req.command))
             return (400, Json(false, "缺少 command 字段"));
 
-        // 层 1：SLDataAPI 自身的管理 CLI 一律不经远程控制通道执行（所有子命令，不只 apikey）。
+        // SLDataAPI 自身的管理 CLI 一律不经远程控制通道执行（所有子命令，不只 apikey）。
         // 远程通道只能证明"持有某把 Key"，无法证明操作者身份；放行等于任何拿到 console 授权的 Key
         // 都能无限增发新 Key 并从同一条通道取回明文。这里连命令都不派发，直接回控制面错误。
         if (RemoteCommandGuard.IsManagementCommand(req.command))
@@ -308,8 +308,8 @@ public static class ControlController
     /// </summary>
     private static string ExecuteConsoleCommand(string command)
     {
-        // 层 1 兜底：任何走到这里的命令都来自远程控制通道（HTTP /control/* 与 WS call 同源），
-        // 管理 CLI 在此二次硬拦；同时标记执行上下文，让层 2 的人工确认永远无法被远程"确认"通过。
+        // 兜底：任何走到这里的命令都来自远程控制通道（HTTP /control/* 与 WS call 同源），
+        // 管理 CLI 在此二次硬拦，并标记远程执行上下文。
         if (RemoteCommandGuard.IsManagementCommand(command))
         {
             Log.Warn($"[SLDataAPI][Control] 已拒绝远程执行 SLDataAPI 管理命令（兜底）: {command}");

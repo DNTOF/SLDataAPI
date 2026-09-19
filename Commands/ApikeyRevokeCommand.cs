@@ -1,7 +1,6 @@
 using System;
 using CommandSystem;
 using SLDataAPI.Auth;
-using SLDataAPI.Services;
 
 namespace SLDataAPI.Commands;
 
@@ -22,19 +21,7 @@ public sealed class ApikeyRevokeCommand : ICommand, IUsageProvider
 
         string id = arguments.Array![arguments.Offset];
 
-        // 层 2：与 create 同理——吊销同样是密钥面变更（可被用来把值班 Key 踢掉后重铸），需要人工确认
-        var confirm = new ConfirmPanelModel
-        {
-            Action = ConfirmAction.Revoke,
-            KeyId = id,
-        };
-        if (!OperatorConfirmService.Confirm(confirm, out string denyReason))
-        {
-            response = $"已中止吊销 API Key（未获服务端确认）：{denyReason}\n确认面板会在服务器桌面新弹出一个 cmd 窗口（不占用 LocalAdmin 窗口），请在那个窗口按 Y 确认。";
-            Log.Warn($"[SLDataAPI] API Key 吊销未获确认，已中止 id={id}：{denyReason}");
-            return false;
-        }
-
+        // 远程控制通道已被 RemoteCommandGuard 硬拒绝，走不到这里。
         if (!ApiKeyService.TryRevoke(id, out string error))
         {
             response = "吊销失败: " + error;

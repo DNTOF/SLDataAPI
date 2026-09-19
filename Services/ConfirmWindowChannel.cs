@@ -47,6 +47,10 @@ internal static class ConfirmWindowChannel
             string nonce = ConfirmWindowProtocol.NewNonce();
             WritePayload(dir, model, timeoutSeconds, nonce);
 
+            // 先说一声再阻塞：命令是在 LocalAdmin 里敲的，操作者得知道要去看新窗口
+            Log.Info($"[SLDataAPI] 正在服务器桌面弹出确认窗口（独立 cmd 窗口），" +
+                     $"请在该窗口按 Y 确认 / N 取消（{timeoutSeconds} 秒后自动拒绝）");
+
             if (!TryRunConfirmWindow(comSpec, dir, timeoutSeconds, out int exitCode))
                 return false;
 

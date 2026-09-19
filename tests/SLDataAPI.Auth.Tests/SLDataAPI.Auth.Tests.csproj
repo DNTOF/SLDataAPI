@@ -18,7 +18,5 @@
   <ItemGroup>
     <Compile Include="..\..\Auth\EndpointAcl.cs" Link="EndpointAcl.cs" />
     <Compile Include="..\..\Auth\RemoteCommandGuard.cs" Link="RemoteCommandGuard.cs" />
-    <Compile Include="..\..\Services\ConfirmPanel.cs" Link="ConfirmPanel.cs" />
-    <Compile Include="..\..\Services\ConfirmWindowProtocol.cs" Link="ConfirmWindowProtocol.cs" />
   </ItemGroup>
 </Project>

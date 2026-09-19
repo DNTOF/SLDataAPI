@@ -292,5 +292,7 @@ public class ConfirmPanelRenderTests
     {
         Assert.Equal("Confirm create API key id=platform-a template=admin ?", CreateModel().OneLinePrompt());
         Assert.Equal("Confirm revoke API key id=platform-a ?", RevokeModel().OneLinePrompt());
+        Assert.Equal("Confirm channel self-test (no API key will be created or revoked) ?",
+            new ConfirmPanelModel { Action = ConfirmAction.SelfTest }.OneLinePrompt());
     }
 }

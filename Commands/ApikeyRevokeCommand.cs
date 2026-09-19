@@ -30,7 +30,7 @@ public sealed class ApikeyRevokeCommand : ICommand, IUsageProvider
         };
         if (!OperatorConfirmService.Confirm(confirm, out string denyReason))
         {
-            response = $"已中止吊销 API Key（未获服务端确认）：{denyReason}\n确认面板出现在服务器控制台（LocalAdmin）窗口，请在那里按 Y 确认。";
+            response = $"已中止吊销 API Key（未获服务端确认）：{denyReason}\n确认面板会在服务器桌面新弹出一个 cmd 窗口（不占用 LocalAdmin 窗口），请在那个窗口按 Y 确认。";
             Log.Warn($"[SLDataAPI] API Key 吊销未获确认，已中止 id={id}：{denyReason}");
             return false;
         }

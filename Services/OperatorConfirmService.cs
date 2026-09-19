@@ -12,10 +12,10 @@ namespace SLDataAPI.Services;
 /// 通道优先级：
 ///   0. 远程控制通道下发的命令直接拒绝——层 1 已在 /control/console/command 处硬拦，
 ///      这里在触碰任何界面之前再兜一层，保证层 2 永远不可能被远程"确认"通过。
-///   1. 【主通道】整屏 TUI 接管：清屏画确认面板（操作、id、模板、风险提示、倒计时、y/n 选择），
-///      读按键，结束后把原控制台缓冲/光标/颜色/输入模式原样还回去，LocalAdmin 输出继续。
-///      实现见 ConsoleTakeover（Win32 优先，其次 ANSI 备用屏）。
-///   2. 行模式：拿不到屏幕但标准输入可读时，打一行提示 + 读一行（无头/管道方式运行）。
+///   1. 【主通道】新开一个 cmd.exe 窗口显示确认面板（操作、id、模板、备注、风险提示、
+///      倒计时、Y/N），在那个窗口里读按键，结论用退出码 + 一次性校验串回传。
+///      实现见 ConfirmWindowChannel：全程不接管、不 Attach、不还原 LocalAdmin 的控制台。
+///   2. 行模式：弹不出新窗口但标准输入可读时，打一行提示 + 读一行（无头/管道方式运行）。
 ///   3. MessageBox：仅当上面两条都不可用且明确存在交互桌面时的最后兜底。
 /// 拒绝、超时、无可用通道一律按拒绝处理，调用方不得执行变更。
 ///
@@ -29,7 +29,7 @@ public static class OperatorConfirmService
     private const int MaxTimeoutSeconds = 120;
     private const int PollSliceMs = 200;
 
-    // 同一时刻只允许一个确认会话：两个面板/提示并存会抢同一个屏幕与同一行输入
+    // 同一时刻只允许一个确认会话：两个确认窗口/行提示并存时，操作者分不清自己放行的是哪一次
     private static readonly object Gate = new object();
     private static readonly BlockingCollection<string> PendingLines =
         new BlockingCollection<string>(new ConcurrentQueue<string>());
@@ -58,11 +58,11 @@ public static class OperatorConfirmService
 
         lock (Gate)
         {
-            if (TryConfirmViaPanel(model, timeoutSeconds, out bool panelAnswer, out string panelReason))
+            if (TryConfirmViaWindow(model, timeoutSeconds, out bool windowAnswer, out string windowReason))
             {
-                reason = panelReason;
-                LogDecision(prompt, panelAnswer, panelAnswer ? "面板确认" : panelReason);
-                return panelAnswer;
+                reason = windowReason;
+                LogDecision(prompt, windowAnswer, windowAnswer ? "确认窗口确认" : windowReason);
+                return windowAnswer;
             }
 
             if (TryConfirmViaStdin(prompt, timeoutSeconds, out bool lineAnswer, out string lineReason))
@@ -80,7 +80,7 @@ public static class OperatorConfirmService
                 return dialogAnswer;
             }
 
-            reason = "无可用的人工确认通道（无法接管服务器控制台、标准输入不可读且无交互桌面），已按拒绝处理";
+            reason = "无可用的人工确认通道（弹不出新的 cmd 确认窗口、标准输入不可读且无交互桌面），已按拒绝处理";
             Log.Warn($"[SLDataAPI] 人工确认通道不可用，已拒绝敏感操作：{prompt}");
             return false;
         }
@@ -101,33 +101,16 @@ public static class OperatorConfirmService
         return Math.Max(MinTimeoutSeconds, Math.Min(MaxTimeoutSeconds, configured));
     }
 
-    // ────────────── 通道 1：整屏 TUI 面板 ──────────────
+    // ────────────── 通道 1：新开的 cmd 确认窗口 ──────────────
 
-    private static bool TryConfirmViaPanel(
+    private static bool TryConfirmViaWindow(
         ConfirmPanelModel model, int timeoutSeconds, out bool answer, out string reason)
     {
         answer = false;
         reason = "";
 
-        if (!ConsoleTakeover.TryAcquire(out IConsoleTakeover? screen) || screen == null)
+        if (!ConfirmWindowChannel.TryConfirm(model, timeoutSeconds, out ConfirmOutcome outcome, out string detail))
             return false;
-
-        ConfirmOutcome outcome;
-        try
-        {
-            outcome = ConfirmSession.Run(screen, model, timeoutSeconds);
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"[SLDataAPI] 确认面板异常，按拒绝处理: {ex.Message}");
-            outcome = ConfirmOutcome.Denied;
-        }
-        finally
-        {
-            // 无论结果如何，先把控制台还原成接管前的样子
-            try { screen.Dispose(); }
-            catch (Exception ex) { Log.Warn($"[SLDataAPI] 控制台恢复失败: {ex.Message}"); }
-        }
 
         switch (outcome)
         {
@@ -135,10 +118,12 @@ public static class OperatorConfirmService
                 answer = true;
                 return true;
             case ConfirmOutcome.TimedOut:
-                reason = $"{timeoutSeconds} 秒内未在服务器控制台确认，已按拒绝处理";
+                reason = $"{timeoutSeconds} 秒内未在弹出的确认窗口中确认，已按拒绝处理";
                 return true;
             default:
-                reason = "服务端操作者在确认面板中选择了取消";
+                reason = string.IsNullOrEmpty(detail)
+                    ? "服务端操作者在弹出的确认窗口中选择了取消"
+                    : $"确认窗口未放行：{detail}";
                 return true;
         }
     }

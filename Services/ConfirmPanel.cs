@@ -10,6 +10,9 @@ public enum ConfirmAction
 {
     Create,
     Revoke,
+
+    /// <summary>确认通道自检：走完整条通道但不碰任何 Key（`sldataapi apikey confirmtest`）。</summary>
+    SelfTest,
 }
 
 /// <summary>面板行的语义样式（由具体的控制台实现映射成颜色）。</summary>
@@ -35,7 +38,7 @@ public enum PanelCharset
     Ascii,
 }
 
-/// <summary>整屏一行：已按目标宽度补齐的文本 + 语义样式。</summary>
+/// <summary>确认窗口里的一行：已按目标宽度补齐的文本 + 语义样式。</summary>
 public sealed class PanelRow
 {
     public PanelRow(string text, PanelRowStyle style)
@@ -58,21 +61,24 @@ public sealed class ConfirmPanelModel
     public string Template { get; set; } = "";
     public string Note { get; set; } = "";
 
-    /// <summary>行模式（无法接管屏幕时）与日志用的单行描述。</summary>
-    public string OneLinePrompt() =>
-        Action == ConfirmAction.Create
-            ? $"Confirm create API key id={KeyId} template={Template} ?"
-            : $"Confirm revoke API key id={KeyId} ?";
+    /// <summary>行模式（弹不出确认窗口时）与日志用的单行描述。</summary>
+    public string OneLinePrompt() => Action switch
+    {
+        ConfirmAction.Create => $"Confirm create API key id={KeyId} template={Template} ?",
+        ConfirmAction.Revoke => $"Confirm revoke API key id={KeyId} ?",
+        _ => "Confirm channel self-test (no API key will be created or revoked) ?",
+    };
 }
 
 /// <summary>
-/// 确认面板的纯排版逻辑：把待确认操作渲染成"整屏 × 每行定宽"的行列表。
+/// 确认面板的纯排版逻辑：把待确认操作渲染成"一屏 × 每行定宽"的行列表
+/// （新开的 cmd 确认窗口按秒各取一屏打印，见 ConfirmWindowProtocol）。
 /// 不碰任何控制台 API，宽度按终端显示列计算（CJK 全角字符占 2 列），
 /// 因此可脱离游戏 DLL 直接单元测试。
 /// </summary>
 public static class ConfirmPanelLayout
 {
-    /// <summary>低于此尺寸的终端不做整屏接管（退化到行模式提示）。</summary>
+    /// <summary>低于此尺寸不足以放下面板（调用方退化到行模式提示）。</summary>
     public const int MinWidth = 44;
     public const int MinHeight = 14;
 
@@ -102,8 +108,10 @@ public static class ConfirmPanelLayout
             : new Glyphs('─', '│', '┌', '┐', '└', '┘', '├', '┤', "[!]");
 
     /// <summary>
-    /// 渲染整屏。返回恰好 <paramref name="height"/> 行，每行恰好 <paramref name="width"/> 显示列，
-    /// 面板在屏幕中水平与垂直居中，其余区域为空白行（整屏接管，不残留旧内容）。
+    /// 渲染一屏。返回恰好 <paramref name="height"/> 行，每行恰好 <paramref name="width"/> 显示列，
+    /// 面板在屏幕中水平与垂直居中，其余区域为空白行（整屏重画，不残留旧内容）。
+    /// <paramref name="confirmSelected"/> 标出默认选项：确认窗口只收 Y/N，始终传 false，
+    /// 于是"取消"带着尖括号，一眼能看出默认是不放行。
     /// </summary>
     public static IReadOnlyList<PanelRow> Render(
         ConfirmPanelModel model,
@@ -182,7 +190,7 @@ public static class ConfirmPanelLayout
         var body = new List<PanelRow>
         {
             new PanelRow("", PanelRowStyle.Blank),
-            new PanelRow(create ? "SLDataAPI 安全确认 · 创建 API Key" : "SLDataAPI 安全确认 · 吊销 API Key", PanelRowStyle.Title),
+            new PanelRow(TitleFor(model.Action), PanelRowStyle.Title),
             new PanelRow("", PanelRowStyle.Blank),
         };
 
@@ -201,10 +209,17 @@ public static class ConfirmPanelLayout
         body.Add(new PanelRow("", PanelRowStyle.Blank));
         body.Add(new PanelRow(ChoiceLine(confirmSelected), PanelRowStyle.Choice));
         body.Add(new PanelRow("", PanelRowStyle.Blank));
-        AddWrapped(body, "Y = 确认 · N / Esc = 取消 · ← → / Tab 切换 · Enter 执行所选", PanelRowStyle.Hint, inner);
+        AddWrapped(body, "按 Y 确认 · 按 N 取消 · 关闭本窗口或倒计时结束都按取消处理", PanelRowStyle.Hint, inner);
         body.Add(new PanelRow("", PanelRowStyle.Blank));
         return body;
     }
+
+    private static string TitleFor(ConfirmAction action) => action switch
+    {
+        ConfirmAction.Create => "SLDataAPI 安全确认 · 创建 API Key",
+        ConfirmAction.Revoke => "SLDataAPI 安全确认 · 吊销 API Key",
+        _ => "SLDataAPI 安全确认 · 确认通道自检",
+    };
 
     private static IEnumerable<string> Warnings(ConfirmPanelModel model)
     {
@@ -215,11 +230,16 @@ public static class ConfirmPanelLayout
                 yield return "admin 模板可调用控制面全部已授权端点，等同管理权限。";
             yield return "若这次创建不是你本人在操作，请立刻选择取消并检查控制面日志。";
         }
-        else
+        else if (model.Action == ConfirmAction.Revoke)
         {
             yield return "吊销后该 Key 立即失效，正在使用它的平台 / 面板会断连。";
             yield return "此操作不可撤销，恢复需重新 create 并重新分发明文。";
             yield return "若这次吊销不是你本人在操作，请立刻选择取消并检查控制面日志。";
+        }
+        else
+        {
+            yield return "这是确认通道自检：按 Y 或 N 都不会创建或吊销任何 API Key。";
+            yield return "请确认本面板是新弹出的 cmd 窗口，且 LocalAdmin 窗口没有被清屏或接管。";
         }
     }
 

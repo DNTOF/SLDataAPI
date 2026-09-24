@@ -13,7 +13,12 @@ public sealed class ApikeyListCommand : ICommand
 
     public bool Execute(ArraySegment<string> arguments, ICommandSender sender, out string response)
     {
-        var list = ApiKeyService.List();
+        if (!ApiKeyService.TryList(out var list, out string error))
+        {
+            response = error;
+            return false;
+        }
+
         if (list.Count == 0)
         {
             response = "当前没有 API Key。用 sldataapi apikey create <id> <duty|admin> 创建。";

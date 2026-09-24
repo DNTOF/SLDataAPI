@@ -46,6 +46,14 @@ public class ApiKeyCreateDeliveryTests
             Assert.Equal(path, path2);
             Assert.Equal(key2, File.ReadAllText(path2));
             Assert.DoesNotContain(key2, ApiKeyCreateDelivery.FormatConsoleResponse(path2));
+
+            // chmod/ACL 失败不得让写入失败；Linux 上尽力 0600
+            Assert.True(File.Exists(path2));
+            if (!OperatingSystem.IsWindows())
+            {
+                var mode = File.GetUnixFileMode(path2);
+                Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite, mode);
+            }
         }
         finally
         {

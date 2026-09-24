@@ -110,6 +110,31 @@ public class TemplateMergeTests
         Assert.True(EndpointAcl.IsAllowed(g, "/control/logs", wantWrite: false));
         Assert.True(EndpointAcl.IsAllowed(g, "ws:subscribe_events", wantWrite: false));
         Assert.False(EndpointAcl.IsAllowed(g, "voice:/ws", wantWrite: false));
+        Assert.False(EndpointAcl.IsAllowed(g, "/control/audit/list", wantWrite: false));
+        Assert.False(EndpointAcl.IsAllowed(g, "/control/audit/list", wantWrite: true));
+    }
+
+    [Fact]
+    public void Duty_Default_DoesNotGrantAuditList()
+    {
+        Assert.True(EndpointAcl.DutyDefaults.TryGetValue("/control/audit/list", out var grant));
+        Assert.False(grant.Permits(false));
+        Assert.False(grant.Permits(true));
+    }
+
+    [Fact]
+    public void Admin_StillGrantsAuditList_FromCatalog()
+    {
+        var g = EndpointAcl.MergeEffective("admin", null, null);
+        Assert.True(EndpointAcl.IsAllowed(g, "/control/audit/list", wantWrite: false));
+    }
+
+    [Fact]
+    public void Duty_Override_CanOpenAuditList()
+    {
+        var ov = new Dictionary<string, object> { ["/control/audit/list"] = true };
+        var g = EndpointAcl.MergeEffective("duty", null, ov);
+        Assert.True(EndpointAcl.IsAllowed(g, "/control/audit/list", wantWrite: false));
     }
 
     [Fact]

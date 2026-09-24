@@ -1,6 +1,7 @@
 using System;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 using Newtonsoft.Json.Linq;
@@ -24,6 +25,9 @@ public static class UpdateCheckLogic
 {
     public const string StateFileName = "update_check_state.json";
     public const int DefaultIntervalHours = 72;
+
+    /// <summary>正式发布构建的公钥令牌（与 SECURITY.md / key.snk 一致）。</summary>
+    public const string ExpectedPublicKeyTokenHex = "3ec73bb20070fa9c";
 
     private static readonly Regex PreReleaseSegmentRegex = new Regex(
         @"^(?:beta|alpha|preview|pre|prerelease|rc|dev|nightly|canary|snapshot)\d*$",
@@ -114,6 +118,20 @@ public static class UpdateCheckLogic
 
     public static bool IsDueFromFile(string? path, DateTime nowUtc, TimeSpan interval) =>
         IsDue(LoadLastCheckUtc(path), nowUtc, interval);
+
+    /// <summary>当前程序集公钥令牌是否为非空强名称。</summary>
+    public static bool IsSignedPublicKeyToken(byte[]? token) =>
+        token != null && token.Length > 0;
+
+    /// <summary>未签名构建不得自动安装（即使 AutoUpdateInstall=true）。</summary>
+    public static bool ShouldRefuseAutoInstallBecauseUnsigned(byte[]? currentPublicKeyToken) =>
+        !IsSignedPublicKeyToken(currentPublicKeyToken);
+
+    /// <summary>已签名构建要求新文件令牌与当前一致。</summary>
+    public static bool PublicKeyTokensMatch(byte[]? current, byte[]? incoming) =>
+        IsSignedPublicKeyToken(current) &&
+        IsSignedPublicKeyToken(incoming) &&
+        current!.SequenceEqual(incoming!);
 
     /// <summary>评估 GitHub /releases/latest JSON。detail 不含机密。</summary>
     public static UpdateCheckOutcome EvaluateLatestRelease(string? json, Version current, out Version? remote, out string detail)

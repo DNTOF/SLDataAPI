@@ -61,7 +61,7 @@ dotnet build -c Release
 
 ```yaml
 debug: false
-verify_token: "your_secret_token"   # 只读 /get_sl_data
+verify_token: "your_secret_token"   # 必须改成强随机值；默认/弱口令会 fail-closed 关闭数据口
 http_port: 8081
 push_interval_seconds: 8
 
@@ -79,7 +79,8 @@ voice_record_enabled: false
 
 # 定稿 zip 可选 WebDAV 自动上传（默认关；失败入队退避重试，不阻塞游戏）
 webdav_upload_enabled: false
-webdav_url: ""                      # 目录 URL，或含 {filename} 的模板
+webdav_url: ""                      # 仅 https:// 目录 URL，或含 {filename} 的模板
+# apikey_copy_to_clipboard: false   # Windows 创建 Key 后是否复制到剪贴板（默认关）
 webdav_username: ""
 webdav_password: ""
 # webdav_remote_path_prefix: ""
@@ -99,7 +100,7 @@ control_log_enabled: true
 
 | 通道 | 凭据 | 配置位置 |
 |------|------|----------|
-| `GET /get_sl_data` | `verify_token`（`?token=`，与 2.5 相同） | `config.yml` |
+| `GET /get_sl_data` | `verify_token`（`Authorization: Bearer` / `X-SLDataAPI-Token`，兼容 `?token=`） | `config.yml` |
 | `/control/*`、控制 WS、语音口 | **API Key**（明文写入一次性 txt，命令只回路径） | `apikey.config`（同配置目录） |
 
 控制面请求头（二选一）：
@@ -119,7 +120,7 @@ sldataapi apikey list
 sldataapi apikey revoke <id>
 ```
 
-`sldataapi` / `slda` 管理 CLI 已被远程控制通道（HTTP + WS 的 `/control/console/command`）硬拒绝；本地控制台（LocalAdmin / RemoteAdmin / 游戏内控制台）执行 `create` / `revoke` 会立即生效，不再弹出确认窗口或 `[y/N]` 提示。`create` 成功后明文写入配置目录下 `apikey_once_<id>.txt`（同 id 覆盖上一份），命令 response **只回该路径**（不回密钥，避免进入 LocalAdmin 命令历史）；请尽快复制到密码管理器。文件在创建 **5 分钟后自动删除**（若你已删/移走则跳过）；也可自行提前删除。Windows 下会后台尽力复制到剪贴板（超时、失败均静默，不影响创建）。`duty` 偏只读；`admin` 按端点 catalog 授权，**不会**自动开放 catalog 为 `false` 的路径（控制台、插件、文件等），可用 `endpoints_override` 单独放开。
+`sldataapi` / `slda` 管理 CLI 已被远程控制通道（HTTP + WS 的 `/control/console/command`）硬拒绝，且 `create` / `revoke` / `list` 在远程执行标记下会再次拒绝。本地控制台（LocalAdmin / RemoteAdmin / 游戏内控制台）执行会立即生效，不再弹出确认窗口或 `[y/N]` 提示。若用权限插件收窄 RemoteAdmin，请同时拒绝 `sldataapi` / `slda`。`create` 成功后明文写入配置目录下 `apikey_once_<id>.txt`（同 id 覆盖上一份），命令 response **只回该路径**（不回密钥，避免进入 LocalAdmin 命令历史）；请尽快复制到密码管理器。文件在创建 **5 分钟后自动删除**（若你已删/移走则跳过）；也可自行提前删除。Linux 会尽力 `chmod 0600`（失败不阻断创建）。Windows 剪贴板复制默认关闭（`apikey_copy_to_clipboard: true` 才开启）。`duty` 偏只读，**默认不授予** `/control/audit/list`；`admin` 按端点 catalog 授权，**不会**自动开放 catalog 为 `false` 的路径（控制台、插件、文件等），可用 `endpoints_override` 单独放开。
 
 路径与 curl 示例：Wiki [[Preview-HTTP-API]](https://github.com/DNTOF/SLDataAPI/wiki/Preview-HTTP-API)。稳定 2.5 仍用 [[HTTP-API]](https://github.com/DNTOF/SLDataAPI/wiki/HTTP-API)。
 
@@ -129,7 +130,7 @@ sldataapi apikey revoke <id>
 
 | 类型 | 地址 |
 |------|------|
-| 数据 | `GET http://<host>:8081/get_sl_data?token=<verify_token>` |
+| 数据 | `GET http://<host>:8081/get_sl_data` + `Authorization: Bearer <verify_token>`（仍兼容 `?token=`） |
 | 控制 HTTP | `POST http://<host>:8081/control/...` + API Key 头 |
 | 控制 WS | `ws://<host>:8081/control` + 握手带 API Key 头（`control_transport: ws`） |
 | 语音 | `ws://<host>:8082/ws` · `GET :8082/status` + API Key |

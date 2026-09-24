@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using Newtonsoft.Json;
+using SLDataAPI.Auth;
 
 namespace SLDataAPI.Services;
 
@@ -71,7 +72,7 @@ public static class ControlLogService
                 time = DateTime.UtcNow.ToString("o"),
                 actor = actor ?? "",
                 endpoint = endpoint,
-                body = body ?? "",
+                body = ControlAuditView.RedactSecrets(body ?? ""),
                 success = success,
                 message = message ?? "",
             });

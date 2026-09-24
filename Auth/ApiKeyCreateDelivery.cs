@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 #if NETFRAMEWORK
@@ -59,7 +60,8 @@ public static class ApiKeyCreateDelivery
         {
             Directory.CreateDirectory(configDir);
             File.WriteAllText(filePath, plaintext ?? "", new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
-            TryTightenWindowsAcl(filePath);
+            // ACL/chmod 失败不得阻断创建（mono/Wine/受限 FS）
+            TryTightenOnceFileAcl(filePath);
             return true;
         }
         catch (Exception)
@@ -143,18 +145,42 @@ public static class ApiKeyCreateDelivery
         public string? Error { get; }
     }
 
+    /// <summary>
+    /// 尽力把一次性文件收成仅当前用户可读（Windows ACL / Unix 0600）。
+    /// 任何失败都吞掉：不得让 apikey create 失败。
+    /// </summary>
+    public static bool TryTightenOnceFileAcl(string path)
+    {
+        if (string.IsNullOrEmpty(path) || !File.Exists(path))
+            return false;
+        try
+        {
+#if NETFRAMEWORK
+            if (Environment.OSVersion.Platform == PlatformID.Win32NT)
+                return TryTightenWindowsAcl(path);
+            return TryChmod0600Libc(path);
+#else
+            if (OperatingSystem.IsWindows())
+                return true;
+            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            return true;
+#endif
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
 #if NETFRAMEWORK
     /// <summary>Windows 下尽量收紧 ACL：去掉继承，仅当前用户与本地 Administrators。</summary>
-    private static void TryTightenWindowsAcl(string path)
+    private static bool TryTightenWindowsAcl(string path)
     {
         try
         {
-            if (Environment.OSVersion.Platform != PlatformID.Win32NT)
-                return;
-
             var identity = WindowsIdentity.GetCurrent();
             if (identity?.User == null)
-                return;
+                return false;
 
             var security = File.GetAccessControl(path);
             security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
@@ -170,13 +196,37 @@ public static class ApiKeyCreateDelivery
             security.AddAccessRule(new FileSystemAccessRule(
                 admins, FileSystemRights.FullControl, AccessControlType.Allow));
             File.SetAccessControl(path, security);
+            return true;
         }
         catch
         {
-            // 收紧 ACL 失败不影响交付
+            return false;
         }
     }
-#else
-    private static void TryTightenWindowsAcl(string path) { }
+
+    [DllImport("libc", SetLastError = true, CharSet = CharSet.Ansi)]
+    private static extern int chmod(string pathname, uint mode);
+
+    /// <summary>Mono / Linux：chmod 0600。libc 不可用（Wine 等）时返回 false，不抛。</summary>
+    private static bool TryChmod0600Libc(string path)
+    {
+        try
+        {
+            // 0600 = S_IRUSR | S_IWUSR
+            return chmod(path, 0x180) == 0;
+        }
+        catch (DllNotFoundException)
+        {
+            return false;
+        }
+        catch (EntryPointNotFoundException)
+        {
+            return false;
+        }
+        catch
+        {
+            return false;
+        }
+    }
 #endif
 }

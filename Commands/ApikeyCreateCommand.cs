@@ -25,7 +25,6 @@ public sealed class ApikeyCreateCommand : ICommand, IUsageProvider
             ? string.Join(" ", arguments.Array!, arguments.Offset + 2, arguments.Count - 2)
             : "";
 
-        // 远程控制通道已被 RemoteCommandGuard 硬拒绝，走不到这里。
         if (!ApiKeyService.TryCreate(id, template, note, out string plaintext, out string error))
         {
             response = "创建失败: " + error;
@@ -36,8 +35,10 @@ public sealed class ApikeyCreateCommand : ICommand, IUsageProvider
         bool wrote = ApiKeyCreateDelivery.TryWriteOnceFile(
             configDir, id, plaintext, out string filePath, out string writeError);
 
-        // 后台尽力复制；失败静默，不影响创建，response 不提剪贴板、不含密钥。
-        ApiKeyClipboard.TryCopyInBackground(plaintext);
+        // 剪贴板默认关闭；开启时后台尽力复制，失败静默，response 永不含密钥。
+        if (Plugin.Instance?.Config.ApikeyCopyToClipboard == true)
+            ApiKeyClipboard.TryCopyInBackground(plaintext);
+        Log.Debug("[SLDataAPI] 已尽力收紧一次性 Key 文件权限（失败不影响创建）");
 
         if (!wrote)
         {

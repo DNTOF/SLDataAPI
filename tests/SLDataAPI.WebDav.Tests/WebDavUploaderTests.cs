@@ -37,7 +37,19 @@ public class WebDavUploaderTests
     public void TryValidate_NonHttp_Fails()
     {
         Assert.False(WebDavUploader.TryValidate(new WebDavUploadOptions { Url = "ftp://example.com/dav" }, out string error));
-        Assert.Contains("http", error, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("https", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void TryValidate_PlainHttp_Fails()
+    {
+        Assert.False(WebDavUploader.TryValidate(new WebDavUploadOptions
+        {
+            Url = "http://dav.example.com/rec/",
+            TimeoutSeconds = 10,
+        }, out string error));
+        Assert.Contains("https", error, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(SecretPassword, error);
     }
 
     [Fact]

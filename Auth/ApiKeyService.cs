@@ -173,11 +173,13 @@ public static class ApiKeyService
         return true;
     }
 
-    /// <summary>创建 Key。明文仅通过 out plaintext 返回一次。</summary>
+    /// <summary>创建 Key。明文仅通过 out plaintext 返回一次。远程执行上下文一律拒绝。</summary>
     public static bool TryCreate(string id, string template, string? note, out string plaintext, out string error)
     {
         plaintext = "";
         error = "";
+        if (RemoteCommandGuard.RejectIfRemote(out error))
+            return false;
         id = (id ?? "").Trim();
         template = (template ?? "").Trim().ToLowerInvariant();
 
@@ -224,6 +226,8 @@ public static class ApiKeyService
     public static bool TryRevoke(string id, out string error)
     {
         error = "";
+        if (RemoteCommandGuard.RejectIfRemote(out error))
+            return false;
         id = (id ?? "").Trim();
         lock (Gate)
         {
@@ -241,10 +245,43 @@ public static class ApiKeyService
 
     public static IReadOnlyList<(string Id, string Template, string CreatedAt, string Note, string Fingerprint)> List()
     {
+        TryList(out var list, out _);
+        return list;
+    }
+
+    /// <summary>列出 Key（无明文）。远程执行上下文一律拒绝。</summary>
+    public static bool TryList(
+        out IReadOnlyList<(string Id, string Template, string CreatedAt, string Note, string Fingerprint)> list,
+        out string error)
+    {
+        list = Array.Empty<(string, string, string, string, string)>();
+        if (RemoteCommandGuard.RejectIfRemote(out error))
+            return false;
         lock (Gate)
         {
-            return _keys.Select(k => (k.Id, k.Template, k.CreatedAt, k.Note, k.Fingerprint)).ToList();
+            list = _keys.Select(k => (k.Id, k.Template, k.CreatedAt, k.Note, k.Fingerprint)).ToList();
         }
+        return true;
+    }
+
+    /// <summary>按 Key id 查模板名（audit 过滤用）。</summary>
+    public static bool TryGetTemplate(string? id, out string template)
+    {
+        template = "";
+        if (string.IsNullOrWhiteSpace(id))
+            return false;
+        lock (Gate)
+        {
+            foreach (var k in _keys)
+            {
+                if (string.Equals(k.Id, id, StringComparison.OrdinalIgnoreCase))
+                {
+                    template = k.Template ?? "";
+                    return true;
+                }
+            }
+        }
+        return false;
     }
     private static string GenerateSecret(int bytes)
     {

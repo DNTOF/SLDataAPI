@@ -51,14 +51,16 @@ SLDataAPI 提供服务器数据查询和远程控制能力（含执行控制台�
 
 以下不算"漏洞"，但是实际部署中最容易出问题的地方，强烈建议照做：
 
-- **不要用默认 `verify_token`**：出厂默认值是 `your_secret_token`，插件启动时会在日志里警告，但仍建议第一次配置时就改掉。
-- **API Key 一次性文件**：`sldataapi apikey create` 不会把明文写进控制台 response / LocalAdmin 命令历史；明文只出现在配置目录的 `apikey_once_<id>.txt`（同 id 再次创建会覆盖）。创建 **5 分钟后自动删除**该路径（已不在则跳过）；也可自行提前删除。日志不记录明文。
-- **`control_enabled` 默认关闭，非必要不要开**：只有真的需要外部程序控制服务器时才开启，且 `control_token` 必须是随机生成的强密码，不要用有意义的单词。
+- **不要用默认 / 弱 `verify_token`（fail-closed）**：出厂默认值是 `your_secret_token`。空、仅空白、出厂默认、或未同时包含大写/小写/数字/特殊符号（长度≥8）时，**Enable 会打 Error 并关闭数据口**（`/get_sl_data`、`/plugins/adapted` 等拒绝服务）；若控制面也未启用则**不绑定 HTTP 端口**。已设置的强随机口令不受影响。数据口优先使用 `Authorization: Bearer` 或 `X-SLDataAPI-Token` / `X-SLDataAPI-Verify-Token`；`?token=` 仍可用但会入访问日志，后续版本将弃用。
+- **API Key 一次性文件**：`sldataapi apikey create` 不会把明文写进控制台 response / LocalAdmin 命令历史；明文只出现在配置目录的 `apikey_once_<id>.txt`（同 id 再次创建会覆盖）。创建 **5 分钟后自动删除**该路径（已不在则跳过）；也可自行提前删除。日志不记录明文。写入后会尽力把文件权限收成仅当前用户（Linux `0600` / Windows ACL）；**收紧失败不阻断创建**。Windows 剪贴板复制默认关闭（`apikey_copy_to_clipboard: true` 才开启）。
+- **密钥管理只允许本地控制台**：`TryCreate` / `TryRevoke` / `list` 在 `IsRemoteExecution` 上下文一律拒绝。`sldataapi` / `slda` 仍被远程 `/control/console` 字符串硬拒绝。若用权限插件收窄 RemoteAdmin，请同时拒绝 `sldataapi` / `slda`。
+- **duty 看不到完整审计**：值班模板默认不授予 `/control/audit/list`。即便 override 打开，非 admin 也只能看到自己这条的请求体，其他 Key 的写操作 payload 会显示 `[redacted]`。落盘时会打码 `sld_live_` / `sld_duty_` / Bearer / 常见 JSON 密钥字段。
+- **`control_enabled` 默认关闭，非必要不要开**：只有真的需要外部程序控制服务器时才开启。`control_token` 已废弃，控制面走 API Key。
 - **把端口锁在受信网络内**：SLDataAPI 自身没有 TLS，裸 HTTP 暴露在公网上会被中间人窃听 token。建议只监听内网/本机，对外通过反向代理（Nginx/Caddy）加 HTTPS，并做 IP 白名单。
 - **`FileRoot` 尽量不要设置成比必要范围更大的目录**，权限最小化。
-- **语音转发/录音相关配置**（`voice_enabled` / `voice_record_enabled`）涉及玩家隐私，启用前请确认服务器规则中已告知玩家，并妥善控制录音文件的访问权限。
-- **WebDAV 自动上传默认关闭**（`webdav_upload_enabled`）。启用后每局定稿 zip 会以 HTTP PUT + Basic Auth 发往 `webdav_url`。密码与 `Authorization` 头不会写入日志；请用 HTTPS 端点（明文 HTTP 等于把账号密码交给中间人），并视密码为与 API Key 同级的机密。配置无效时启动只 Warn 一次后跳过，不改变录音本身。
-- **`AutoUpdateInstall` 依赖你的构建是强签名的**：如果你本地随手编译了一个未签名的 DLL 在跑，自动更新的签名校验会被跳过，等同于信任任何能上传到你 GitHub Release 的人。签名密钥（`key.snk`）按设计不入库、由发布者本地保管：发布正式 Release 前请用 `dotnet build -c Release` 本地构建（存在 `key.snk` 时自动启用强签名），并核对产物公钥令牌为 `3ec73bb20070fa9c` 后再上传附件。`auto_update_check` 为 true 时，除启动外还会按 `auto_update_check_interval_hours`（默认 72）静默复查同一 GitHub Releases 通道；安装/提示规则与启动检查相同。上次检查时刻写在配置目录 `update_check_state.json`，频繁重启不会每次都打 API。无更新只打 Debug；有新版本或检查失败才 Warn。`auto_update_check: false` 则启动与周期都不跑。
+- **语音转发/录音相关配置**（`voice_enabled` / `voice_record_enabled`）涉及玩家隐私，启用前请确认服务器规则中已告知玩家，并妥善控制录音文件的访问权限。未完成握手的连接占用独立 pending 池（超时仍适用），**不占已鉴权 `MaxClients` 席位**。语音口鉴权是 **API Key**，不是已废弃的 `control_token`。
+- **WebDAV 自动上传默认关闭**（`webdav_upload_enabled`）。启用后每局定稿 zip 会以 HTTPS PUT + Basic Auth 发往 `webdav_url`。**只接受 `https://`**，`http://` 会校验失败并跳过上传（不改变插件自身的 HTTP 数据/控制端口）。密码与 `Authorization` 头不会写入日志；视密码为与 API Key 同级的机密。配置无效时启动只 Warn 一次后跳过，不改变录音本身。
+- **`AutoUpdateInstall` 只对已强签名的构建生效**：当前 DLL 公钥令牌为空（本地未签名编译）时**拒绝自动安装**（即使 `auto_update_install: true`），只打日志。已签名构建仍要求下载文件的公钥令牌与当前一致。正式发布令牌为 `3ec73bb20070fa9c`。签名密钥（`key.snk`）按设计不入库、由发布者本地保管：发布正式 Release 前请用 `dotnet build -c Release` 本地构建（存在 `key.snk` 时自动启用强签名），并核对产物公钥令牌后再上传附件。`auto_update_check` 为 true 时，除启动外还会按 `auto_update_check_interval_hours`（默认 72）静默复查同一 GitHub Releases 通道；安装/提示规则与启动检查相同。上次检查时刻写在配置目录 `update_check_state.json`，频繁重启不会每次都打 API。无更新只打 Debug；有新版本或检查失败才 Warn。`auto_update_check: false` 则启动与周期都不跑。
 
 ## 致谢
 

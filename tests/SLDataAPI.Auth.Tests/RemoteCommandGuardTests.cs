@@ -52,27 +52,12 @@ public class RemoteCommandGuardTests
         Assert.False(RemoteCommandGuard.IsRemoteExecution);
     }
 
-    [Theory]
-    [InlineData("y")]
-    [InlineData("Y")]
-    [InlineData(" yes ")]
-    [InlineData("YES")]
-    public void Affirmative_Answers(string answer)
+    [Fact]
+    public void RemoteDenyMessage_DoesNotRequireLocalConfirm()
     {
-        Assert.True(RemoteCommandGuard.IsAffirmative(answer));
-    }
-
-    [Theory]
-    [InlineData("")]
-    [InlineData("   ")]
-    [InlineData(null)]
-    [InlineData("n")]
-    [InlineData("no")]
-    [InlineData("yeah")]
-    [InlineData("ok")]
-    [InlineData("1")]
-    public void NonAffirmative_Answers(string? answer)
-    {
-        Assert.False(RemoteCommandGuard.IsAffirmative(answer));
+        Assert.Contains("不允许通过远程控制通道执行", RemoteCommandGuard.RemoteDenyMessage);
+        Assert.DoesNotContain("人工确认", RemoteCommandGuard.RemoteDenyMessage);
+        Assert.DoesNotContain("确认窗口", RemoteCommandGuard.RemoteDenyMessage);
+        Assert.DoesNotContain("确认面板", RemoteCommandGuard.RemoteDenyMessage);
     }
 }

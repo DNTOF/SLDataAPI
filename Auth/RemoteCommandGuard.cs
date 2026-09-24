@@ -4,8 +4,8 @@ using System.Collections.Generic;
 namespace SLDataAPI.Auth;
 
 /// <summary>
-/// SLDataAPI 自身管理 CLI（<c>sldataapi</c> / 别名 <c>slda</c>）的远程执行硬拒绝（层 1），
-/// 以及"当前线程正在执行远程控制通道下发的命令"标记（供层 1 兜底与层 2 人工确认使用）。
+/// SLDataAPI 自身管理 CLI（<c>sldataapi</c> / 别名 <c>slda</c>）的远程执行硬拒绝，
+/// 以及"当前线程正在执行远程控制通道下发的命令"标记。
 ///
 /// 动机：远程控制通道只能证明"请求持有某把 API Key"，无法证明操作者身份。
 /// 一旦某把 Key 拿到 /control/console/ 授权，就能凭控制台命令无限增发新 Key，
@@ -27,7 +27,7 @@ public static class RemoteCommandGuard
     /// <summary>控制面拒绝文案（HTTP 403 / WS result 的 message）。</summary>
     public const string RemoteDenyMessage =
         "拒绝执行：SLDataAPI 管理命令（sldataapi / slda）不允许通过远程控制通道执行。" +
-        "API Key 的创建与吊销只能在服务器本地控制台（LocalAdmin / RemoteAdmin / 游戏内控制台）操作，并需人工确认。";
+        "API Key 的创建与吊销只能在服务器本地控制台（LocalAdmin / RemoteAdmin / 游戏内控制台）操作。";
 
     /// <summary>
     /// 命令是否会调起 SLDataAPI 管理 CLI。逐个空白分隔的 token 判定（不只看首 token，
@@ -86,17 +86,5 @@ public static class RemoteCommandGuard
             _entered = false;
             if (_remoteDepth > 0) _remoteDepth--;
         }
-    }
-
-    // ────────────── y/n 回答解析 ──────────────
-
-    /// <summary>解析人工确认的回答：仅明确的肯定回答算通过，空/无法识别一律按拒绝。</summary>
-    public static bool IsAffirmative(string? answer)
-    {
-        if (string.IsNullOrWhiteSpace(answer))
-            return false;
-
-        string a = answer!.Trim().ToLowerInvariant();
-        return a is "y" or "yes" or "是";
     }
 }

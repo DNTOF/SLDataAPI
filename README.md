@@ -74,7 +74,6 @@ voice_port: 8082
 voice_record_enabled: false
 report_enabled: false
 control_log_enabled: true
-api_key_confirm_timeout_seconds: 20 # create/revoke Key 控制台确认超时
 ```
 
 完整字段、YAML 坑、token 写法见 Wiki [[Configuration]](https://github.com/DNTOF/SLDataAPI/wiki/Configuration)。
@@ -105,7 +104,7 @@ sldataapi apikey list
 sldataapi apikey revoke <id>
 ```
 
-`create` / `revoke` 需在服务器控制台确认（整屏 TUI，默认取消，超时拒绝）。`duty` 偏只读；`admin` 按端点 catalog 授权，**不会**自动开放 catalog 为 `false` 的路径（控制台、插件、文件等），可用 `endpoints_override` 单独放开。
+`sldataapi` / `slda` 管理 CLI 已被远程控制通道（HTTP + WS 的 `/control/console/command`）硬拒绝；本地控制台（LocalAdmin / RemoteAdmin / 游戏内控制台）执行 `create` / `revoke` 会立即生效，不再弹出确认窗口或 `[y/N]` 提示。`duty` 偏只读；`admin` 按端点 catalog 授权，**不会**自动开放 catalog 为 `false` 的路径（控制台、插件、文件等），可用 `endpoints_override` 单独放开。
 
 路径与 curl 示例：Wiki [[Preview-HTTP-API]](https://github.com/DNTOF/SLDataAPI/wiki/Preview-HTTP-API)。稳定 2.5 仍用 [[HTTP-API]](https://github.com/DNTOF/SLDataAPI/wiki/HTTP-API)。
 

@@ -2,7 +2,6 @@ using System;
 using System.Text;
 using CommandSystem;
 using SLDataAPI.Auth;
-using SLDataAPI.Services;
 
 namespace SLDataAPI.Commands;
 
@@ -27,23 +26,7 @@ public sealed class ApikeyCreateCommand : ICommand, IUsageProvider
             ? string.Join(" ", arguments.Array!, arguments.Offset + 2, arguments.Count - 2)
             : "";
 
-        // 层 2：真正的服务端操作者（LocalAdmin / RemoteAdmin / 游戏内控制台）必须在服务器控制台
-        // 的确认面板上显式确认才会铸出新 Key。远程控制通道在层 1 已被硬拒绝，走不到这里；
-        // 即使走到，Confirm 也会因远程执行上下文在画面板之前直接拒绝。
-        var confirm = new ConfirmPanelModel
-        {
-            Action = ConfirmAction.Create,
-            KeyId = id,
-            Template = template.Trim().ToLowerInvariant(),
-            Note = note,
-        };
-        if (!OperatorConfirmService.Confirm(confirm, out string denyReason))
-        {
-            response = $"已中止创建 API Key（未获服务端确认）：{denyReason}\n确认面板出现在服务器控制台（LocalAdmin）窗口，请在那里按 Y 确认。";
-            Log.Warn($"[SLDataAPI] API Key 创建未获确认，已中止 id={id}：{denyReason}");
-            return false;
-        }
-
+        // 远程控制通道已被 RemoteCommandGuard 硬拒绝，走不到这里。
         if (!ApiKeyService.TryCreate(id, template, note, out string plaintext, out string error))
         {
             response = "创建失败: " + error;

@@ -20,7 +20,7 @@
 | 能力 | 说明 |
 |------|------|
 | 数据查询 | `GET /get_sl_data`；适配发现：`GET /plugins/adapted` + `adapted_plugins`（`verify_token`，与 2.5.5 Nexus 对齐）：人数、回合、核弹、玩家（SteamID/坐标）、DNT_OF 插件状态 |
-| 控制接口 | `/control/*`：玩家/回合/地图/CASSIE/控制台/插件/文件/日志/举报等；HTTP 或 WS 二选一 |
+| 控制接口 | `/control/*`：玩家/回合/地图/CASSIE/全服广播/管理聊天/控制台/插件/文件/日志/举报等；HTTP 或 WS 二选一 |
 | 事件流 | 控制 WS 订阅：回合、进出、死亡、电梯、门等（v2.5.4+） |
 | 语音转发 | 独立端口 WS，全频道 48kHz PCM（SPY） |
 | 语音录音 | 分轨 WAV + 时间轴 TSV，按局保留（v2.5+）；可选 WebDAV 自动上传定稿 zip（默认关） |
@@ -124,6 +124,37 @@ sldataapi apikey revoke <id>
 
 路径与 curl 示例：Wiki [[Preview-HTTP-API]](https://github.com/DNTOF/SLDataAPI/wiki/Preview-HTTP-API)。稳定 2.5 仍用 [[HTTP-API]](https://github.com/DNTOF/SLDataAPI/wiki/HTTP-API)。
 
+### 全服广播 / 管理聊天（2.6）
+
+两个 SERVER 写端点：admin catalog 默认开放，**duty 默认拒绝**（与 `/control/cassie` 同级）。走主线程 + 控制审计。
+
+| 路径 | 作用 | 游戏 API |
+|------|------|----------|
+| `POST /control/broadcast` | 全服屏幕中央广播（RA Broadcasting） | LabAPI `Server.SendBroadcast` |
+| `POST /control/staffchat` | RA 管理聊天，仅有 `AdminChat` 权限的玩家可见 | LabAPI `Server.SendAdminChatMessage` |
+
+单人广播仍用 `/control/moderation/msg`（`msg_type: "broadcast"` → `player.SendBroadcast`）。
+
+```http
+POST /control/broadcast
+Authorization: Bearer <admin_key>
+Content-Type: application/json
+
+{"message":"服务器将于 5 分钟后重启","duration_seconds":10}
+```
+
+`duration_seconds` 可选：≤0 回落到 5，上限 60（与 `/control/moderation/msg` 相同）。可选 `clear_previous: true` 先清空当前广播队列。
+
+```http
+POST /control/staffchat
+Authorization: Bearer <admin_key>
+Content-Type: application/json
+
+{"message":"请值班注意 173"}
+```
+
+可选 `is_silent: true`：只走管理聊天频道，不附带屏幕广播提示。`message` 必填，上限 500 字符；空白或超长返回中文 `400`。
+
 ---
 
 ## 接口入口
@@ -131,7 +162,7 @@ sldataapi apikey revoke <id>
 | 类型 | 地址 |
 |------|------|
 | 数据 | `GET http://<host>:8081/get_sl_data` + `Authorization: Bearer <verify_token>`（仍兼容 `?token=`） |
-| 控制 HTTP | `POST http://<host>:8081/control/...` + API Key 头 |
+| 控制 HTTP | `POST http://<host>:8081/control/...` + API Key 头（含 `/control/broadcast`、`/control/staffchat`） |
 | 控制 WS | `ws://<host>:8081/control` + 握手带 API Key 头（`control_transport: ws`） |
 | 语音 | `ws://<host>:8082/ws` · `GET :8082/status` + API Key |
 

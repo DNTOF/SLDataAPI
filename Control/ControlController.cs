@@ -68,9 +68,9 @@ public static class ControlController
                 // SERVER · Administration
                 "/control/admin/teleport" => PlayerAction(body, "teleport"),
                 "/control/admin/state" => PlayerAction(body, "state"),
-                // SERVER · Broadcasting / Staff Chat（预览占位）
-                "/control/broadcast" => Stub501("broadcast"),
-                "/control/staffchat" => Stub501("staffchat"),
+                // SERVER · Broadcasting / Staff Chat
+                "/control/broadcast" => BroadcastAction(body),
+                "/control/staffchat" => StaffChatAction(body),
                 // GAME
                 "/control/round" => RoundAction(body),
                 "/control/round/warhead" => WarheadAction(body),
@@ -468,7 +468,7 @@ public static class ControlController
                 case "msg":
                     if (string.IsNullOrWhiteSpace(req.message))
                         throw new InvalidOperationException("缺少 message 字段");
-                    float dur = req.duration_seconds <= 0 ? 5f : Math.Min(req.duration_seconds, 60f);
+                    float dur = ControlMessageValidation.ClampDurationSeconds(req.duration_seconds);
                     if (req.msg_type == "broadcast")
                         player.SendBroadcast(req.message, (ushort)Math.Ceiling(dur));
                     else
@@ -584,6 +584,62 @@ public static class ControlController
         {
             throw new InvalidOperationException($"切换语音通道失败: {ex.Message}");
         }
+    }
+
+    // ------------------------------------------------------------------
+    // /control/broadcast —— 全服屏幕中央广播（LabAPI Server.SendBroadcast）
+    // ------------------------------------------------------------------
+    private static (int, string) BroadcastAction(string body)
+    {
+        var req = Parse<BroadcastRequest>(body);
+        if (!ControlMessageValidation.TryValidateMessage(req?.message, out string msgErr))
+            return (400, Json(false, msgErr));
+
+        float dur = ControlMessageValidation.ClampDurationSeconds(req!.duration_seconds);
+        ushort seconds = (ushort)Math.Ceiling(dur);
+        bool clear = req.clear_previous;
+
+        MainThreadExecutor.RunOnMainThread(() =>
+        {
+            // LabAPI 1.1.7：Server.SendBroadcast(message, duration, flags=Normal, shouldClearPrevious)
+            // 等价于 RA Broadcasting，发到全体在线玩家（Broadcast.Singleton.RpcAddElement）。
+            Server.SendBroadcast(req.message, seconds, shouldClearPrevious: clear);
+        }, out var err);
+
+        if (err != null)
+            return (400, Json(false, err.Message));
+
+        Log.Info($"[SLDataAPI][Control] broadcast duration={seconds} clear={clear}");
+        return (200, Json(true, "全服广播已发送", new { duration_seconds = seconds, clear_previous = clear }));
+    }
+
+    // ------------------------------------------------------------------
+    // /control/staffchat —— RA 管理聊天（LabAPI Server.SendAdminChatMessage）
+    // 仅 UserGroup 含 PlayerPermissions.AdminChat 的玩家可见，普通玩家收不到。
+    // ------------------------------------------------------------------
+    private static (int, string) StaffChatAction(string body)
+    {
+        var req = Parse<StaffChatRequest>(body);
+        if (!ControlMessageValidation.TryValidateMessage(req?.message, out string msgErr))
+            return (400, Json(false, msgErr));
+
+        bool silent = req!.is_silent;
+
+        MainThreadExecutor.RunOnMainThread(() =>
+        {
+            if (Server.Host == null)
+                throw new InvalidOperationException("服务器主机未就绪，无法发送管理聊天");
+
+            // LabAPI 1.1.7：SendAdminChatMessage 过滤 ReadyList 中具备 AdminChat 权限的玩家，
+            // 走 EncryptedChannel.AdminChat（RA Staff Chat）。isSilent=true 时不附带屏幕广播提示。
+            Server.SendAdminChatMessage(req.message, isSilent: silent);
+        }, out var err);
+
+        if (err != null)
+            return (400, Json(false, err.Message));
+
+        Log.Info($"[SLDataAPI][Control] staffchat silent={silent}");
+        return (200, Json(true, "管理聊天已发送", new { is_silent = silent }));
     }
 
     // ------------------------------------------------------------------

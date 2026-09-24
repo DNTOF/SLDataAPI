@@ -57,7 +57,8 @@ SLDataAPI 提供服务器数据查询和远程控制能力（含执行控制台�
 - **把端口锁在受信网络内**：SLDataAPI 自身没有 TLS，裸 HTTP 暴露在公网上会被中间人窃听 token。建议只监听内网/本机，对外通过反向代理（Nginx/Caddy）加 HTTPS，并做 IP 白名单。
 - **`FileRoot` 尽量不要设置成比必要范围更大的目录**，权限最小化。
 - **语音转发/录音相关配置**（`voice_enabled` / `voice_record_enabled`）涉及玩家隐私，启用前请确认服务器规则中已告知玩家，并妥善控制录音文件的访问权限。
-- **`AutoUpdateInstall` 依赖你的构建是强签名的**：如果你本地随手编译了一个未签名的 DLL 在跑，自动更新的签名校验会被跳过，等同于信任任何能上传到你 GitHub Release 的人。签名密钥（`key.snk`）按设计不入库、由发布者本地保管：发布正式 Release 前请用 `dotnet build -c Release` 本地构建（存在 `key.snk` 时自动启用强签名），并核对产物公钥令牌为 `3ec73bb20070fa9c` 后再上传附件。
+- **WebDAV 自动上传默认关闭**（`webdav_upload_enabled`）。启用后每局定稿 zip 会以 HTTP PUT + Basic Auth 发往 `webdav_url`。密码与 `Authorization` 头不会写入日志；请用 HTTPS 端点（明文 HTTP 等于把账号密码交给中间人），并视密码为与 API Key 同级的机密。配置无效时启动只 Warn 一次后跳过，不改变录音本身。
+- **`AutoUpdateInstall` 依赖你的构建是强签名的**：如果你本地随手编译了一个未签名的 DLL 在跑，自动更新的签名校验会被跳过，等同于信任任何能上传到你 GitHub Release 的人。签名密钥（`key.snk`）按设计不入库、由发布者本地保管：发布正式 Release 前请用 `dotnet build -c Release` 本地构建（存在 `key.snk` 时自动启用强签名），并核对产物公钥令牌为 `3ec73bb20070fa9c` 后再上传附件。`auto_update_check` 为 true 时，除启动外还会按 `auto_update_check_interval_hours`（默认 72）静默复查同一 GitHub Releases 通道；安装/提示规则与启动检查相同。上次检查时刻写在配置目录 `update_check_state.json`，频繁重启不会每次都打 API。无更新只打 Debug；有新版本或检查失败才 Warn。`auto_update_check: false` 则启动与周期都不跑。
 
 ## 致谢
 

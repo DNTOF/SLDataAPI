@@ -23,7 +23,7 @@
 | 控制接口 | `/control/*`：玩家/回合/地图/CASSIE/控制台/插件/文件/日志/举报等；HTTP 或 WS 二选一 |
 | 事件流 | 控制 WS 订阅：回合、进出、死亡、电梯、门等（v2.5.4+） |
 | 语音转发 | 独立端口 WS，全频道 48kHz PCM（SPY） |
-| 语音录音 | 分轨 WAV + 时间轴 TSV，按局保留（v2.5+） |
+| 语音录音 | 分轨 WAV + 时间轴 TSV，按局保留（v2.5+）；可选 WebDAV 自动上传定稿 zip（默认关） |
 | 举报 | Esc 服务器设置面板 + `/control/reports`（默认关） |
 | 审计 | 侵入性控制操作写入 `control_log.json`（默认开） |
 
@@ -69,9 +69,24 @@ control_enabled: false              # 关则所有 /control/* → 404
 control_transport: http               # http | ws（硬互斥）
 # control_token 已废弃（2.6 忽略并打警告）
 
+auto_update_check: true             # 启动 + 72h 静默复查，同一 GitHub 通道
+auto_update_install: true           # 有稳定版时下载替换 DLL（与原先启动检查相同）
+# auto_update_check_interval_hours: 72  # 距上次检查不足则跳过（防重启刷 API）；0=仅启动查一次
+
 voice_enabled: false
 voice_port: 8082
 voice_record_enabled: false
+
+# 定稿 zip 可选 WebDAV 自动上传（默认关；失败入队退避重试，不阻塞游戏）
+webdav_upload_enabled: false
+webdav_url: ""                      # 目录 URL，或含 {filename} 的模板
+webdav_username: ""
+webdav_password: ""
+# webdav_remote_path_prefix: ""
+# webdav_timeout_seconds: 30
+# webdav_max_retries: 5
+# webdav_retry_interval_seconds: 15
+
 report_enabled: false
 control_log_enabled: true
 ```

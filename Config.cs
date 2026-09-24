@@ -37,7 +37,8 @@ public class Config
     public string ControlTransport { get; set; } = "http";
 
     /// <summary>
-    /// 是否在插件启用时自动检查 GitHub Releases 上的新版本（仅日志提示，不自动更新）。
+    /// 是否检查 GitHub Releases 上的新版本（启动 + 周期共用同一通道）。
+    /// 默认开启，与既有启动检查一致；关闭则启动与 72h 静默复查都不跑。
     /// </summary>
     public bool AutoUpdateCheck { get; set; } = true;
 
@@ -46,9 +47,16 @@ public class Config
     /// 校验：下载文件必须是合法程序集、名称一致；当前版本已强名称签名时还要求签名一致（防篡改）。
     /// 稳定版策略：只自动接受稳定版——预发布版本（GitHub prerelease/draft 标记，
     /// 或 tag 含 beta/alpha/rc/preview/dev 等标识）不会自动下载。
-    /// 关闭时仅日志提示，需手动更新。
+    /// 关闭时仅日志提示，需手动更新。启动检查与周期检查共用本开关。
     /// </summary>
     public bool AutoUpdateInstall { get; set; } = true;
+
+    /// <summary>
+    /// 两次更新检查的最小间隔（小时）。启动与周期复查共用：距上次检查不足则跳过，
+    /// 避免频繁重启打 GitHub。默认 72。0 或负数 = 仅 Enable 时检查一次（旧行为），不排周期。
+    /// 仅当 <see cref="AutoUpdateCheck"/> 为 true 时生效。
+    /// </summary>
+    public int AutoUpdateCheckIntervalHours { get; set; } = 72;
 
     /// <summary>
     /// 文件管理端点（/control/files/*）的根目录（绝对路径）。
@@ -97,6 +105,41 @@ public class Config
     /// %AppData%/SCP Secret Laboratory/SLDataAPI/VoiceRecords。
     /// </summary>
     public string VoiceRecordDir { get; set; } = "";
+
+    // ================== 语音 zip WebDAV 自动上传（v2.6.0-preview-DevOnly，默认关闭） ==================
+
+    /// <summary>
+    /// 每局录音 zip 定稿后是否自动 PUT 到 WebDAV。默认关闭——不影响既有行为。
+    /// 启用但 URL 无效时启动 Warn 一次后本会话跳过。
+    /// </summary>
+    public bool WebdavUploadEnabled { get; set; } = false;
+
+    /// <summary>
+    /// WebDAV 目标：目录 URL（自动追加文件名），或含 <c>{filename}</c> / <c>{file}</c> 的完整模板。
+    /// 必须是 http(s) 绝对地址。
+    /// </summary>
+    public string WebdavUrl { get; set; } = "";
+
+    /// <summary>WebDAV Basic Auth 用户名。可空（匿名）。</summary>
+    public string WebdavUsername { get; set; } = "";
+
+    /// <summary>WebDAV Basic Auth 密码。可空。日志永不输出此值或 Authorization 头。</summary>
+    public string WebdavPassword { get; set; } = "";
+
+    /// <summary>
+    /// 远程目录前缀（拼在 webdav_url 与文件名之间）。模板 URL 模式下忽略。
+    /// 含 <c>..</c> 的段会被丢弃。
+    /// </summary>
+    public string WebdavRemotePathPrefix { get; set; } = "";
+
+    /// <summary>单次 PUT 超时（秒），默认 30。</summary>
+    public int WebdavTimeoutSeconds { get; set; } = 30;
+
+    /// <summary>首次失败后的最多重试次数（总尝试 = 1 + 本值），默认 5。网络 / 5xx / 408 / 429 / 超时才重试。</summary>
+    public int WebdavMaxRetries { get; set; } = 5;
+
+    /// <summary>重试基础间隔（秒），按失败次数指数退避（上限 600s）。默认 15。</summary>
+    public int WebdavRetryIntervalSeconds { get; set; } = 15;
 
     // ================== 举报功能（v2.5.4 推出，代号 GIS,GNSS,RS!：SSS UI + 平台端点） ==================
 

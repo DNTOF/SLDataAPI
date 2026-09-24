@@ -8,6 +8,12 @@ namespace SLDataAPI;
 public class Config
 {
     public bool Debug { get; set; } = false;
+
+    /// <summary>
+    /// 只读数据口（/get_sl_data、/plugins/adapted 等）的共享口令。
+    /// 出厂默认 <c>your_secret_token</c>、空、或未通过强度校验（长度≥8 且同时含大写/小写/数字/特殊符号）
+    /// 时 Enable 会 fail-closed：不对外提供数据口；若控制面也未启用则不绑定 HTTP 端口。
+    /// </summary>
     public string VerifyToken { get; set; } = "your_secret_token";
     public int HttpPort { get; set; } = 8081;
     public int PushIntervalSeconds { get; set; } = 8;
@@ -44,7 +50,8 @@ public class Config
 
     /// <summary>
     /// 检测到新版本时是否自动下载并替换插件 DLL（覆盖后下次重启游戏服务器生效，旧版备份为 .bak）。
-    /// 校验：下载文件必须是合法程序集、名称一致；当前版本已强名称签名时还要求签名一致（防篡改）。
+    /// 校验：下载文件必须是合法程序集、名称一致；当前程序集未签名则拒绝自动安装；
+    /// 已签名时要求新文件公钥令牌与当前一致（防篡改）。
     /// 稳定版策略：只自动接受稳定版——预发布版本（GitHub prerelease/draft 标记，
     /// 或 tag 含 beta/alpha/rc/preview/dev 等标识）不会自动下载。
     /// 关闭时仅日志提示，需手动更新。启动检查与周期检查共用本开关。
@@ -116,7 +123,8 @@ public class Config
 
     /// <summary>
     /// WebDAV 目标：目录 URL（自动追加文件名），或含 <c>{filename}</c> / <c>{file}</c> 的完整模板。
-    /// 必须是 http(s) 绝对地址。
+    /// 必须是 https:// 绝对地址（明文 http:// 会被拒绝，以免 Basic Auth 密码走明文）。
+    /// 不改变插件自身的 HTTP 数据/控制端口。
     /// </summary>
     public string WebdavUrl { get; set; } = "";
 
@@ -175,4 +183,10 @@ public class Config
 
     /// <summary>控制日志最大条数，超出自动删除最旧条目（0/负数 = 不清理）。</summary>
     public int ControlLogMaxRecords { get; set; } = 500;
+
+    /// <summary>
+    /// 创建 API Key 后是否在 Windows 上后台尽力复制明文到剪贴板。默认关闭。
+    /// 开启也不影响命令 response（始终只回一次性文件路径，不含明文）。
+    /// </summary>
+    public bool ApikeyCopyToClipboard { get; set; } = false;
 }

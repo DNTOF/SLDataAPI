@@ -90,7 +90,7 @@ public static class ControlController
                 "/control/files/write" => FilesAction(body, "write"),
                 "/control/logs" => LogsAction(body),
                 "/control/reports" => ReportsAction(body),
-                "/control/audit/list" => AuditListAction(body),
+                "/control/audit/list" => AuditListAction(body, actor),
                 _ => (404, Json(false, "未知控制端点（2.6 已移除旧路径别名，请使用 RA 对齐新路径）")),
             };
 
@@ -1171,7 +1171,7 @@ public static class ControlController
         return err != null ? (400, Json(false, err.Message)) : (status, json);
     }
 
-    private static (int, string) AuditListAction(string body)
+    private static (int, string) AuditListAction(string body, string? actor)
     {
         try
         {
@@ -1182,7 +1182,25 @@ public static class ControlController
                 if (jo?["limit"] != null) limit = Math.Max(1, Math.Min(500, (int)jo["limit"]!));
             }
             catch { /* 忽略 body 解析，用默认 limit */ }
-            var entries = ControlLogService.List(limit);
+
+            string template = "";
+            if (!string.IsNullOrEmpty(actor))
+                ApiKeyService.TryGetTemplate(actor, out template);
+
+            var raw = ControlLogService.List(limit);
+            var entries = new List<object>(raw.Count);
+            foreach (var e in raw)
+            {
+                entries.Add(new
+                {
+                    e.time,
+                    e.actor,
+                    e.endpoint,
+                    body = ControlAuditView.BodyForViewer(e.body, e.actor, actor, template),
+                    e.success,
+                    e.message,
+                });
+            }
             return (200, Json(true, "ok", new { count = entries.Count, entries }));
         }
         catch (Exception ex)

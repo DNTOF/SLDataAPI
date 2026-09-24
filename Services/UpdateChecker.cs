@@ -159,6 +159,12 @@ public static class UpdateChecker
                     Log.Warn("[SLDataAPI] AutoUpdateInstall=false：仅提示，请前往 https://github.com/DNTOF/SLDataAPI/releases/latest 手动更新。");
                     return;
                 }
+                byte[]? runningToken = typeof(UpdateChecker).Assembly.GetName().GetPublicKeyToken();
+                if (UpdateCheckLogic.ShouldRefuseAutoInstallBecauseUnsigned(runningToken))
+                {
+                    Log.Warn("[SLDataAPI] 当前程序集未强名称签名，拒绝自动安装（即使 AutoUpdateInstall=true）。请使用已签名的正式构建，或关闭自动安装后手动更新。");
+                    return;
+                }
                 JObject obj = JObject.Parse(body);
                 await InstallAsync(remote!, obj).ConfigureAwait(false);
                 return;
@@ -255,17 +261,20 @@ public static class UpdateChecker
             return;
         }
 
-        // 当前版本已强名称签名时，要求新文件签名一致（同一把私钥 = 同源可信，防篡改）
-        byte[] curToken = typeof(UpdateChecker).Assembly.GetName().GetPublicKeyToken();
-        byte[] newToken = newName.GetPublicKeyToken();
-        if (curToken != null && curToken.Length > 0)
+        // 未签名构建不得自动安装；已签名则要求新文件公钥令牌一致（防篡改）
+        byte[]? curToken = typeof(UpdateChecker).Assembly.GetName().GetPublicKeyToken();
+        byte[]? newToken = newName.GetPublicKeyToken();
+        if (UpdateCheckLogic.ShouldRefuseAutoInstallBecauseUnsigned(curToken))
         {
-            if (newToken == null || newToken.Length == 0 || !curToken.SequenceEqual(newToken))
-            {
-                Log.Warn("[SLDataAPI] 下载程序集强名称签名与当前版本不一致（可能被篡改），拒绝自动替换。");
-                SafeDelete(tmp);
-                return;
-            }
+            Log.Warn("[SLDataAPI] 当前程序集未强名称签名，拒绝自动安装（即使 AutoUpdateInstall=true）。");
+            SafeDelete(tmp);
+            return;
+        }
+        if (!UpdateCheckLogic.PublicKeyTokensMatch(curToken, newToken))
+        {
+            Log.Warn("[SLDataAPI] 下载程序集强名称签名与当前版本不一致（可能被篡改），拒绝自动替换。");
+            SafeDelete(tmp);
+            return;
         }
 
         // ---- 替换（LabAPI 从字节加载插件，文件不占用）----

@@ -13,7 +13,8 @@ public sealed class SldataapiParentCommand : ParentCommand
 
     public override string Command => "sldataapi";
     public override string[] Aliases => new[] { "slda" };
-    public override string Description => "SLDataAPI 管理命令（API Key 等）";
+    public override string Description =>
+        "SLDataAPI 管理命令（API Key 等）。远程 /control/console 已硬拒绝；若用权限插件收窄 RemoteAdmin，请同时拒绝 sldataapi / slda。";
 
     public override void LoadGeneratedCommands()
     {

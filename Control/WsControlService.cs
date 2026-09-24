@@ -447,9 +447,8 @@ public static class WsControlService
                 return;
             }
 
-            if (Interlocked.Increment(ref _pendingCalls) > MaxConcurrentCallsPerConnection)
+            if (!WsCallGate.TryEnter(ref _pendingCalls, MaxConcurrentCallsPerConnection))
             {
-                Interlocked.Decrement(ref _pendingCalls);
                 SendResult(reqId, ok: false, status: 429, message: $"并发调用过多（单连接上限 {MaxConcurrentCallsPerConnection}）");
                 return;
             }
@@ -459,6 +458,7 @@ public static class WsControlService
             bool wantWrite = EndpointAcl.IsWriteOperation(path, bodyJson);
             if (!_principal.Allows(path, wantWrite))
             {
+                WsCallGate.Exit(ref _pendingCalls);
                 SendResult(reqId, ok: false, status: 403, message: "API Key 有效但未授权该端点");
                 return;
             }
@@ -485,7 +485,7 @@ public static class WsControlService
                 }
                 finally
                 {
-                    Interlocked.Decrement(ref _pendingCalls);
+                    WsCallGate.Exit(ref _pendingCalls);
                 }
             });
         }

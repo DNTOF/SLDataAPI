@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Threading;
 
 namespace SLDataAPI.Control;
@@ -48,6 +49,9 @@ public static class ControlAuth
         }
     }
 
+    /// <summary>文档与 config.yml 出厂默认值；启用时 fail-closed，不得当作有效数据口令。</summary>
+    public const string FactoryDefaultVerifyToken = "your_secret_token";
+
     /// <summary>
     /// 校验 token 格式：长度不少于 8 位，且同时包含大写字母 / 小写字母 / 数字 / 特殊符号。
     /// </summary>
@@ -66,6 +70,113 @@ public static class ControlAuth
         }
 
         return upper && lower && digit && special;
+    }
+
+    /// <summary>
+    /// 数据口 verify_token 是否允许对外提供服务：非空、非出厂默认、且通过 <see cref="IsValidTokenFormat"/>。
+    /// </summary>
+    public static bool IsAcceptableVerifyToken(string? token)
+    {
+        if (string.IsNullOrWhiteSpace(token))
+            return false;
+        token = token.Trim();
+        if (string.Equals(token, FactoryDefaultVerifyToken, StringComparison.Ordinal))
+            return false;
+        return IsValidTokenFormat(token);
+    }
+
+    /// <summary>拒绝原因（不含 token 原文），供启动 Error 日志。</summary>
+    public static string DescribeVerifyTokenRejection(string? token)
+    {
+        if (string.IsNullOrWhiteSpace(token))
+            return "为空或仅空白";
+        if (string.Equals(token.Trim(), FactoryDefaultVerifyToken, StringComparison.Ordinal))
+            return "仍为出厂默认值 your_secret_token";
+        if (!IsValidTokenFormat(token.Trim()))
+            return "强度不足（长度须≥8，且同时含大写、小写、数字、特殊符号）";
+        return "";
+    }
+
+    /// <summary>
+    /// 数据口令提取：优先 Authorization: Bearer / X-SLDataAPI-Token / X-SLDataAPI-Verify-Token，
+    /// 回退 URL <c>?token=</c>（兼容旧客户端；会出现在访问日志，建议改用请求头）。
+    /// </summary>
+    public static string ExtractDataPlaneToken(IDictionary<string, string>? headers, string? query)
+    {
+        if (headers != null)
+        {
+            if (TryGetHeader(headers, "Authorization", out string auth) &&
+                auth.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+            {
+                string bearer = auth.Substring(7).Trim();
+                if (bearer.Length > 0)
+                    return bearer;
+            }
+
+            if (TryGetHeader(headers, "X-SLDataAPI-Token", out string alias) && alias.Length > 0)
+                return alias;
+            if (TryGetHeader(headers, "X-SLDataAPI-Verify-Token", out string alias2) && alias2.Length > 0)
+                return alias2;
+        }
+
+        return ExtractQueryToken(query);
+    }
+
+    /// <summary>查询串是否带 token=（用于弃用提示；不返回值以免入日志）。</summary>
+    public static bool QueryHasTokenParam(string? query)
+    {
+        if (string.IsNullOrEmpty(query))
+            return false;
+        foreach (var pair in query!.Split('&'))
+        {
+            if (string.IsNullOrEmpty(pair)) continue;
+            int eq = pair.IndexOf('=');
+            string k = eq >= 0 ? pair.Substring(0, eq) : pair;
+            if (string.Equals(k, "token", StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
+    }
+
+    private static bool TryGetHeader(IDictionary<string, string> headers, string name, out string value)
+    {
+        if (headers.TryGetValue(name, out value!) && !string.IsNullOrWhiteSpace(value))
+        {
+            value = value.Trim();
+            return true;
+        }
+
+        foreach (var kv in headers)
+        {
+            if (string.Equals(kv.Key, name, StringComparison.OrdinalIgnoreCase) &&
+                !string.IsNullOrWhiteSpace(kv.Value))
+            {
+                value = kv.Value.Trim();
+                return true;
+            }
+        }
+
+        value = "";
+        return false;
+    }
+
+    private static string ExtractQueryToken(string? query)
+    {
+        if (string.IsNullOrEmpty(query))
+            return "";
+        foreach (var pair in query!.Split('&'))
+        {
+            if (string.IsNullOrEmpty(pair)) continue;
+            int eq = pair.IndexOf('=');
+            string k = eq >= 0 ? pair.Substring(0, eq) : pair;
+            string v = eq >= 0 ? pair.Substring(eq + 1) : "";
+            if (string.Equals(k, "token", StringComparison.OrdinalIgnoreCase))
+            {
+                try { return Uri.UnescapeDataString(v); }
+                catch { return v; }
+            }
+        }
+        return "";
     }
 
     /// <summary>

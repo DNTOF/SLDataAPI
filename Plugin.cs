@@ -47,9 +47,17 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
         ValidateConfigFileIntegrity();
         ValidateControlConfig();
 
-        // 安全提示：VerifyToken 仍是出厂默认值时，数据接口相当于裸奔
-        if (string.Equals(Config.VerifyToken, "your_secret_token", StringComparison.Ordinal))
-            Log.Warn("[SLDataAPI] VerifyToken 仍为出厂默认值 your_secret_token，请尽快修改为强随机值！");
+        bool dataPlaneOk = ControlAuth.IsAcceptableVerifyToken(Config.VerifyToken);
+        if (!dataPlaneOk)
+        {
+            string why = ControlAuth.DescribeVerifyTokenRejection(Config.VerifyToken);
+            Log.Error(
+                "[SLDataAPI] verify_token 未通过 fail-closed 校验（" + why + "）。" +
+                "必须设置强随机值（长度≥8，同时含大写/小写/数字/特殊符号，且不得为出厂默认 your_secret_token）。" +
+                (Config.ControlEnabled
+                    ? "数据口（/get_sl_data 等）将拒绝服务；HTTP 端口仅在控制面需要时绑定。"
+                    : "本次不会绑定数据 HTTP 监听。"));
+        }
 
         // 数据接口 token 的引号检测（控制 token 的检测在 ValidateControlConfig，更严格：直接禁用）
         if (ContainsQuoteChar(Config.VerifyToken))
@@ -58,26 +66,35 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
 
         // 生效配置摘要（一眼识别"配置没被读到、正在用默认值"的状态）
         Log.Info(
-            $"[SLDataAPI] 配置摘要：http_port={Config.HttpPort}，verify_token 长度 {Config.VerifyToken?.Length ?? 0}，" +
+            $"[SLDataAPI] 配置摘要：http_port={Config.HttpPort}，verify_token 长度 {Config.VerifyToken?.Length ?? 0}" +
+            $"{(dataPlaneOk ? "" : "（数据口已关闭）")}，" +
             $"control={(Config.ControlEnabled ? $"{Config.ControlTransport} 模式，API Key 鉴权" : "关闭")}，" +
             $"voice={(Config.VoiceEnabled ? $"启用(端口 {Config.VoicePort})" : "关闭")}，" +
             $"录音={(Config.VoiceRecordEnabled ? $"开(保留 {Config.VoiceRecordMaxRounds} 局)" : "关")}，" +
             $"webdav={(Config.WebdavUploadEnabled ? "开" : "关")}。");
 
-        server = new HttpServer(Config.HttpPort, Config);
-        try
+        // 弱/默认 verify_token：不绑定 HTTP，除非控制面已启用（同端口还要伺候 /control）。
+        if (dataPlaneOk || Config.ControlEnabled)
         {
-            server.Start();
+            server = new HttpServer(Config.HttpPort, Config);
+            try
+            {
+                server.Start();
+            }
+            catch (Exception ex)
+            {
+                // X-03：端口绑定失败（被占用/权限）时明确报错并跳过 HTTP 相关初始化，
+                // 其余功能（语音/采集/更新）继续——避免插件"半死"状态且无日志
+                Log.Error($"[SLDataAPI] HTTP 服务启动失败（端口 {Config.HttpPort} 可能被占用）: {ex.Message} —— 数据/控制接口不可用，其余功能继续");
+                server = null;
+            }
         }
-        catch (Exception ex)
+        else
         {
-            // X-03：端口绑定失败（被占用/权限）时明确报错并跳过 HTTP 相关初始化，
-            // 其余功能（语音/采集/更新）继续——避免插件"半死"状态且无日志
-            Log.Error($"[SLDataAPI] HTTP 服务启动失败（端口 {Config.HttpPort} 可能被占用）: {ex.Message} —— 数据/控制接口不可用，其余功能继续");
             server = null;
         }
 
-        // 语音转发（v2.3）：独立 WebSocket 端口，ControlToken 鉴权
+        // 语音转发（v2.3）：独立 WebSocket 端口，API Key 鉴权
         if (Config.VoiceEnabled)
         {
             LabApi.Events.Handlers.PlayerEvents.SendingVoiceMessage += OnSendingVoiceMessage;
@@ -106,7 +123,10 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
         if (Config.AutoUpdateCheck)
             UpdateChecker.Start(Version, Config.AutoUpdateInstall, Config.AutoUpdateCheckIntervalHours, reportConfigDir);
 
-        Log.Info($"SLDataAPI v{Version} (v2.6.0-preview-DevOnly / Kerckhoffs / LabAPI) enabled. HTTP on port {Config.HttpPort}. Control API: {(Config.ControlEnabled ? $"{Config.ControlTransport.ToUpperInvariant()} 模式，API Key" : "关闭")}. Voice: {(Config.VoiceEnabled ? $"启用(端口 {Config.VoicePort})" : "关闭")}.");
+        string httpStatus = server != null
+            ? $"HTTP on port {Config.HttpPort}" + (dataPlaneOk ? "" : "（仅控制面，数据口已关闭）")
+            : "HTTP 未绑定";
+        Log.Info($"SLDataAPI v{Version} (v2.6.0-preview-DevOnly / Kerckhoffs / LabAPI) enabled. {httpStatus}. Control API: {(Config.ControlEnabled ? $"{Config.ControlTransport.ToUpperInvariant()} 模式，API Key" : "关闭")}. Voice: {(Config.VoiceEnabled ? $"启用(端口 {Config.VoicePort})" : "关闭")}.");
     }
 
     public override void Disable()

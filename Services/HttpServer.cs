@@ -31,6 +31,8 @@ public class HttpServer
     // 只约束"读请求"阶段，不影响控制端点最长 5s 的主线程派发与响应写出。
     private const int RequestDeadlineMs = 15000;
 
+    private static int _queryTokenDeprecationLogged;
+
     public HttpServer(int port, Config config)
     {
         _port = port;
@@ -261,14 +263,8 @@ public class HttpServer
                     return;
                 }
 
-                string reqToken = ExtractQueryValue(query, "token");
-                // 与控制接口共用同一套防爆破锁定（常量时间比较 + 按 IP 锁定）
-                if (!ControlAuth.TryAuthenticate(remoteIp, reqToken, _config.VerifyToken ?? "", out string readErr, highPrivilege: false))
-                {
-                    Log.Warn($"[SLDataAPI] 数据接口鉴权失败 from {remoteIp}: {readErr} {ControlAuth.DescribeMismatch(reqToken, _config.VerifyToken)}");
-                    SendJson(stream, 403, Err(readErr));
+                if (!TryAuthorizeDataPlane(stream, remoteIp, query, headers, "数据接口"))
                     return;
-                }
 
                 // 快照模式：BuildJson 只读 volatile 快照 + 局部 Clone + 主线程派发，无共享可变状态，无需加锁
                 string json = DataCollector.BuildJson();
@@ -286,13 +282,8 @@ public class HttpServer
                     return;
                 }
 
-                string reqTokenAp = ExtractQueryValue(query, "token");
-                if (!ControlAuth.TryAuthenticate(remoteIp, reqTokenAp, _config.VerifyToken ?? "", out string apErr, highPrivilege: false))
-                {
-                    Log.Warn($"[SLDataAPI] /plugins/adapted 鉴权失败 from {remoteIp}: {apErr} {ControlAuth.DescribeMismatch(reqTokenAp, _config.VerifyToken)}");
-                    SendJson(stream, 403, Err(apErr));
+                if (!TryAuthorizeDataPlane(stream, remoteIp, query, headers, "/plugins/adapted"))
                     return;
-                }
 
                 // Authoritative full list: use latest main-thread snapshot from DataCollector.
                 var snapAp = DataCollector.CachedData?.adapted_plugins ?? PluginEndpointRegistry.Snapshot(includeLiveStatus: false);
@@ -313,13 +304,8 @@ public class HttpServer
                     return;
                 }
 
-                string reqTokenRt = ExtractQueryValue(query, "token");
-                if (!ControlAuth.TryAuthenticate(remoteIp, reqTokenRt, _config.VerifyToken ?? "", out string rtErr, highPrivilege: false))
-                {
-                    Log.Warn($"[SLDataAPI] adapted route 鉴权失败 from {remoteIp}: {rtErr} {ControlAuth.DescribeMismatch(reqTokenRt, _config.VerifyToken)}");
-                    SendJson(stream, 403, Err(rtErr));
+                if (!TryAuthorizeDataPlane(stream, remoteIp, query, headers, "adapted route"))
                     return;
-                }
 
                 // Expected: /plugins/{plugin_id}/{route_path}  (exactly two segments after /plugins/)
                 string rest = path.Substring("/plugins/".Length);
@@ -421,6 +407,38 @@ public class HttpServer
             Log.Error($"[SLDataAPI] 路由处理异常: {ex}");
             try { SendJson(stream, 500, Err("内部错误")); } catch { }
         }
+    }
+
+    /// <summary>
+    /// 数据口鉴权：弱/默认 verify_token fail-closed（不比较、不放行）；
+    /// 令牌来自 Authorization / X-SLDataAPI-Token，兼容 <c>?token=</c>。
+    /// </summary>
+    private bool TryAuthorizeDataPlane(Stream stream, string remoteIp, string query,
+        Dictionary<string, string> headers, string logTag)
+    {
+        if (!ControlAuth.IsAcceptableVerifyToken(_config.VerifyToken))
+        {
+            SendJson(stream, 503, Err(
+                "数据接口已关闭：verify_token 未设置为强随机值（禁止出厂默认/空/弱口令）。请修改 config.yml 后重启。"));
+            return false;
+        }
+
+        string reqToken = ControlAuth.ExtractDataPlaneToken(headers, query);
+        if (ControlAuth.QueryHasTokenParam(query) &&
+            (headers == null || ControlAuth.ExtractDataPlaneToken(headers, "") == "") &&
+            Interlocked.Exchange(ref _queryTokenDeprecationLogged, 1) == 0)
+        {
+            Log.Warn("[SLDataAPI] 数据口仍在使用 URL ?token=（可能进入访问日志/代理日志）。请改用 Authorization: Bearer 或 X-SLDataAPI-Token；查询参数将在后续版本弃用。");
+        }
+
+        if (!ControlAuth.TryAuthenticate(remoteIp, reqToken, _config.VerifyToken ?? "", out string err, highPrivilege: false))
+        {
+            Log.Warn($"[SLDataAPI] {logTag} 鉴权失败 from {remoteIp}: {err} {ControlAuth.DescribeMismatch(reqToken, _config.VerifyToken)}");
+            SendJson(stream, 403, Err(err));
+            return false;
+        }
+
+        return true;
     }
 
     private static void SendJson(Stream stream, int code, string jsonBody)

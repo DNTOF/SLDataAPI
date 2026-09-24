@@ -60,4 +60,24 @@ public class RemoteCommandGuardTests
         Assert.DoesNotContain("确认窗口", RemoteCommandGuard.RemoteDenyMessage);
         Assert.DoesNotContain("确认面板", RemoteCommandGuard.RemoteDenyMessage);
     }
+
+    [Fact]
+    public void RejectIfRemote_Local_Allows()
+    {
+        Assert.False(RemoteCommandGuard.IsRemoteExecution);
+        Assert.False(RemoteCommandGuard.RejectIfRemote(out string error));
+        Assert.Equal("", error);
+    }
+
+    [Fact]
+    public void RejectIfRemote_RemoteScope_DeniesKeyOps()
+    {
+        using (RemoteCommandGuard.RemoteExecutionScope.Enter())
+        {
+            Assert.True(RemoteCommandGuard.RejectIfRemote(out string error));
+            Assert.Equal(RemoteCommandGuard.RemoteDenyMessage, error);
+            Assert.Contains("不允许通过远程控制通道执行", error);
+        }
+        Assert.False(RemoteCommandGuard.RejectIfRemote(out _));
+    }
 }

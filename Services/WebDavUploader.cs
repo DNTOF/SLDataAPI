@@ -101,9 +101,11 @@ public sealed class WebDavUploader : IDisposable
 
         string probe = ReplacePlaceholder(options.Url, "probe.zip");
         if (!Uri.TryCreate(probe, UriKind.Absolute, out var uri) ||
-            (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+            uri.Scheme != Uri.UriSchemeHttps)
         {
-            error = "webdav_url 必须是 http(s) 绝对地址（或含 {filename} 的模板）";
+            error = uri != null && uri.Scheme == Uri.UriSchemeHttp
+                ? "webdav_url 禁止 http://（密码在 config.yml，明文 WebDAV 会泄露 Basic Auth）。请改用 https://"
+                : "webdav_url 必须是 https:// 绝对地址（或含 {filename} 的模板）";
             return false;
         }
 

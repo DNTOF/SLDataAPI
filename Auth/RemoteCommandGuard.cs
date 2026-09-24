@@ -69,6 +69,21 @@ public static class RemoteCommandGuard
     /// <summary>当前线程是否正在执行远程控制通道下发的命令。</summary>
     public static bool IsRemoteExecution => _remoteDepth > 0;
 
+    /// <summary>
+    /// 远程执行上下文中必须拒绝密钥管理。返回 true 表示调用方应立即失败（error 为对外文案）。
+    /// </summary>
+    public static bool RejectIfRemote(out string error)
+    {
+        if (!IsRemoteExecution)
+        {
+            error = "";
+            return false;
+        }
+
+        error = RemoteDenyMessage;
+        return true;
+    }
+
     /// <summary>远程命令执行作用域：<c>using var scope = RemoteExecutionScope.Enter();</c></summary>
     public struct RemoteExecutionScope : IDisposable
     {

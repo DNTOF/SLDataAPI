@@ -19,5 +19,8 @@
     <Compile Include="..\..\Auth\EndpointAcl.cs" Link="EndpointAcl.cs" />
     <Compile Include="..\..\Auth\RemoteCommandGuard.cs" Link="RemoteCommandGuard.cs" />
     <Compile Include="..\..\Auth\ApiKeyCreateDelivery.cs" Link="ApiKeyCreateDelivery.cs" />
+    <Compile Include="..\..\Auth\ControlAuditView.cs" Link="ControlAuditView.cs" />
+    <Compile Include="..\..\Control\ControlAuth.cs" Link="ControlAuth.cs" />
+    <Compile Include="..\..\Control\WsCallGate.cs" Link="WsCallGate.cs" />
   </ItemGroup>
 </Project>

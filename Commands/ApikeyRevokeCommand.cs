@@ -21,7 +21,6 @@ public sealed class ApikeyRevokeCommand : ICommand, IUsageProvider
 
         string id = arguments.Array![arguments.Offset];
 
-        // 远程控制通道已被 RemoteCommandGuard 硬拒绝，走不到这里。
         if (!ApiKeyService.TryRevoke(id, out string error))
         {
             response = "吊销失败: " + error;

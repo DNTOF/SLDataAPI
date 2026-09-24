@@ -79,6 +79,7 @@ public static class ServerLogService
             }
         }
 
+        var roots = GetLogDirs();
         return new
         {
             count = files.Count,
@@ -86,7 +87,7 @@ public static class ServerLogService
                 .OrderByDescending(x => x.time)
                 .Select(x => new
                 {
-                    path = x.path,
+                    path = RelativizeLogPath(x.path, roots),
                     name = x.name,
                     size = x.size,
                     modified = x.modified,
@@ -110,6 +111,15 @@ public static class ServerLogService
         }
         else
         {
+            // 列表已改为相对路径：相对段先解析到候选日志目录内
+            if (!IsAbsolutePath(path))
+            {
+                string? resolved = ResolveRelativeLogPath(path);
+                if (resolved == null)
+                    throw new ArgumentException("日志路径不在服务器日志目录内，拒绝读取");
+                path = resolved;
+            }
+
             // 安全校验：规范化后必须位于候选日志目录内 + 扩展名白名单（.log/.txt）
             string full;
             try { full = Path.GetFullPath(path); }
@@ -145,10 +155,74 @@ public static class ServerLogService
         return new
         {
             file = Path.GetFileName(file),
-            path = file,
+            path = RelativizeLogPath(file, GetLogDirs()),
             total = tail.Length,
             lines = tail
         };
+    }
+
+    /// <summary>对 duty 可见列表：返回相对日志根的路径，避免泄露主机绝对路径。</summary>
+    public static string RelativizeLogPath(string fullPath, IReadOnlyList<string> roots)
+    {
+        if (string.IsNullOrEmpty(fullPath))
+            return "";
+        string full;
+        try { full = Path.GetFullPath(fullPath); }
+        catch { return Path.GetFileName(fullPath); }
+
+        string best = Path.GetFileName(full);
+        int bestLen = -1;
+        foreach (string dir in roots)
+        {
+            if (string.IsNullOrEmpty(dir)) continue;
+            string prefix;
+            try
+            {
+                prefix = Path.GetFullPath(dir).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                         + Path.DirectorySeparatorChar;
+            }
+            catch { continue; }
+
+            if (full.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) && prefix.Length > bestLen)
+            {
+                bestLen = prefix.Length;
+                best = full.Substring(prefix.Length).Replace('\\', '/');
+            }
+        }
+        return best;
+    }
+
+    private static bool IsAbsolutePath(string path)
+    {
+        try { return Path.IsPathRooted(path); }
+        catch { return false; }
+    }
+
+    private static string? ResolveRelativeLogPath(string relative)
+    {
+        string norm = (relative ?? "").Replace('\\', '/').TrimStart('/');
+        if (string.IsNullOrEmpty(norm) || norm.Contains(".."))
+            return null;
+        foreach (string dir in GetLogDirs())
+        {
+            string candidate;
+            try { candidate = Path.GetFullPath(Path.Combine(dir, norm)); }
+            catch { continue; }
+            if (File.Exists(candidate))
+                return candidate;
+        }
+        string nameOnly = Path.GetFileName(norm);
+        if (string.IsNullOrEmpty(nameOnly) || nameOnly.Contains(".."))
+            return null;
+        foreach (string dir in GetLogDirs())
+        {
+            string candidate;
+            try { candidate = Path.GetFullPath(Path.Combine(dir, nameOnly)); }
+            catch { continue; }
+            if (File.Exists(candidate))
+                return candidate;
+        }
+        return null;
     }
 
     /// <summary>在所有候选位置里找最后修改的日志文件；找不到返回 null。</summary>

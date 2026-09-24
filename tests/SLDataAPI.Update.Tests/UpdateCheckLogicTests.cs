@@ -14,6 +14,8 @@ public class UpdateCheckLogicTests
         Assert.True(cfg.AutoUpdateInstall);
         Assert.Equal(72, cfg.AutoUpdateCheckIntervalHours);
         Assert.Equal(72, UpdateCheckLogic.DefaultIntervalHours);
+        Assert.False(cfg.ApikeyCopyToClipboard);
+        Assert.Equal("your_secret_token", cfg.VerifyToken);
     }
 
     [Fact]
@@ -162,5 +164,26 @@ public class UpdateCheckLogicTests
         Assert.Equal(UpdateCheckOutcome.Failed,
             UpdateCheckLogic.EvaluateLatestRelease("", new Version(2, 6, 0), out _, out string detail));
         Assert.Contains("空", detail);
+    }
+
+    [Fact]
+    public void UnsignedCurrentAssembly_RefusesAutoInstall()
+    {
+        Assert.True(UpdateCheckLogic.ShouldRefuseAutoInstallBecauseUnsigned(null));
+        Assert.True(UpdateCheckLogic.ShouldRefuseAutoInstallBecauseUnsigned(Array.Empty<byte>()));
+        Assert.False(UpdateCheckLogic.IsSignedPublicKeyToken(null));
+        Assert.Equal("3ec73bb20070fa9c", UpdateCheckLogic.ExpectedPublicKeyTokenHex);
+    }
+
+    [Fact]
+    public void SignedTokens_MustMatch_ForInstall()
+    {
+        byte[] official = { 0x3e, 0xc7, 0x3b, 0xb2, 0x00, 0x70, 0xfa, 0x9c };
+        byte[] other = { 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88 };
+        Assert.False(UpdateCheckLogic.ShouldRefuseAutoInstallBecauseUnsigned(official));
+        Assert.True(UpdateCheckLogic.PublicKeyTokensMatch(official, official));
+        Assert.False(UpdateCheckLogic.PublicKeyTokensMatch(official, other));
+        Assert.False(UpdateCheckLogic.PublicKeyTokensMatch(official, null));
+        Assert.False(UpdateCheckLogic.PublicKeyTokensMatch(official, Array.Empty<byte>()));
     }
 }

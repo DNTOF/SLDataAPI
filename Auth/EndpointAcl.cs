@@ -141,7 +141,8 @@ public static class EndpointAcl
             ["/control/round/"] = EndpointGrant.FromReadWrite(true, false),
             ["/control/round"] = EndpointGrant.FromReadWrite(true, false),
             ["/control/logs"] = EndpointGrant.FromBool(true),
-            ["/control/audit/list"] = EndpointGrant.FromBool(true),
+            // 值班不得默认可读全量审计（含其他 Key 的踢人/封禁/控制台/文件请求体）
+            ["/control/audit/list"] = EndpointGrant.FromBool(false),
             ["ws:subscribe_events"] = EndpointGrant.FromBool(true),
             ["voice:/ws"] = EndpointGrant.FromBool(false),
             ["voice:/status"] = EndpointGrant.FromBool(false),

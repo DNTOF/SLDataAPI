@@ -3,24 +3,27 @@ using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Reflection;
-using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
 
 namespace SLDataAPI.Services;
 
 /// <summary>
-/// 启动时异步检查 GitHub Releases 是否有新版本。
+/// GitHub Releases 更新检查（启动 + 可选 72h 静默周期，同一通道）。
 /// install=true 时自动下载并替换插件 DLL（LabAPI 从文件字节加载插件、不锁定文件，
 /// 覆盖后下次重启服务器生效）；install=false 时仅日志提示。
 /// 稳定版策略：自动更新只接受稳定版——GitHub 的 prerelease/draft 标记（权威）
 /// 与 tag 语义识别（beta/alpha/rc/preview/dev 等）双保险，预发布版本一律跳过。
 /// 失败（无网络、限流、校验不过）一律安全降级，不影响插件正常运行。
+/// 周期检查默认跟随 auto_update_check；距上次检查不足间隔则跳过（状态文件），避免重启刷 API。
+/// 无更新：Debug；有新版本或检查失败：Warn。不占游戏主线程。
 /// </summary>
 public static class UpdateChecker
 {
     private const string ReleasesApiUrl = "https://api.github.com/repos/DNTOF/SLDataAPI/releases/latest";
     private const int MaxDllBytes = 5 * 1024 * 1024;   // 5MB 上限，防恶意超大文件
+    private static readonly TimeSpan MaxSleep = TimeSpan.FromHours(6);
 
     private static readonly HttpClient Http = new HttpClient
     {
@@ -30,58 +33,145 @@ public static class UpdateChecker
     private static readonly string AsmName =
         typeof(UpdateChecker).Assembly.GetName().Name ?? "SLDataAPI";
 
+    private static readonly object Gate = new();
+    private static CancellationTokenSource? _cts;
+    private static int _inFlight;
+
     static UpdateChecker()
     {
         Http.DefaultRequestHeaders.UserAgent.ParseAdd("SLDataAPI-Updater");
     }
 
+    /// <summary>
+    /// 启动检查调度：若距上次检查已过间隔（或无状态）则立即异步检查，
+    /// intervalHours&gt;0 时再按间隔静默复查。不阻塞调用线程。
+    /// </summary>
+    public static void Start(Version currentVersion, bool install, int intervalHours, string? stateDir)
+    {
+        Stop();
+        var cts = new CancellationTokenSource();
+        lock (Gate) { _cts = cts; }
+        string statePath = UpdateCheckLogic.StatePath(stateDir);
+        TimeSpan interval = UpdateCheckLogic.IntervalFromHours(intervalHours);
+        _ = Task.Run(() => LoopAsync(currentVersion, install, interval, statePath, cts.Token));
+    }
+
+    /// <summary>取消周期循环；不等待在途 HTTP（停服不挡主线程）。</summary>
+    public static void Stop()
+    {
+        CancellationTokenSource? cts;
+        lock (Gate)
+        {
+            cts = _cts;
+            _cts = null;
+        }
+        try { cts?.Cancel(); } catch { /* ignore */ }
+        try { cts?.Dispose(); } catch { /* ignore */ }
+    }
+
+    /// <summary>一次性异步检查（忽略间隔）。周期调度请用 Start。</summary>
     public static void CheckAsync(Version currentVersion, bool install)
     {
-        _ = Task.Run(async () =>
+        _ = Task.Run(() => RunCheckAsync(currentVersion, install, persistPath: ""));
+    }
+
+    private static async Task LoopAsync(
+        Version currentVersion, bool install, TimeSpan interval, string statePath, CancellationToken ct)
+    {
+        bool periodic = interval > TimeSpan.Zero;
+        while (!ct.IsCancellationRequested)
         {
             try
             {
-                var resp = await Http.GetAsync(ReleasesApiUrl);
-                if (!resp.IsSuccessStatusCode)
-                {
-                    Log.Debug($"[SLDataAPI] 更新检查请求失败: HTTP {(int)resp.StatusCode}");
-                    return;
-                }
+                if (UpdateCheckLogic.IsDueFromFile(statePath, DateTime.UtcNow, interval))
+                    await RunCheckAsync(currentVersion, install, statePath).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"[SLDataAPI] 更新检查失败（不影响正常运行）: {ex.Message}");
+                UpdateCheckLogic.TrySaveLastCheckUtc(statePath, DateTime.UtcNow);
+            }
 
-                var obj = JObject.Parse(await resp.Content.ReadAsStringAsync());
-                string tag = obj["tag_name"]?.ToString() ?? "";
+            if (!periodic)
+                break;
 
-                // 稳定版策略（用户要求）：预发布版本一律不自动下载。
-                // 双保险：GitHub 元数据（prerelease/draft 复选框，权威）+ tag 语义识别
-                //（防发布时忘勾 prerelease 复选框就把 beta tag 当稳定版推出）。
-                if (obj["prerelease"]?.Value<bool>() == true || obj["draft"]?.Value<bool>() == true ||
-                    IsPreReleaseTag(tag))
-                {
-                    Log.Debug($"[SLDataAPI] 最新 Release 为预发布版本（{tag}），按稳定版策略跳过自动更新。");
-                    return;
-                }
+            TimeSpan wait = UpdateCheckLogic.DelayUntilDue(
+                UpdateCheckLogic.LoadLastCheckUtc(statePath), DateTime.UtcNow, interval);
+            if (wait > MaxSleep)
+                wait = MaxSleep;
+            if (wait < TimeSpan.FromSeconds(5))
+                wait = TimeSpan.FromSeconds(5);
+            try { await Task.Delay(wait, ct).ConfigureAwait(false); }
+            catch (OperationCanceledException) { break; }
+        }
+    }
 
-                if (!TryParseVersion(tag, out var remote) || remote <= currentVersion)
-                {
-                    Log.Debug("[SLDataAPI] 已是最新版本。");
-                    return;
-                }
+    private static async Task RunCheckAsync(Version currentVersion, bool install, string persistPath)
+    {
+        if (Interlocked.CompareExchange(ref _inFlight, 1, 0) != 0)
+            return;
+        try
+        {
+            await RunCheckCoreAsync(currentVersion, install).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"[SLDataAPI] 更新检查失败（不影响正常运行）: {ex.Message}");
+        }
+        finally
+        {
+            if (!string.IsNullOrEmpty(persistPath))
+                UpdateCheckLogic.TrySaveLastCheckUtc(persistPath, DateTime.UtcNow);
+            Interlocked.Exchange(ref _inFlight, 0);
+        }
+    }
 
+    private static async Task RunCheckCoreAsync(Version currentVersion, bool install)
+    {
+        var resp = await Http.GetAsync(ReleasesApiUrl).ConfigureAwait(false);
+        if (!resp.IsSuccessStatusCode)
+        {
+            Log.Warn($"[SLDataAPI] 更新检查请求失败: HTTP {(int)resp.StatusCode}");
+            return;
+        }
+
+        string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+        var outcome = UpdateCheckLogic.EvaluateLatestRelease(body, currentVersion, out var remote, out string detail);
+        switch (outcome)
+        {
+            case UpdateCheckOutcome.Failed:
+                Log.Warn($"[SLDataAPI] 更新检查失败（不影响正常运行）: {detail}");
+                return;
+            case UpdateCheckOutcome.PreReleaseSkipped:
+                Log.Debug($"[SLDataAPI] 最新 Release 为预发布版本（{detail}），按稳定版策略跳过自动更新。");
+                return;
+            case UpdateCheckOutcome.UpToDate:
+                Log.Debug("[SLDataAPI] 已是最新版本。");
+                return;
+            case UpdateCheckOutcome.UpdateAvailable:
                 Log.Warn($"[SLDataAPI] 检测到新版本 v{remote}（当前 v{currentVersion}）。");
                 if (!install)
                 {
                     Log.Warn("[SLDataAPI] AutoUpdateInstall=false：仅提示，请前往 https://github.com/DNTOF/SLDataAPI/releases/latest 手动更新。");
                     return;
                 }
-
-                await InstallAsync(remote, obj);
-            }
-            catch (Exception ex)
-            {
-                // 网络不可达 / GitHub 限流 / 解析失败等，不影响插件本体功能
-                Log.Debug($"[SLDataAPI] 更新检查失败（不影响正常运行）: {ex.Message}");
-            }
-        });
+                byte[]? runningToken = typeof(UpdateChecker).Assembly.GetName().GetPublicKeyToken();
+                if (UpdateCheckLogic.ShouldRefuseAutoInstallBecauseUnsigned(runningToken))
+                {
+                    Log.Warn("[SLDataAPI] 当前程序集未强名称签名，拒绝自动安装（即使 AutoUpdateInstall=true）。请使用已签名的正式构建，或关闭自动安装后手动更新。");
+                    return;
+                }
+                JObject obj = JObject.Parse(body);
+                await InstallAsync(remote!, obj).ConfigureAwait(false);
+                return;
+            default:
+                Log.Warn($"[SLDataAPI] 更新检查失败（不影响正常运行）: 未知结果");
+                return;
+        }
     }
 
     private static async Task InstallAsync(Version remote, JObject release)
@@ -171,17 +261,20 @@ public static class UpdateChecker
             return;
         }
 
-        // 当前版本已强名称签名时，要求新文件签名一致（同一把私钥 = 同源可信，防篡改）
-        byte[] curToken = typeof(UpdateChecker).Assembly.GetName().GetPublicKeyToken();
-        byte[] newToken = newName.GetPublicKeyToken();
-        if (curToken != null && curToken.Length > 0)
+        // 未签名构建不得自动安装；已签名则要求新文件公钥令牌一致（防篡改）
+        byte[]? curToken = typeof(UpdateChecker).Assembly.GetName().GetPublicKeyToken();
+        byte[]? newToken = newName.GetPublicKeyToken();
+        if (UpdateCheckLogic.ShouldRefuseAutoInstallBecauseUnsigned(curToken))
         {
-            if (newToken == null || newToken.Length == 0 || !curToken.SequenceEqual(newToken))
-            {
-                Log.Warn("[SLDataAPI] 下载程序集强名称签名与当前版本不一致（可能被篡改），拒绝自动替换。");
-                SafeDelete(tmp);
-                return;
-            }
+            Log.Warn("[SLDataAPI] 当前程序集未强名称签名，拒绝自动安装（即使 AutoUpdateInstall=true）。");
+            SafeDelete(tmp);
+            return;
+        }
+        if (!UpdateCheckLogic.PublicKeyTokensMatch(curToken, newToken))
+        {
+            Log.Warn("[SLDataAPI] 下载程序集强名称签名与当前版本不一致（可能被篡改），拒绝自动替换。");
+            SafeDelete(tmp);
+            return;
         }
 
         // ---- 替换（LabAPI 从字节加载插件，文件不占用）----
@@ -199,36 +292,6 @@ public static class UpdateChecker
         {
             Log.Warn($"[SLDataAPI] 自动替换失败（文件可能被占用）: {ex.Message}。已保留 {dllFile}.tmp，可手动替换。");
         }
-    }
-
-    // 预发布标识段：段内只允许"标识词 + 数字后缀"（如 beta / rc1 / alpha2），
-    // 避免 premium 这类含 pre 前缀的正常单词被误判（Y-02：旧实现的 \b 在非逐字
-    // 字符串里是退格符，分支永远匹配不到，仅靠 -rc 兜底属侥幸正确）
-    private static readonly Regex PreReleaseSegmentRegex = new Regex(
-        @"^(?:beta|alpha|preview|pre|prerelease|rc|dev|nightly|canary|snapshot)\d*$",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-    /// <summary>tag 是否为预发布版本：按 -_. 分段，任一段命中预发布标识词即判定。</summary>
-    private static bool IsPreReleaseTag(string tag)
-    {
-        if (string.IsNullOrEmpty(tag)) return false;
-        foreach (string seg in tag.Split('-', '_', '.'))
-        {
-            if (PreReleaseSegmentRegex.IsMatch(seg))
-                return true;
-        }
-        return false;
-    }
-
-    /// <summary>容错解析版本号：支持 v2.1.0 / 2.1.0 / v2.1.0（YYMMDDHHmm）等标签格式。
-    /// 预发布 tag（beta/alpha/rc/preview/dev 等）不解析——自动更新只接受稳定版。</summary>
-    private static bool TryParseVersion(string tag, out Version version)
-    {
-        version = null!;
-        if (string.IsNullOrEmpty(tag)) return false;
-        if (IsPreReleaseTag(tag)) return false;
-        var m = Regex.Match(tag, @"(\d+)\.(\d+)\.(\d+)");
-        return m.Success && Version.TryParse(m.Value, out version);
     }
 
     private static void SafeDelete(string path)

@@ -8,6 +8,7 @@ using LabApi.Loader;
 using LabApi.Loader.Features.Plugins;
 using LabApi.Loader.Features.Yaml;
 using MEC;
+using SLDataAPI.Auth;
 using SLDataAPI.Capture;
 using SLDataAPI.Control;
 using SLDataAPI.Map;
@@ -22,9 +23,9 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
     private HttpServer? server;
 
     public override string Name => "SLDataAPI";
-    public override string Description => "通过 HTTP API 向外部（WebUI / 机器人）提供服务器数据采集与远程控制能力（LabAPI 原生插件，代号 Nexus）";
+    public override string Description => "通过 HTTP API 向外部（WebUI / 机器人）提供服务器数据采集与远程控制能力（LabAPI 原生插件，v2.6.0，代号 PEAK）";
     public override string Author => "DNT_OF";
-    public override Version Version => new Version(2, 5, 5);
+    public override Version Version => new Version(2, 6, 0);
     public override Version RequiredApiVersion => new Version(1, 1, 7);
 
     public override void Enable()
@@ -46,9 +47,17 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
         ValidateConfigFileIntegrity();
         ValidateControlConfig();
 
-        // 安全提示：VerifyToken 仍是出厂默认值时，数据接口相当于裸奔
-        if (string.Equals(Config.VerifyToken, "your_secret_token", StringComparison.Ordinal))
-            Log.Warn("[SLDataAPI] VerifyToken 仍为出厂默认值 your_secret_token，请尽快修改为强随机值！");
+        bool dataPlaneOk = ControlAuth.IsAcceptableVerifyToken(Config.VerifyToken);
+        if (!dataPlaneOk)
+        {
+            string why = ControlAuth.DescribeVerifyTokenRejection(Config.VerifyToken);
+            Log.Error(
+                "[SLDataAPI] verify_token 未通过 fail-closed 校验（" + why + "）。" +
+                "必须设置强随机值（长度≥8，同时含大写/小写/数字/特殊符号，且不得为出厂默认 your_secret_token）。" +
+                (Config.ControlEnabled
+                    ? "数据口（/get_sl_data 等）将拒绝服务；HTTP 端口仅在控制面需要时绑定。"
+                    : "本次不会绑定数据 HTTP 监听。"));
+        }
 
         // 数据接口 token 的引号检测（控制 token 的检测在 ValidateControlConfig，更严格：直接禁用）
         if (ContainsQuoteChar(Config.VerifyToken))
@@ -57,25 +66,35 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
 
         // 生效配置摘要（一眼识别"配置没被读到、正在用默认值"的状态）
         Log.Info(
-            $"[SLDataAPI] 配置摘要：http_port={Config.HttpPort}，verify_token 长度 {Config.VerifyToken?.Length ?? 0}，" +
-            $"control={(Config.ControlEnabled ? $"{Config.ControlTransport} 模式，token 长度 {Config.ControlToken?.Length ?? 0}" : "关闭")}，" +
+            $"[SLDataAPI] 配置摘要：http_port={Config.HttpPort}，verify_token 长度 {Config.VerifyToken?.Length ?? 0}" +
+            $"{(dataPlaneOk ? "" : "（数据口已关闭）")}，" +
+            $"control={(Config.ControlEnabled ? $"{Config.ControlTransport} 模式，API Key 鉴权" : "关闭")}，" +
             $"voice={(Config.VoiceEnabled ? $"启用(端口 {Config.VoicePort})" : "关闭")}，" +
-            $"录音={(Config.VoiceRecordEnabled ? $"开(保留 {Config.VoiceRecordMaxRounds} 局)" : "关")}。");
+            $"录音={(Config.VoiceRecordEnabled ? $"开(保留 {Config.VoiceRecordMaxRounds} 局)" : "关")}，" +
+            $"webdav={(Config.WebdavUploadEnabled ? "开" : "关")}。");
 
-        server = new HttpServer(Config.HttpPort, Config);
-        try
+        // 弱/默认 verify_token：不绑定 HTTP，除非控制面已启用（同端口还要伺候 /control）。
+        if (dataPlaneOk || Config.ControlEnabled)
         {
-            server.Start();
+            server = new HttpServer(Config.HttpPort, Config);
+            try
+            {
+                server.Start();
+            }
+            catch (Exception ex)
+            {
+                // X-03：端口绑定失败（被占用/权限）时明确报错并跳过 HTTP 相关初始化，
+                // 其余功能（语音/采集/更新）继续——避免插件"半死"状态且无日志
+                Log.Error($"[SLDataAPI] HTTP 服务启动失败（端口 {Config.HttpPort} 可能被占用）: {ex.Message} —— 数据/控制接口不可用，其余功能继续");
+                server = null;
+            }
         }
-        catch (Exception ex)
+        else
         {
-            // X-03：端口绑定失败（被占用/权限）时明确报错并跳过 HTTP 相关初始化，
-            // 其余功能（语音/采集/更新）继续——避免插件"半死"状态且无日志
-            Log.Error($"[SLDataAPI] HTTP 服务启动失败（端口 {Config.HttpPort} 可能被占用）: {ex.Message} —— 数据/控制接口不可用，其余功能继续");
             server = null;
         }
 
-        // 语音转发（v2.3）：独立 WebSocket 端口，ControlToken 鉴权
+        // 语音转发（v2.3）：独立 WebSocket 端口，API Key 鉴权
         if (Config.VoiceEnabled)
         {
             LabApi.Events.Handlers.PlayerEvents.SendingVoiceMessage += OnSendingVoiceMessage;
@@ -84,11 +103,16 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
 
         // 语音录音取证（v2.5）：每局自动保存 WAV + 时间轴日志
         VoiceRecorder.Configure(Config.VoiceRecordEnabled, Config.VoiceRecordMaxRounds, Config.VoiceRecordDir);
+        WebDavUploadService.Init(Config);
+        VoiceRecorder.OnZipFinalized = WebDavUploadService.Enqueue;
 
         // 举报功能（v2.5.4 推出，代号 GIS,GNSS,RS!）：SSS 面板举报 + 平台端点，默认关闭
         string reportConfigDir = "";
         try { reportConfigDir = Path.GetDirectoryName(ConfigurationLoader.GetConfigPath(this, ConfigFileName)) ?? ""; } catch { /* 目录获取失败则按禁用处理 */ }
         ReportService.Init(Config.ReportEnabled, Config.ReportMaxRecords, Config.ReportRateLimit, Config.ReportRateWindowMinutes, reportConfigDir);
+
+        // API Key（v2.6.0 推出，代号 PEAK）：控制面 / 语音 / 控制 WS 鉴权；与 verify_token 双轨
+        ApiKeyService.Init(reportConfigDir);
 
         // 控制操作审计日志（v2.5.5-preview 推出，代号 Everest C1）：主动侵入性操作记录，默认开启
         ControlLogService.Init(Config.ControlLogEnabled, Config.ControlLogMaxRecords, reportConfigDir);
@@ -97,9 +121,12 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
         DataCollector.InitData(Config.PushIntervalSeconds);
 
         if (Config.AutoUpdateCheck)
-            UpdateChecker.CheckAsync(Version, Config.AutoUpdateInstall);
+            UpdateChecker.Start(Version, Config.AutoUpdateInstall, Config.AutoUpdateCheckIntervalHours, reportConfigDir);
 
-        Log.Info($"SLDataAPI v{Version} (Nexus / LabAPI) enabled. HTTP on port {Config.HttpPort}. Control API: {(Config.ControlEnabled ? $"{Config.ControlTransport.ToUpperInvariant()} 模式" : "关闭")}. Voice: {(Config.VoiceEnabled ? $"启用(端口 {Config.VoicePort})" : "关闭")}.");
+        string httpStatus = server != null
+            ? $"HTTP on port {Config.HttpPort}" + (dataPlaneOk ? "" : "（仅控制面，数据口已关闭）")
+            : "HTTP 未绑定";
+        Log.Info($"SLDataAPI v{Version} (2.6.0 PEAK / LabAPI) enabled. {httpStatus}. Control API: {(Config.ControlEnabled ? $"{Config.ControlTransport.ToUpperInvariant()} 模式，API Key" : "关闭")}. Voice: {(Config.VoiceEnabled ? $"启用(端口 {Config.VoicePort})" : "关闭")}.");
     }
 
     public override void Disable()
@@ -115,12 +142,15 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
         LabApi.Events.Handlers.PlayerEvents.SendingVoiceMessage -= OnSendingVoiceMessage;
 
         VoiceService.Stop();
-        VoiceRecorder.EndRound(waitFinalize: true); // 兜底：停服时定稿并等待打包完成
+        VoiceRecorder.EndRound(waitFinalize: true); // 兜底：停服时定稿并等待打包完成（回调入队 WebDAV）
+        VoiceRecorder.OnZipFinalized = null;
+        WebDavUploadService.Shutdown();
         ReportService.Dispose();
         server?.Stop();
         ControlController.ClearPluginStaged(); // X-05：插件重载后清空启停暂存
         WsControlService.ShutdownAll();
         DataCollector.StopTimer();
+        UpdateChecker.Stop();
         CommandOutputCapture.Shutdown();
 
         Instance = null;
@@ -220,36 +250,20 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
     }
 
     /// <summary>
-    /// 启动时校验控制接口配置。token 格式不合法则强制在本次运行中禁用控制接口，
-    /// 连接方式仅接受 http / ws（非法值回落 http）——这只影响运行时状态，不会改写配置文件。
+    /// 启动时校验控制接口配置。2.6：ControlToken 已废弃（警告后忽略）；
+    /// 连接方式仅接受 http / ws（非法值回落 http）——只影响运行时状态，不改写配置文件。
     /// </summary>
     private void ValidateControlConfig()
     {
+        if (!string.IsNullOrEmpty(Config.ControlToken))
+        {
+            Log.Warn(
+                "[SLDataAPI] control_token 已在 v2.6.0（代号 PEAK）废弃，不再用于鉴权。" +
+                "请改用 apikey.config + 命令 sldataapi apikey create；该字段将被忽略。");
+        }
+
         if (!Config.ControlEnabled)
             return;
-
-        // 引号检测：' " 或弯引号 ‘ ’ “ ” 在 token 里几乎总是配置错误——弯引号不是 YAML 引号语法，
-        // 会被解析成 token 内容的一部分（长度+1、格式校验照常通过、启动零报错，但鉴权必然 403）。
-        // 典型来源：从聊天软件/网页复制 token 时引号被替换成智能引号。
-        if (ContainsQuoteChar(Config.ControlToken))
-        {
-            Log.Error(
-                "[SLDataAPI] ControlToken 中检测到引号字符（' \" 或弯引号 ‘ ’ “ ”）——" +
-                "引号会被当作 token 内容导致鉴权必然失败。请删除 token 两端的引号" +
-                "（注意从聊天软件复制来的弯引号），修正后重启服务器。本次运行将强制禁用控制接口。");
-            Config.ControlEnabled = false;
-            return;
-        }
-
-        if (!ControlAuth.IsValidTokenFormat(Config.ControlToken))
-        {
-            Log.Error(
-                "[SLDataAPI] ControlEnabled=true 但 ControlToken 格式不合法" +
-                "（要求长度不少于8，且同时包含大写字母/小写字母/数字/特殊符号）。" +
-                "本次运行将强制禁用控制接口，请修正配置后重启服务器。");
-            Config.ControlEnabled = false;
-            return;
-        }
 
         string transport = (Config.ControlTransport ?? "http").Trim().ToLowerInvariant();
         if (transport != "http" && transport != "ws")

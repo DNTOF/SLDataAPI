@@ -1,15 +1,16 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Threading;
 
 namespace SLDataAPI.Control;
 
 /// <summary>
-/// 控制接口鉴权：token 格式校验、常量时间比较、按 IP 的暴力破解锁定。
+/// 控制接口鉴权（v2.6.0 推出，代号 PEAK：双轨 verify_token + API Key）：格式校验、常量时间比较、按 IP 的暴力破解锁定。
 /// 锁定按权限分级（M-02）：
 ///   - 只读数据接口（/get_sl_data，verify_token 低权限）单独一张失败表——
 ///     攻击者刷数据接口不会锁死管理员的高权限通道；
-///   - 控制/语音（control_token 高权限）共用另一张失败表。
+///   - 控制/语音（API Key 高权限）共用另一张失败表。
 /// 失败表带周期清扫（窗口过期 + 锁定期即删），IPv6 海量源地址不会造成无界内存增长。
 /// </summary>
 public static class ControlAuth
@@ -48,6 +49,9 @@ public static class ControlAuth
         }
     }
 
+    /// <summary>文档与 config.yml 出厂默认值；启用时 fail-closed，不得当作有效数据口令。</summary>
+    public const string FactoryDefaultVerifyToken = "your_secret_token";
+
     /// <summary>
     /// 校验 token 格式：长度不少于 8 位，且同时包含大写字母 / 小写字母 / 数字 / 特殊符号。
     /// </summary>
@@ -66,6 +70,113 @@ public static class ControlAuth
         }
 
         return upper && lower && digit && special;
+    }
+
+    /// <summary>
+    /// 数据口 verify_token 是否允许对外提供服务：非空、非出厂默认、且通过 <see cref="IsValidTokenFormat"/>。
+    /// </summary>
+    public static bool IsAcceptableVerifyToken(string? token)
+    {
+        if (string.IsNullOrWhiteSpace(token))
+            return false;
+        token = token.Trim();
+        if (string.Equals(token, FactoryDefaultVerifyToken, StringComparison.Ordinal))
+            return false;
+        return IsValidTokenFormat(token);
+    }
+
+    /// <summary>拒绝原因（不含 token 原文），供启动 Error 日志。</summary>
+    public static string DescribeVerifyTokenRejection(string? token)
+    {
+        if (string.IsNullOrWhiteSpace(token))
+            return "为空或仅空白";
+        if (string.Equals(token.Trim(), FactoryDefaultVerifyToken, StringComparison.Ordinal))
+            return "仍为出厂默认值 your_secret_token";
+        if (!IsValidTokenFormat(token.Trim()))
+            return "强度不足（长度须≥8，且同时含大写、小写、数字、特殊符号）";
+        return "";
+    }
+
+    /// <summary>
+    /// 数据口令提取：优先 Authorization: Bearer / X-SLDataAPI-Token / X-SLDataAPI-Verify-Token，
+    /// 回退 URL <c>?token=</c>（兼容旧客户端；会出现在访问日志，建议改用请求头）。
+    /// </summary>
+    public static string ExtractDataPlaneToken(IDictionary<string, string>? headers, string? query)
+    {
+        if (headers != null)
+        {
+            if (TryGetHeader(headers, "Authorization", out string auth) &&
+                auth.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+            {
+                string bearer = auth.Substring(7).Trim();
+                if (bearer.Length > 0)
+                    return bearer;
+            }
+
+            if (TryGetHeader(headers, "X-SLDataAPI-Token", out string alias) && alias.Length > 0)
+                return alias;
+            if (TryGetHeader(headers, "X-SLDataAPI-Verify-Token", out string alias2) && alias2.Length > 0)
+                return alias2;
+        }
+
+        return ExtractQueryToken(query);
+    }
+
+    /// <summary>查询串是否带 token=（用于弃用提示；不返回值以免入日志）。</summary>
+    public static bool QueryHasTokenParam(string? query)
+    {
+        if (string.IsNullOrEmpty(query))
+            return false;
+        foreach (var pair in query!.Split('&'))
+        {
+            if (string.IsNullOrEmpty(pair)) continue;
+            int eq = pair.IndexOf('=');
+            string k = eq >= 0 ? pair.Substring(0, eq) : pair;
+            if (string.Equals(k, "token", StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
+    }
+
+    private static bool TryGetHeader(IDictionary<string, string> headers, string name, out string value)
+    {
+        if (headers.TryGetValue(name, out value!) && !string.IsNullOrWhiteSpace(value))
+        {
+            value = value.Trim();
+            return true;
+        }
+
+        foreach (var kv in headers)
+        {
+            if (string.Equals(kv.Key, name, StringComparison.OrdinalIgnoreCase) &&
+                !string.IsNullOrWhiteSpace(kv.Value))
+            {
+                value = kv.Value.Trim();
+                return true;
+            }
+        }
+
+        value = "";
+        return false;
+    }
+
+    private static string ExtractQueryToken(string? query)
+    {
+        if (string.IsNullOrEmpty(query))
+            return "";
+        foreach (var pair in query!.Split('&'))
+        {
+            if (string.IsNullOrEmpty(pair)) continue;
+            int eq = pair.IndexOf('=');
+            string k = eq >= 0 ? pair.Substring(0, eq) : pair;
+            string v = eq >= 0 ? pair.Substring(eq + 1) : "";
+            if (string.Equals(k, "token", StringComparison.OrdinalIgnoreCase))
+            {
+                try { return Uri.UnescapeDataString(v); }
+                catch { return v; }
+            }
+        }
+        return "";
     }
 
     /// <summary>
@@ -90,7 +201,7 @@ public static class ControlAuth
 
     /// <summary>
     /// 对某个 IP 的一次鉴权尝试。失败会计入对应权限级的锁定窗口；达到锁定条件的 IP 直接拒绝，不再比较 token。
-    /// highPrivilege=false 用于只读数据接口（verify_token），true 用于控制/语音（control_token）。
+    /// highPrivilege=false 用于只读数据接口（verify_token），true 用于控制/语音（API Key）。
     /// </summary>
     public static bool TryAuthenticate(string ip, string providedToken, string configuredToken, out string error,
         bool highPrivilege = true)
@@ -179,4 +290,16 @@ public static class ControlAuth
     private static void ResetFailures(string ip,
         ConcurrentDictionary<string, (int Count, DateTime WindowStart)> table) =>
         table.TryRemove(ip, out _);
+
+    /// <summary>控制/语音通道是否因失败过多被锁定（供 API Key 鉴权复用）。</summary>
+    public static bool IsControlLocked(string ip, out TimeSpan remaining) =>
+        IsLocked(ip ?? "unknown", ControlFailures, out remaining);
+
+    /// <summary>登记一次控制面鉴权失败。</summary>
+    public static void RegisterControlFailure(string ip) =>
+        RegisterFailure(ip ?? "unknown", ControlFailures);
+
+    /// <summary>鉴权成功后清除控制面失败计数。</summary>
+    public static void ResetControlFailures(string ip) =>
+        ResetFailures(ip ?? "unknown", ControlFailures);
 }

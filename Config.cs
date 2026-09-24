@@ -8,11 +8,17 @@ namespace SLDataAPI;
 public class Config
 {
     public bool Debug { get; set; } = false;
+
+    /// <summary>
+    /// 只读数据口（/get_sl_data、/plugins/adapted 等）的共享口令。
+    /// 出厂默认 <c>your_secret_token</c>、空、或未通过强度校验（长度≥8 且同时含大写/小写/数字/特殊符号）
+    /// 时 Enable 会 fail-closed：不对外提供数据口；若控制面也未启用则不绑定 HTTP 端口。
+    /// </summary>
     public string VerifyToken { get; set; } = "your_secret_token";
     public int HttpPort { get; set; } = 8081;
     public int PushIntervalSeconds { get; set; } = 8;
 
-    // ================== 控制接口（v2.1 推出；v2.5.0 WebSocket 长连接化，代号 Yagami Light） ==================
+    // ================== 控制接口（v2.1 推出；v2.5.0 WebSocket 长连接化，代号 Yagami Light；v2.6.0 推出 API Key 双轨鉴权，代号 PEAK） ==================
 
     /// <summary>
     /// 是否启用控制接口（/control/*）。默认关闭。
@@ -21,9 +27,7 @@ public class Config
     public bool ControlEnabled { get; set; } = false;
 
     /// <summary>
-    /// 控制接口专用 token（与 VerifyToken 分离，权限更高，务必单独保管）。
-    /// 要求：长度不少于 8，且必须同时包含大写字母、小写字母、数字、特殊符号。
-    /// 启动时格式不合法会强制在本次运行中禁用控制接口，并在日志中报错。
+    /// [已废弃 v2.6.0，代号 PEAK] 旧版控制接口万能 token。若仍配置会在启动时警告并忽略，鉴权改走 apikey.config。
     /// </summary>
     public string ControlToken { get; set; } = "";
 
@@ -39,18 +43,27 @@ public class Config
     public string ControlTransport { get; set; } = "http";
 
     /// <summary>
-    /// 是否在插件启用时自动检查 GitHub Releases 上的新版本（仅日志提示，不自动更新）。
+    /// 是否检查 GitHub Releases 上的新版本（启动 + 周期共用同一通道）。
+    /// 默认开启，与既有启动检查一致；关闭则启动与 72h 静默复查都不跑。
     /// </summary>
     public bool AutoUpdateCheck { get; set; } = true;
 
     /// <summary>
     /// 检测到新版本时是否自动下载并替换插件 DLL（覆盖后下次重启游戏服务器生效，旧版备份为 .bak）。
-    /// 校验：下载文件必须是合法程序集、名称一致；当前版本已强名称签名时还要求签名一致（防篡改）。
+    /// 校验：下载文件必须是合法程序集、名称一致；当前程序集未签名则拒绝自动安装；
+    /// 已签名时要求新文件公钥令牌与当前一致（防篡改）。
     /// 稳定版策略：只自动接受稳定版——预发布版本（GitHub prerelease/draft 标记，
     /// 或 tag 含 beta/alpha/rc/preview/dev 等标识）不会自动下载。
-    /// 关闭时仅日志提示，需手动更新。
+    /// 关闭时仅日志提示，需手动更新。启动检查与周期检查共用本开关。
     /// </summary>
     public bool AutoUpdateInstall { get; set; } = true;
+
+    /// <summary>
+    /// 两次更新检查的最小间隔（小时）。启动与周期复查共用：距上次检查不足则跳过，
+    /// 避免频繁重启打 GitHub。默认 72。0 或负数 = 仅 Enable 时检查一次（旧行为），不排周期。
+    /// 仅当 <see cref="AutoUpdateCheck"/> 为 true 时生效。
+    /// </summary>
+    public int AutoUpdateCheckIntervalHours { get; set; } = 72;
 
     /// <summary>
     /// 文件管理端点（/control/files/*）的根目录（绝对路径）。
@@ -100,6 +113,42 @@ public class Config
     /// </summary>
     public string VoiceRecordDir { get; set; } = "";
 
+    // ================== 语音 zip WebDAV 自动上传（v2.6.0 PEAK，默认关闭；仅 https://） ==================
+
+    /// <summary>
+    /// 每局录音 zip 定稿后是否自动 PUT 到 WebDAV。默认关闭——不影响既有行为。
+    /// 启用但 URL 无效时启动 Warn 一次后本会话跳过。
+    /// </summary>
+    public bool WebdavUploadEnabled { get; set; } = false;
+
+    /// <summary>
+    /// WebDAV 目标：目录 URL（自动追加文件名），或含 <c>{filename}</c> / <c>{file}</c> 的完整模板。
+    /// 必须是 https:// 绝对地址（明文 http:// 会被拒绝，以免 Basic Auth 密码走明文）。
+    /// 不改变插件自身的 HTTP 数据/控制端口。
+    /// </summary>
+    public string WebdavUrl { get; set; } = "";
+
+    /// <summary>WebDAV Basic Auth 用户名。可空（匿名）。</summary>
+    public string WebdavUsername { get; set; } = "";
+
+    /// <summary>WebDAV Basic Auth 密码。可空。日志永不输出此值或 Authorization 头。</summary>
+    public string WebdavPassword { get; set; } = "";
+
+    /// <summary>
+    /// 远程目录前缀（拼在 webdav_url 与文件名之间）。模板 URL 模式下忽略。
+    /// 含 <c>..</c> 的段会被丢弃。
+    /// </summary>
+    public string WebdavRemotePathPrefix { get; set; } = "";
+
+    /// <summary>单次 PUT 超时（秒），默认 30。</summary>
+    public int WebdavTimeoutSeconds { get; set; } = 30;
+
+    /// <summary>首次失败后的最多重试次数（总尝试 = 1 + 本值），默认 5。网络 / 5xx / 408 / 429 / 超时才重试。</summary>
+    public int WebdavMaxRetries { get; set; } = 5;
+
+    /// <summary>重试基础间隔（秒），按失败次数指数退避（上限 600s）。默认 15。</summary>
+    public int WebdavRetryIntervalSeconds { get; set; } = 15;
+
     // ================== 举报功能（v2.5.4 推出，代号 GIS,GNSS,RS!：SSS UI + 平台端点） ==================
 
     /// <summary>
@@ -135,4 +184,10 @@ public class Config
 
     /// <summary>控制日志最大条数，超出自动删除最旧条目（0/负数 = 不清理）。</summary>
     public int ControlLogMaxRecords { get; set; } = 500;
+
+    /// <summary>
+    /// 创建 API Key 后是否在 Windows 上后台尽力复制明文到剪贴板。默认关闭。
+    /// 开启也不影响命令 response（始终只回一次性文件路径，不含明文）。
+    /// </summary>
+    public bool ApikeyCopyToClipboard { get; set; } = false;
 }

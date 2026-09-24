@@ -33,7 +33,8 @@ public sealed class ApiKeyPrincipal
 }
 
 /// <summary>
-/// API Key 存储与校验（v2.6.0-preview-DevOnly 推出，代号 Kerckhoffs）：读写 apikey.config（仅指纹）、创建时明文只回传一次。
+/// API Key 存储与校验（v2.6.0-preview-DevOnly 推出，代号 Kerckhoffs）：读写 apikey.config（仅指纹）。
+/// 创建时明文仅通过 out 参数回传一次；命令层写入一次性文件，response 不含明文。
 /// </summary>
 public static class ApiKeyService
 {
@@ -46,6 +47,9 @@ public static class ApiKeyService
         new(StringComparer.OrdinalIgnoreCase);
 
     public static string ConfigPath => _path;
+    /// <summary>apikey.config 所在目录；一次性明文 txt 也写在这里。</summary>
+    public static string ConfigDirectory =>
+        string.IsNullOrEmpty(_path) ? "" : (Path.GetDirectoryName(_path) ?? "");
     public static int KeyCount { get { lock (Gate) return _keys.Count; } }
 
     /// <summary>由 Plugin.Enable 调用：配置目录下加载/创建 apikey.config。</summary>

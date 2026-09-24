@@ -52,6 +52,7 @@ SLDataAPI 提供服务器数据查询和远程控制能力（含执行控制台�
 以下不算"漏洞"，但是实际部署中最容易出问题的地方，强烈建议照做：
 
 - **不要用默认 `verify_token`**：出厂默认值是 `your_secret_token`，插件启动时会在日志里警告，但仍建议第一次配置时就改掉。
+- **API Key 一次性文件**：`sldataapi apikey create` 不会把明文写进控制台 response / LocalAdmin 命令历史；明文只出现在配置目录的 `apikey_once_<id>.txt`（同 id 再次创建会覆盖）。创建 **5 分钟后自动删除**该路径（已不在则跳过）；也可自行提前删除。日志不记录明文。
 - **`control_enabled` 默认关闭，非必要不要开**：只有真的需要外部程序控制服务器时才开启，且 `control_token` 必须是随机生成的强密码，不要用有意义的单词。
 - **把端口锁在受信网络内**：SLDataAPI 自身没有 TLS，裸 HTTP 暴露在公网上会被中间人窃听 token。建议只监听内网/本机，对外通过反向代理（Nginx/Caddy）加 HTTPS，并做 IP 白名单。
 - **`FileRoot` 尽量不要设置成比必要范围更大的目录**，权限最小化。

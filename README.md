@@ -6,12 +6,14 @@
 >
 > 防火墙、反向代理（HTTPS/WSS）、凭据强度与保管由**使用者自行负责**；相关后果本项目与作者不承担责任。建议仅内网使用，对外必须走加密代理。详见 Wiki [[Security-Model]](https://github.com/DNTOF/SLDataAPI/wiki/Security-Model)。
 
-**版本：** 2.6.0-preview-DevOnly（Kerckhoffs） · **LabAPI 原生插件**（v2.4 起，非 EXILED）  
+**版本：** 2.6.0（PEAK） · **LabAPI 原生插件**（v2.4 起，非 EXILED）  
 **依赖：** LabAPI（游戏自带）· `0Harmony` 2.3.x · `Newtonsoft.Json` 13.0.x（后两者须放在 `LabAPI/dependencies/global/`，缺失会加载失败）
 
+Git 分支仍叫 `preview/v2.6.0-DevOnly`（历史名称）；**产品版本是 2.6.0 PEAK**。
+
 📚 **接口与开发文档：** https://github.com/DNTOF/SLDataAPI/wiki  
-- 稳定线 `main`（2.5.x）：[[HTTP-API]](https://github.com/DNTOF/SLDataAPI/wiki/HTTP-API) · `control_token`  
-- 预览线 `preview/v2.6.0-DevOnly`（2.6）：[[Preview-HTTP-API]](https://github.com/DNTOF/SLDataAPI/wiki/Preview-HTTP-API) · API Key + RA 对齐路径
+- 本分支（2.6.0 PEAK）：[[Preview-HTTP-API]](https://github.com/DNTOF/SLDataAPI/wiki/Preview-HTTP-API) · API Key + RA 对齐路径  
+- 稳定线 `main`（2.5.x）：[[HTTP-API]](https://github.com/DNTOF/SLDataAPI/wiki/HTTP-API) · `control_token`
 
 ---
 
@@ -19,7 +21,7 @@
 
 | 能力 | 说明 |
 |------|------|
-| 数据查询 | `GET /get_sl_data`；适配发现：`GET /plugins/adapted` + `adapted_plugins`（`verify_token`，与 2.5.5 Nexus 对齐）：人数、回合、核弹、玩家（SteamID/坐标）、DNT_OF 插件状态 |
+| 数据查询 | `GET /get_sl_data`；适配发现：`GET /plugins/adapted` + `adapted_plugins`（`verify_token`）：人数、回合、核弹、玩家（SteamID/坐标）、DNT_OF 插件状态 |
 | 控制接口 | `/control/*`：玩家/回合/地图/CASSIE/全服广播/管理聊天/控制台/插件/文件/日志/举报等；HTTP 或 WS 二选一 |
 | 事件流 | 控制 WS 订阅：回合、进出、死亡、电梯、门等（v2.5.4+） |
 | 语音转发 | 独立端口 WS，全频道 48kHz PCM（SPY） |
@@ -67,7 +69,7 @@ push_interval_seconds: 8
 
 control_enabled: false              # 关则所有 /control/* → 404
 control_transport: http               # http | ws（硬互斥）
-# control_token 已废弃（2.6 忽略并打警告）
+# control_token 已废弃（2.6.0 PEAK 忽略并打警告）
 
 auto_update_check: true             # 启动 + 72h 静默复查，同一 GitHub 通道
 auto_update_install: true           # 有稳定版时下载替换 DLL（与原先启动检查相同）
@@ -96,11 +98,11 @@ control_log_enabled: true
 
 ---
 
-## 鉴权（2.6 预览）
+## 鉴权（2.6.0 PEAK）
 
 | 通道 | 凭据 | 配置位置 |
 |------|------|----------|
-| `GET /get_sl_data` | `verify_token`（`Authorization: Bearer` / `X-SLDataAPI-Token`，兼容 `?token=`） | `config.yml` |
+| `GET /get_sl_data` | `verify_token`（`Authorization: Bearer` / `X-SLDataAPI-Token`；`?token=` 仍兼容但已弃用） | `config.yml` |
 | `/control/*`、控制 WS、语音口 | **API Key**（明文写入一次性 txt，命令只回路径） | `apikey.config`（同配置目录） |
 
 控制面请求头（二选一）：
@@ -122,9 +124,9 @@ sldataapi apikey revoke <id>
 
 `sldataapi` / `slda` 管理 CLI 已被远程控制通道（HTTP + WS 的 `/control/console/command`）硬拒绝，且 `create` / `revoke` / `list` 在远程执行标记下会再次拒绝。本地控制台（LocalAdmin / RemoteAdmin / 游戏内控制台）执行会立即生效，不再弹出确认窗口或 `[y/N]` 提示。若用权限插件收窄 RemoteAdmin，请同时拒绝 `sldataapi` / `slda`。`create` 成功后明文写入配置目录下 `apikey_once_<id>.txt`（同 id 覆盖上一份），命令 response **只回该路径**（不回密钥，避免进入 LocalAdmin 命令历史）；请尽快复制到密码管理器。文件在创建 **5 分钟后自动删除**（若你已删/移走则跳过）；也可自行提前删除。Linux 会尽力 `chmod 0600`（失败不阻断创建）。Windows 剪贴板复制默认关闭（`apikey_copy_to_clipboard: true` 才开启）。`duty` 偏只读，**默认不授予** `/control/audit/list`；`admin` 按端点 catalog 授权，**不会**自动开放 catalog 为 `false` 的路径（控制台、插件、文件等），可用 `endpoints_override` 单独放开。
 
-路径与 curl 示例：Wiki [[Preview-HTTP-API]](https://github.com/DNTOF/SLDataAPI/wiki/Preview-HTTP-API)。稳定 2.5 仍用 [[HTTP-API]](https://github.com/DNTOF/SLDataAPI/wiki/HTTP-API)。
+路径与 curl 示例：Wiki [[Preview-HTTP-API]](https://github.com/DNTOF/SLDataAPI/wiki/Preview-HTTP-API)。`main` 上的 2.5.x 仍用 [[HTTP-API]](https://github.com/DNTOF/SLDataAPI/wiki/HTTP-API)（`control_token`）。
 
-### 全服广播 / 管理聊天（2.6）
+### 全服广播 / 管理聊天（2.6.0 PEAK）
 
 两个 SERVER 写端点：admin catalog 默认开放，**duty 默认拒绝**（与 `/control/cassie` 同级）。走主线程 + 控制审计。
 
@@ -161,7 +163,7 @@ Content-Type: application/json
 
 | 类型 | 地址 |
 |------|------|
-| 数据 | `GET http://<host>:8081/get_sl_data` + `Authorization: Bearer <verify_token>`（仍兼容 `?token=`） |
+| 数据 | `GET http://<host>:8081/get_sl_data` + `Authorization: Bearer <verify_token>`（`?token=` 仍兼容但已弃用，后续版本将移除） |
 | 控制 HTTP | `POST http://<host>:8081/control/...` + API Key 头（含 `/control/broadcast`、`/control/staffchat`） |
 | 控制 WS | `ws://<host>:8081/control` + 握手带 API Key 头（`control_transport: ws`） |
 | 语音 | `ws://<host>:8082/ws` · `GET :8082/status` + API Key |

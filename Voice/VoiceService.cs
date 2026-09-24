@@ -526,7 +526,7 @@ public static class VoiceService
             string method = parts[0];
             string path = parts[1];
 
-            // v2.6.0-preview-DevOnly 推出，代号 Kerckhoffs：语音口 API Key（Authorization: Bearer / X-SLDataAPI-Key）；不再接受 X-Control-Token / ?key=
+            // v2.6.0 推出，代号 PEAK：语音口 API Key（Authorization: Bearer / X-SLDataAPI-Key）；不再接受 X-Control-Token / ?key=
             string? key = ApiKeyService.ExtractKeyFromRawHeader(header);
             string clientIp = "";
             try { clientIp = ((IPEndPoint)_socket.RemoteEndPoint).Address.ToString(); } catch { /* 忽略 */ }

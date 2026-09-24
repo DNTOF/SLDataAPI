@@ -12,7 +12,7 @@ namespace SLDataAPI.Services;
 public class ControlLogEntry
 {
     public string time { get; set; } = "";       // UTC ISO8601
-    public string actor { get; set; } = "";      // API Key id（v2.6.0-preview-DevOnly / Kerckhoffs）
+    public string actor { get; set; } = "";      // API Key id（v2.6.0 PEAK）
     public string endpoint { get; set; } = "";   // /control/xxx
     public string body { get; set; } = "";       // 请求体原文（操作细节）
     public bool success { get; set; }            // 是否执行成功

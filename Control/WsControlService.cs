@@ -34,7 +34,7 @@ namespace SLDataAPI.Control;
 /// path 必须是现有 /control/* 端点；语义与 HTTP POST 完全一致（同一个 ControlController 分发），
 /// 平台可把 HTTP 调用一对一映射到 WS call，reqId 关联请求与响应（结果允许乱序返回）。
 ///
-/// 鉴权（v2.6.0-preview-DevOnly 推出，代号 Kerckhoffs）：与 HTTP 控制面同一套 API Key
+/// 鉴权（v2.6.0 推出，代号 PEAK）：与 HTTP 控制面同一套 API Key
 /// （Authorization: Bearer / X-SLDataAPI-Key）；握手不再接受 ?key= / ?token= / X-Control-Token；ControlEnabled=false 时一律 404。
 ///
 /// 连接方式互斥（Config.ControlTransport）：仅 "ws" 模式下本端点可用；
@@ -101,7 +101,7 @@ public static class WsControlService
             return true;
         }
 
-        // v2.6.0-preview-DevOnly 推出，代号 Kerckhoffs：握手必须带 Authorization: Bearer 或 X-SLDataAPI-Key（不再接受 ?key= / ?token= / X-Control-Token）
+        // v2.6.0 推出，代号 PEAK：握手必须带 Authorization: Bearer 或 X-SLDataAPI-Key（不再接受 ?key= / ?token= / X-Control-Token）
         string? key = ApiKeyService.ExtractKeyFromHeaders(headers);
         if (!ApiKeyService.TryAuthenticate(remoteIp, key, out var principal, out string authErr) || principal == null)
         {

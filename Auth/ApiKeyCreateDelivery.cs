@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Text;
+using System.Threading.Tasks;
 #if NETFRAMEWORK
 using System.Security.AccessControl;
 using System.Security.Principal;
@@ -16,7 +17,8 @@ public static class ApiKeyCreateDelivery
 {
     public const string OnceFilePrefix = "apikey_once_";
     public const string OnceFileSuffix = ".txt";
-    public const string OperatorHint = "一次性文件；保存后请删除。";
+    public static readonly TimeSpan AutoDeleteAfter = TimeSpan.FromMinutes(5);
+    public const string OperatorHint = "一次性文件；5 分钟后自动删除，也可自行删除。";
 
     /// <summary>同 id 固定文件名，再次 create（revoke 之后）会覆盖上一份。</summary>
     public static string OnceFileName(string id)
@@ -65,6 +67,80 @@ public static class ApiKeyCreateDelivery
             error = "一次性文件写入失败，请 revoke 后重试。";
             return false;
         }
+    }
+
+    /// <summary>
+    /// 若该精确路径仍在则尽力删除。文件已不在则什么都不做。
+    /// 结果不含明文；error 只用异常类型名。
+    /// </summary>
+    public static OnceFileDeleteResult TryDeleteOnceFileIfPresent(string filePath)
+    {
+        filePath = filePath ?? "";
+        if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath))
+            return new OnceFileDeleteResult(filePath, existed: false, deleted: false, error: null);
+
+        try
+        {
+            File.Delete(filePath);
+            return new OnceFileDeleteResult(filePath, existed: true, deleted: true, error: null);
+        }
+        catch (Exception ex)
+        {
+            return new OnceFileDeleteResult(filePath, existed: true, deleted: false, error: ex.GetType().Name);
+        }
+    }
+
+    /// <summary>默认 5 分钟后按该路径各自清理；不取消其它路径上已排队的删除。</summary>
+    public static void ScheduleAutoDelete(string filePath, Action<OnceFileDeleteResult>? onSettled = null) =>
+        ScheduleAutoDelete(filePath, AutoDeleteAfter, onSettled);
+
+    /// <summary>
+    /// 后台等待 <paramref name="delay"/> 后检查该精确路径：仍在则删，已不在则跳过。
+    /// 不阻塞调用线程。每个路径一次调度，互不取消。
+    /// </summary>
+    public static void ScheduleAutoDelete(string filePath, TimeSpan delay, Action<OnceFileDeleteResult>? onSettled = null)
+    {
+        if (string.IsNullOrWhiteSpace(filePath))
+            return;
+
+        string path = filePath;
+        _ = DeleteAfterAsync(path, delay, onSettled);
+    }
+
+    private static async Task DeleteAfterAsync(string path, TimeSpan delay, Action<OnceFileDeleteResult>? onSettled)
+    {
+        try
+        {
+            if (delay > TimeSpan.Zero)
+                await Task.Delay(delay).ConfigureAwait(false);
+
+            OnceFileDeleteResult result = TryDeleteOnceFileIfPresent(path);
+            if (!result.Existed)
+                return;
+
+            try { onSettled?.Invoke(result); }
+            catch { /* 日志回调失败不影响清理 */ }
+        }
+        catch
+        {
+            // 尽力而为
+        }
+    }
+
+    public readonly struct OnceFileDeleteResult
+    {
+        public OnceFileDeleteResult(string filePath, bool existed, bool deleted, string? error)
+        {
+            FilePath = filePath ?? "";
+            Existed = existed;
+            Deleted = deleted;
+            Error = error;
+        }
+
+        public string FilePath { get; }
+        public bool Existed { get; }
+        public bool Deleted { get; }
+        public string? Error { get; }
     }
 
 #if NETFRAMEWORK

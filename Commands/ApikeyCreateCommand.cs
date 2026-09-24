@@ -15,7 +15,7 @@ public sealed class ApikeyCreateCommand : ICommand, IUsageProvider
     {
         if (arguments.Count < 2)
         {
-            response = "用法: sldataapi apikey create <id> <duty|admin> [note]\n明文写入一次性 txt，命令只回路径。";
+            response = "用法: sldataapi apikey create <id> <duty|admin> [note]\n明文写入一次性 txt，命令只回路径；5 分钟后自动删除。";
             return false;
         }
 
@@ -49,7 +49,15 @@ public sealed class ApikeyCreateCommand : ICommand, IUsageProvider
         }
 
         response = ApiKeyCreateDelivery.FormatConsoleResponse(filePath);
-        Log.Info($"[SLDataAPI] 已创建 API Key id={id} template={template}（明文已写入一次性文件）");
+        ApiKeyCreateDelivery.ScheduleAutoDelete(filePath, result =>
+        {
+            if (result.Deleted)
+                Log.Info($"[SLDataAPI] 已自动删除一次性 API Key 文件：{result.FilePath}");
+            else
+                Log.Info($"[SLDataAPI] 自动删除一次性 API Key 文件失败：{result.FilePath}" +
+                         (string.IsNullOrEmpty(result.Error) ? "" : $" ({result.Error})"));
+        });
+        Log.Info($"[SLDataAPI] 已创建 API Key id={id} template={template}（明文已写入一次性文件，5 分钟后自动删除）");
         return true;
     }
 }

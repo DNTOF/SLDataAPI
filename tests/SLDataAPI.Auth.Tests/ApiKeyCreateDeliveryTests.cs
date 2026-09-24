@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Threading.Tasks;
 using SLDataAPI.Auth;
 using Xunit;
 
@@ -68,5 +69,86 @@ public class ApiKeyCreateDeliveryTests
         Assert.StartsWith("apikey_once_", ApiKeyCreateDelivery.OnceFileName("a/b"));
         Assert.DoesNotContain("/", ApiKeyCreateDelivery.OnceFileName("a/b"));
         Assert.DoesNotContain(SampleKey, ApiKeyCreateDelivery.OnceFileName(SampleKey.Substring(0, 8)));
+    }
+
+    [Fact]
+    public void FormatConsoleResponse_MentionsFiveMinuteAutoDelete()
+    {
+        string response = ApiKeyCreateDelivery.FormatConsoleResponse("/tmp/apikey_once_ops.txt");
+        Assert.Contains("5 分钟", response);
+        Assert.Contains("自动删除", response);
+        Assert.Equal(TimeSpan.FromMinutes(5), ApiKeyCreateDelivery.AutoDeleteAfter);
+        Assert.DoesNotContain(SampleKey, response);
+    }
+
+    [Fact]
+    public void TryDeleteOnceFileIfPresent_DeletesExisting_AndNoopsIfGone()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "sldataapi-once-del-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        string path = Path.Combine(dir, "apikey_once_unit1.txt");
+        try
+        {
+            File.WriteAllText(path, SampleKey);
+            var deleted = ApiKeyCreateDelivery.TryDeleteOnceFileIfPresent(path);
+            Assert.True(deleted.Existed);
+            Assert.True(deleted.Deleted);
+            Assert.False(File.Exists(path));
+            Assert.DoesNotContain(SampleKey, deleted.FilePath);
+            Assert.True(string.IsNullOrEmpty(deleted.Error));
+
+            var gone = ApiKeyCreateDelivery.TryDeleteOnceFileIfPresent(path);
+            Assert.False(gone.Existed);
+            Assert.False(gone.Deleted);
+            Assert.DoesNotContain(SampleKey, gone.Error ?? "");
+        }
+        finally
+        {
+            try { Directory.Delete(dir, recursive: true); } catch { /* 测试清理 */ }
+        }
+    }
+
+    [Fact]
+    public async Task ScheduleAutoDelete_TwoPaths_DoNotCancelEachOther()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "sldataapi-once-sched-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        string a = Path.Combine(dir, "apikey_once_a.txt");
+        string b = Path.Combine(dir, "apikey_once_b.txt");
+        File.WriteAllText(a, SampleKey + "_A");
+        File.WriteAllText(b, SampleKey + "_B");
+
+        var tcsA = new TaskCompletionSource<ApiKeyCreateDelivery.OnceFileDeleteResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var tcsB = new TaskCompletionSource<ApiKeyCreateDelivery.OnceFileDeleteResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        try
+        {
+            ApiKeyCreateDelivery.ScheduleAutoDelete(a, TimeSpan.FromMilliseconds(80), r => tcsA.TrySetResult(r));
+            ApiKeyCreateDelivery.ScheduleAutoDelete(b, TimeSpan.FromMilliseconds(80), r => tcsB.TrySetResult(r));
+
+            var finished = await Task.WhenAll(tcsA.Task, tcsB.Task).WaitAsync(TimeSpan.FromSeconds(3));
+            Assert.True(finished[0].Deleted);
+            Assert.True(finished[1].Deleted);
+            Assert.Equal(a, finished[0].FilePath);
+            Assert.Equal(b, finished[1].FilePath);
+            Assert.False(File.Exists(a));
+            Assert.False(File.Exists(b));
+            Assert.DoesNotContain(SampleKey, finished[0].Error ?? "");
+            Assert.DoesNotContain(SampleKey, finished[1].Error ?? "");
+        }
+        finally
+        {
+            try { Directory.Delete(dir, recursive: true); } catch { /* 测试清理 */ }
+        }
+    }
+
+    [Fact]
+    public async Task ScheduleAutoDelete_AlreadyGone_DoesNothing()
+    {
+        string missing = Path.Combine(Path.GetTempPath(), "apikey_once_missing_" + Guid.NewGuid().ToString("N") + ".txt");
+        var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        ApiKeyCreateDelivery.ScheduleAutoDelete(missing, TimeSpan.FromMilliseconds(30), _ => tcs.TrySetResult(true));
+        await Task.WhenAny(tcs.Task, Task.Delay(400));
+        Assert.False(tcs.Task.IsCompleted);
+        Assert.False(File.Exists(missing));
     }
 }

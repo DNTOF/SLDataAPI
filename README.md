@@ -104,7 +104,7 @@ sldataapi apikey list
 sldataapi apikey revoke <id>
 ```
 
-`sldataapi` / `slda` 管理 CLI 已被远程控制通道（HTTP + WS 的 `/control/console/command`）硬拒绝；本地控制台（LocalAdmin / RemoteAdmin / 游戏内控制台）执行 `create` / `revoke` 会立即生效，不再弹出确认窗口或 `[y/N]` 提示。`create` 成功后明文写入配置目录下 `apikey_once_<id>.txt`（同 id 覆盖上一份），命令 response **只回该路径**（不回密钥，避免进入 LocalAdmin 命令历史）；请复制到密码管理器后立即删除该文件。Windows 下会后台尽力复制到剪贴板（超时、失败均静默，不影响创建）。`duty` 偏只读；`admin` 按端点 catalog 授权，**不会**自动开放 catalog 为 `false` 的路径（控制台、插件、文件等），可用 `endpoints_override` 单独放开。
+`sldataapi` / `slda` 管理 CLI 已被远程控制通道（HTTP + WS 的 `/control/console/command`）硬拒绝；本地控制台（LocalAdmin / RemoteAdmin / 游戏内控制台）执行 `create` / `revoke` 会立即生效，不再弹出确认窗口或 `[y/N]` 提示。`create` 成功后明文写入配置目录下 `apikey_once_<id>.txt`（同 id 覆盖上一份），命令 response **只回该路径**（不回密钥，避免进入 LocalAdmin 命令历史）；请尽快复制到密码管理器。文件在创建 **5 分钟后自动删除**（若你已删/移走则跳过）；也可自行提前删除。Windows 下会后台尽力复制到剪贴板（超时、失败均静默，不影响创建）。`duty` 偏只读；`admin` 按端点 catalog 授权，**不会**自动开放 catalog 为 `false` 的路径（控制台、插件、文件等），可用 `endpoints_override` 单独放开。
 
 路径与 curl 示例：Wiki [[Preview-HTTP-API]](https://github.com/DNTOF/SLDataAPI/wiki/Preview-HTTP-API)。稳定 2.5 仍用 [[HTTP-API]](https://github.com/DNTOF/SLDataAPI/wiki/HTTP-API)。
 

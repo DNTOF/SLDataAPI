@@ -23,7 +23,7 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
     private HttpServer? server;
 
     public override string Name => "SLDataAPI";
-    public override string Description => "通过 HTTP API 向外部（WebUI / 机器人）提供服务器数据采集与远程控制能力（LabAPI 原生插件，v2.6.0-preview-DevOnly，代号 Kerckhoffs）";
+    public override string Description => "通过 HTTP API 向外部（WebUI / 机器人）提供服务器数据采集与远程控制能力（LabAPI 原生插件，v2.6.0，代号 PEAK）";
     public override string Author => "DNT_OF";
     public override Version Version => new Version(2, 6, 0);
     public override Version RequiredApiVersion => new Version(1, 1, 7);
@@ -111,7 +111,7 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
         try { reportConfigDir = Path.GetDirectoryName(ConfigurationLoader.GetConfigPath(this, ConfigFileName)) ?? ""; } catch { /* 目录获取失败则按禁用处理 */ }
         ReportService.Init(Config.ReportEnabled, Config.ReportMaxRecords, Config.ReportRateLimit, Config.ReportRateWindowMinutes, reportConfigDir);
 
-        // API Key（v2.6.0-preview-DevOnly 推出，代号 Kerckhoffs）：控制面 / 语音 / 控制 WS 鉴权；与 verify_token 双轨
+        // API Key（v2.6.0 推出，代号 PEAK）：控制面 / 语音 / 控制 WS 鉴权；与 verify_token 双轨
         ApiKeyService.Init(reportConfigDir);
 
         // 控制操作审计日志（v2.5.5-preview 推出，代号 Everest C1）：主动侵入性操作记录，默认开启
@@ -126,7 +126,7 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
         string httpStatus = server != null
             ? $"HTTP on port {Config.HttpPort}" + (dataPlaneOk ? "" : "（仅控制面，数据口已关闭）")
             : "HTTP 未绑定";
-        Log.Info($"SLDataAPI v{Version} (v2.6.0-preview-DevOnly / Kerckhoffs / LabAPI) enabled. {httpStatus}. Control API: {(Config.ControlEnabled ? $"{Config.ControlTransport.ToUpperInvariant()} 模式，API Key" : "关闭")}. Voice: {(Config.VoiceEnabled ? $"启用(端口 {Config.VoicePort})" : "关闭")}.");
+        Log.Info($"SLDataAPI v{Version} (2.6.0 PEAK / LabAPI) enabled. {httpStatus}. Control API: {(Config.ControlEnabled ? $"{Config.ControlTransport.ToUpperInvariant()} 模式，API Key" : "关闭")}. Voice: {(Config.VoiceEnabled ? $"启用(端口 {Config.VoicePort})" : "关闭")}.");
     }
 
     public override void Disable()
@@ -258,7 +258,7 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
         if (!string.IsNullOrEmpty(Config.ControlToken))
         {
             Log.Warn(
-                "[SLDataAPI] control_token 已在 v2.6.0-preview-DevOnly（代号 Kerckhoffs）废弃，不再用于鉴权。" +
+                "[SLDataAPI] control_token 已在 v2.6.0（代号 PEAK）废弃，不再用于鉴权。" +
                 "请改用 apikey.config + 命令 sldataapi apikey create；该字段将被忽略。");
         }
 

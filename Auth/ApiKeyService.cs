@@ -33,7 +33,7 @@ public sealed class ApiKeyPrincipal
 }
 
 /// <summary>
-/// API Key 存储与校验（v2.6.0-preview-DevOnly 推出，代号 Kerckhoffs）：读写 apikey.config（仅指纹）。
+/// API Key 存储与校验（v2.6.0 推出，代号 PEAK）：读写 apikey.config（仅指纹）。
 /// 创建时明文仅通过 out 参数回传一次；命令层写入一次性文件，response 不含明文。
 /// </summary>
 public static class ApiKeyService
@@ -294,7 +294,7 @@ public static class ApiKeyService
     private static void WriteDefaultUnlocked()
     {
         var sb = new StringBuilder();
-        sb.AppendLine("# apikey.config — API Key 与端点权限（SLDataAPI v2.6.0-preview-DevOnly，代号 Kerckhoffs）");
+        sb.AppendLine("# apikey.config — API Key 与端点权限（SLDataAPI v2.6.0，代号 PEAK）");
         sb.AppendLine("# 密钥明文不会写回此文件；此处只存不可逆指纹 + 权限");
         sb.AppendLine("# 管理命令：sldataapi apikey create|revoke|list");
         sb.AppendLine();

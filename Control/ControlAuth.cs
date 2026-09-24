@@ -6,7 +6,7 @@ using System.Threading;
 namespace SLDataAPI.Control;
 
 /// <summary>
-/// 控制接口鉴权（v2.6.0-preview-DevOnly 推出，代号 Kerckhoffs：双轨 verify_token + API Key）：格式校验、常量时间比较、按 IP 的暴力破解锁定。
+/// 控制接口鉴权（v2.6.0 推出，代号 PEAK：双轨 verify_token + API Key）：格式校验、常量时间比较、按 IP 的暴力破解锁定。
 /// 锁定按权限分级（M-02）：
 ///   - 只读数据接口（/get_sl_data，verify_token 低权限）单独一张失败表——
 ///     攻击者刷数据接口不会锁死管理员的高权限通道；

@@ -7,7 +7,7 @@ body:
       value: |
         感谢反馈！提交前请确认：
         - 已经看过启动时打印的「配置摘要」那行日志，基本排除了 config.yml 没读到 / 用了默认值的情况
-        - 截图 / 日志里的 `verify_token`、`control_token` 已经打码，不要原样发出来
+        - 截图 / 日志里的 `verify_token`、API Key、`webdav_password` 已经打码，不要原样发出来
         - 单纯的用法疑问建议发 [Discussions - Q&A](../../discussions/categories/q-a)，Issue 主要留给确定的 bug
 
   - type: input
@@ -15,7 +15,7 @@ body:
     attributes:
       label: SLDataAPI 版本
       description: 启动日志里会打印，或者看 DLL 属性 / release 版本号
-      placeholder: 例如 v2.5.0
+      placeholder: 例如 v2.6.0 PEAK
     validations:
       required: true
 
@@ -38,7 +38,8 @@ body:
         http_port: 8081
         control_enabled: true
         control_transport: http
-        control_token: "***"
+        verify_token: "***"
+        # 控制面走 apikey.config（API Key），control_token 已废弃
     validations:
       required: false
 

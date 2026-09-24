@@ -372,7 +372,7 @@ public class HttpServer
                     return;
                 }
 
-                // v2.6.0-preview-DevOnly 推出，代号 Kerckhoffs：控制面 API Key（Bearer / X-SLDataAPI-Key）；不再接受 X-Control-Token / ?token=
+                // v2.6.0 推出，代号 PEAK：控制面 API Key（Bearer / X-SLDataAPI-Key）；不再接受 X-Control-Token / ?token=
                 string? apiKey = SLDataAPI.Auth.ApiKeyService.ExtractKeyFromHeaders(headers);
                 if (!SLDataAPI.Auth.ApiKeyService.TryAuthenticate(remoteIp, apiKey, out var principal, out string authErr))
                 {
@@ -428,7 +428,7 @@ public class HttpServer
             (headers == null || ControlAuth.ExtractDataPlaneToken(headers, "") == "") &&
             Interlocked.Exchange(ref _queryTokenDeprecationLogged, 1) == 0)
         {
-            Log.Warn("[SLDataAPI] 数据口仍在使用 URL ?token=（可能进入访问日志/代理日志）。请改用 Authorization: Bearer 或 X-SLDataAPI-Token；查询参数将在后续版本弃用。");
+            Log.Warn("[SLDataAPI] 数据口仍在使用 URL ?token=（可能进入访问日志/代理日志）。请改用 Authorization: Bearer 或 X-SLDataAPI-Token；?token= 已弃用，后续版本将移除。");
         }
 
         if (!ControlAuth.TryAuthenticate(remoteIp, reqToken, _config.VerifyToken ?? "", out string err, highPrivilege: false))

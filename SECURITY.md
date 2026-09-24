@@ -2,13 +2,15 @@
 
 SLDataAPI 提供服务器数据查询和远程控制能力（含执行控制台命令、踢人/封禁、文件读写、语音转发等），这些接口一旦被未授权访问，影响面等同于拿到服务器控制台权限，请认真对待。
 
+本分支当前产品版本为 **2.6.0 PEAK**（Git 分支名 `preview/v2.6.0-DevOnly` 为历史名称）。
+
 ## 支持的版本
 
 只有最新发布版本会收到安全修复，旧版本不回溯打补丁，请保持更新到最新 release。
 
 | 版本 | 是否维护 |
 | --- | --- |
-| 最新 release | ✅ |
+| 2.6.0 PEAK | ✅ |
 | 更早版本 | ❌ |
 
 ## 如何报告漏洞
@@ -51,7 +53,7 @@ SLDataAPI 提供服务器数据查询和远程控制能力（含执行控制台�
 
 以下不算"漏洞"，但是实际部署中最容易出问题的地方，强烈建议照做：
 
-- **不要用默认 / 弱 `verify_token`（fail-closed）**：出厂默认值是 `your_secret_token`。空、仅空白、出厂默认、或未同时包含大写/小写/数字/特殊符号（长度≥8）时，**Enable 会打 Error 并关闭数据口**（`/get_sl_data`、`/plugins/adapted` 等拒绝服务）；若控制面也未启用则**不绑定 HTTP 端口**。已设置的强随机口令不受影响。数据口优先使用 `Authorization: Bearer` 或 `X-SLDataAPI-Token` / `X-SLDataAPI-Verify-Token`；`?token=` 仍可用但会入访问日志，后续版本将弃用。
+- **不要用默认 / 弱 `verify_token`（fail-closed）**：出厂默认值是 `your_secret_token`（**不能当有效口令用**）。空、仅空白、出厂默认、或未同时包含大写/小写/数字/特殊符号（长度≥8）时，**Enable 会打 Error 并关闭数据口**（`/get_sl_data`、`/plugins/adapted` 等拒绝服务）；若控制面也未启用则**不绑定 HTTP 端口**。已设置的强随机口令不受影响。数据口优先使用 `Authorization: Bearer` 或 `X-SLDataAPI-Token` / `X-SLDataAPI-Verify-Token`；`?token=` 在 2.6.0 PEAK **仍兼容但已弃用**（会入访问日志），后续版本将移除。
 - **API Key 一次性文件**：`sldataapi apikey create` 不会把明文写进控制台 response / LocalAdmin 命令历史；明文只出现在配置目录的 `apikey_once_<id>.txt`（同 id 再次创建会覆盖）。创建 **5 分钟后自动删除**该路径（已不在则跳过）；也可自行提前删除。日志不记录明文。写入后会尽力把文件权限收成仅当前用户（Linux `0600` / Windows ACL）；**收紧失败不阻断创建**。Windows 剪贴板复制默认关闭（`apikey_copy_to_clipboard: true` 才开启）。
 - **密钥管理只允许本地控制台**：`TryCreate` / `TryRevoke` / `list` 在 `IsRemoteExecution` 上下文一律拒绝。`sldataapi` / `slda` 仍被远程 `/control/console` 字符串硬拒绝。若用权限插件收窄 RemoteAdmin，请同时拒绝 `sldataapi` / `slda`。
 - **duty 看不到完整审计**：值班模板默认不授予 `/control/audit/list`。即便 override 打开，非 admin 也只能看到自己这条的请求体，其他 Key 的写操作 payload 会显示 `[redacted]`。落盘时会打码 `sld_live_` / `sld_duty_` / Bearer / 常见 JSON 密钥字段。

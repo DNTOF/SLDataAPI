@@ -69,6 +69,10 @@ control_enabled: false              # 关则所有 /control/* → 404
 control_transport: http               # http | ws（硬互斥）
 # control_token 已废弃（2.6 忽略并打警告）
 
+auto_update_check: true             # 启动 + 72h 静默复查，同一 GitHub 通道
+auto_update_install: true           # 有稳定版时下载替换 DLL（与原先启动检查相同）
+# auto_update_check_interval_hours: 72  # 距上次检查不足则跳过（防重启刷 API）；0=仅启动查一次
+
 voice_enabled: false
 voice_port: 8082
 voice_record_enabled: false

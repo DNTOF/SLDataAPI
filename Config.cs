@@ -37,7 +37,8 @@ public class Config
     public string ControlTransport { get; set; } = "http";
 
     /// <summary>
-    /// 是否在插件启用时自动检查 GitHub Releases 上的新版本（仅日志提示，不自动更新）。
+    /// 是否检查 GitHub Releases 上的新版本（启动 + 周期共用同一通道）。
+    /// 默认开启，与既有启动检查一致；关闭则启动与 72h 静默复查都不跑。
     /// </summary>
     public bool AutoUpdateCheck { get; set; } = true;
 
@@ -46,9 +47,16 @@ public class Config
     /// 校验：下载文件必须是合法程序集、名称一致；当前版本已强名称签名时还要求签名一致（防篡改）。
     /// 稳定版策略：只自动接受稳定版——预发布版本（GitHub prerelease/draft 标记，
     /// 或 tag 含 beta/alpha/rc/preview/dev 等标识）不会自动下载。
-    /// 关闭时仅日志提示，需手动更新。
+    /// 关闭时仅日志提示，需手动更新。启动检查与周期检查共用本开关。
     /// </summary>
     public bool AutoUpdateInstall { get; set; } = true;
+
+    /// <summary>
+    /// 两次更新检查的最小间隔（小时）。启动与周期复查共用：距上次检查不足则跳过，
+    /// 避免频繁重启打 GitHub。默认 72。0 或负数 = 仅 Enable 时检查一次（旧行为），不排周期。
+    /// 仅当 <see cref="AutoUpdateCheck"/> 为 true 时生效。
+    /// </summary>
+    public int AutoUpdateCheckIntervalHours { get; set; } = 72;
 
     /// <summary>
     /// 文件管理端点（/control/files/*）的根目录（绝对路径）。

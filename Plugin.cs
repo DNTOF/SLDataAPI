@@ -104,7 +104,7 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
         DataCollector.InitData(Config.PushIntervalSeconds);
 
         if (Config.AutoUpdateCheck)
-            UpdateChecker.CheckAsync(Version, Config.AutoUpdateInstall);
+            UpdateChecker.Start(Version, Config.AutoUpdateInstall, Config.AutoUpdateCheckIntervalHours, reportConfigDir);
 
         Log.Info($"SLDataAPI v{Version} (v2.6.0-preview-DevOnly / Kerckhoffs / LabAPI) enabled. HTTP on port {Config.HttpPort}. Control API: {(Config.ControlEnabled ? $"{Config.ControlTransport.ToUpperInvariant()} 模式，API Key" : "关闭")}. Voice: {(Config.VoiceEnabled ? $"启用(端口 {Config.VoicePort})" : "关闭")}.");
     }
@@ -130,6 +130,7 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
         ControlController.ClearPluginStaged(); // X-05：插件重载后清空启停暂存
         WsControlService.ShutdownAll();
         DataCollector.StopTimer();
+        UpdateChecker.Stop();
         CommandOutputCapture.Shutdown();
 
         Instance = null;

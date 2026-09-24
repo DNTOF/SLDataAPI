@@ -61,7 +61,8 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
             $"[SLDataAPI] 配置摘要：http_port={Config.HttpPort}，verify_token 长度 {Config.VerifyToken?.Length ?? 0}，" +
             $"control={(Config.ControlEnabled ? $"{Config.ControlTransport} 模式，API Key 鉴权" : "关闭")}，" +
             $"voice={(Config.VoiceEnabled ? $"启用(端口 {Config.VoicePort})" : "关闭")}，" +
-            $"录音={(Config.VoiceRecordEnabled ? $"开(保留 {Config.VoiceRecordMaxRounds} 局)" : "关")}。");
+            $"录音={(Config.VoiceRecordEnabled ? $"开(保留 {Config.VoiceRecordMaxRounds} 局)" : "关")}，" +
+            $"webdav={(Config.WebdavUploadEnabled ? "开" : "关")}。");
 
         server = new HttpServer(Config.HttpPort, Config);
         try
@@ -85,6 +86,8 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
 
         // 语音录音取证（v2.5）：每局自动保存 WAV + 时间轴日志
         VoiceRecorder.Configure(Config.VoiceRecordEnabled, Config.VoiceRecordMaxRounds, Config.VoiceRecordDir);
+        WebDavUploadService.Init(Config);
+        VoiceRecorder.OnZipFinalized = WebDavUploadService.Enqueue;
 
         // 举报功能（v2.5.4 推出，代号 GIS,GNSS,RS!）：SSS 面板举报 + 平台端点，默认关闭
         string reportConfigDir = "";
@@ -119,7 +122,9 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
         LabApi.Events.Handlers.PlayerEvents.SendingVoiceMessage -= OnSendingVoiceMessage;
 
         VoiceService.Stop();
-        VoiceRecorder.EndRound(waitFinalize: true); // 兜底：停服时定稿并等待打包完成
+        VoiceRecorder.EndRound(waitFinalize: true); // 兜底：停服时定稿并等待打包完成（回调入队 WebDAV）
+        VoiceRecorder.OnZipFinalized = null;
+        WebDavUploadService.Shutdown();
         ReportService.Dispose();
         server?.Stop();
         ControlController.ClearPluginStaged(); // X-05：插件重载后清空启停暂存

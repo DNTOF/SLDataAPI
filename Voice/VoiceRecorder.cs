@@ -31,7 +31,8 @@ namespace SLDataAPI.Voice;
 ///   - HandlePcm / OnSpeakerGone / BeginRound / EndRound 均由主线程调用；磁盘写入在独立
 ///     后台线程完成（开轨控制消息与音频帧同队列串行，无共享字典竞态）。
 ///   - 定稿与 zip 打包在后台线程完成（快照隔离，不占主线程、不阻塞下一局）；服务器停服时
-///     同步定稿打包。按 voice_record_max_rounds 清理最旧局。
+///     同步定稿打包。按 voice_record_max_rounds 清理最旧局。zip 落盘后触发 OnZipFinalized
+///     （WebDAV 等旁路入队，不得在回调里做同步网络 IO）。
 ///   - 依赖语音管线运行（voice_enabled=true）；本类不自行订阅事件，由 Plugin 驱动。
 /// </summary>
 public static class VoiceRecorder
@@ -63,6 +64,13 @@ public static class VoiceRecorder
 
     private static StringBuilder? _timeline;
     private static Task? _finalizeTask; // 上一局的打包任务（Disable 时同步等待）
+
+    /// <summary>
+    /// 本局 zip 已成功写入磁盘后触发（后台定稿线程，路径已知）。
+    /// 用于 WebDAV 等旁路：回调必须立即返回，不得做同步网络 IO。
+    /// 异常由 FinalizeRound 吞掉，不影响定稿。
+    /// </summary>
+    public static Action<string>? OnZipFinalized;
 
     // 讲话段状态（全部主线程访问）
     private static readonly Dictionary<uint, (double StartTime, long StartSample)> OpenBursts = new();
@@ -260,6 +268,13 @@ public static class VoiceRecorder
                 foreach (string f in files)
                 {
                     try { File.Delete(f); } catch { /* 占用则保留 */ }
+                }
+
+                // zip 已落盘：旁路挂钩（WebDAV 等）。失败不得阻塞或打断定稿。
+                try { OnZipFinalized?.Invoke(zipPath); }
+                catch (Exception hookEx)
+                {
+                    Log.Warn($"[SLDataAPI] 录音定稿后回调失败（忽略）: {hookEx.Message}");
                 }
             }
 

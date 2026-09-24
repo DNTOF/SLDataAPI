@@ -98,6 +98,41 @@ public class Config
     /// </summary>
     public string VoiceRecordDir { get; set; } = "";
 
+    // ================== 语音 zip WebDAV 自动上传（v2.6.0-preview-DevOnly，默认关闭） ==================
+
+    /// <summary>
+    /// 每局录音 zip 定稿后是否自动 PUT 到 WebDAV。默认关闭——不影响既有行为。
+    /// 启用但 URL 无效时启动 Warn 一次后本会话跳过。
+    /// </summary>
+    public bool WebdavUploadEnabled { get; set; } = false;
+
+    /// <summary>
+    /// WebDAV 目标：目录 URL（自动追加文件名），或含 <c>{filename}</c> / <c>{file}</c> 的完整模板。
+    /// 必须是 http(s) 绝对地址。
+    /// </summary>
+    public string WebdavUrl { get; set; } = "";
+
+    /// <summary>WebDAV Basic Auth 用户名。可空（匿名）。</summary>
+    public string WebdavUsername { get; set; } = "";
+
+    /// <summary>WebDAV Basic Auth 密码。可空。日志永不输出此值或 Authorization 头。</summary>
+    public string WebdavPassword { get; set; } = "";
+
+    /// <summary>
+    /// 远程目录前缀（拼在 webdav_url 与文件名之间）。模板 URL 模式下忽略。
+    /// 含 <c>..</c> 的段会被丢弃。
+    /// </summary>
+    public string WebdavRemotePathPrefix { get; set; } = "";
+
+    /// <summary>单次 PUT 超时（秒），默认 30。</summary>
+    public int WebdavTimeoutSeconds { get; set; } = 30;
+
+    /// <summary>首次失败后的最多重试次数（总尝试 = 1 + 本值），默认 5。网络 / 5xx / 408 / 429 / 超时才重试。</summary>
+    public int WebdavMaxRetries { get; set; } = 5;
+
+    /// <summary>重试基础间隔（秒），按失败次数指数退避（上限 600s）。默认 15。</summary>
+    public int WebdavRetryIntervalSeconds { get; set; } = 15;
+
     // ================== 举报功能（v2.5.4 推出，代号 GIS,GNSS,RS!：SSS UI + 平台端点） ==================
 
     /// <summary>

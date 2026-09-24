@@ -1,4 +1,5 @@
 using System;
+using SLDataAPI.Auth;
 using System.Collections.Generic;
 using System.IO;
 using System.Net;
@@ -29,7 +30,8 @@ namespace SLDataAPI.Voice;
 ///   GET /ws?key=xxx           → WebSocket 升级，实时语音流（二进制帧）
 ///   GET /status?key=xxx       → JSON：当前正在说话的玩家（昵称/角色/频道）
 ///
-/// 鉴权：key 必须等于 Config.ControlToken（与控制接口同权限）。
+/// 鉴权：API Key（Authorization: Bearer / X-SLDataAPI-Key；与控制面同一套，不再使用 ControlToken）。
+/// 未完成握手的连接占用独立 pending 池，不占已鉴权 MaxClients 席位。
 /// 全部在主线程协程中轮询，避免线程安全问题（同 VoiceStreamPlugin 方案）。
 ///
 /// 注意：按"说话者"维护的状态一律用 netId（uint）做键，绝不用 ReferenceHub——
@@ -38,7 +40,8 @@ namespace SLDataAPI.Voice;
 /// </summary>
 public static class VoiceService
 {
-    private const int MaxClients = 8;               // 监听客户端上限（防连接耗尽）
+    private const int MaxClients = 8;               // 已鉴权监听客户端上限（防连接耗尽）
+    private const int MaxPendingClients = 8;        // 未握手连接上限（与 MaxClients 分开，避免占满鉴权席位）
     private const float HandshakeTimeoutSec = 10f;  // 连接后完成握手的最长时间（防 Slowloris 式占用）
     private const float UnwritableDropSec = 3f;     // 发送缓冲持续不可写的判死时间（防主线程卡服）
     private const long MaxMessageBytes = 256 * 1024; // 入站单帧长度上限（L-02，防长度回绕/超大分配）
@@ -203,8 +206,8 @@ public static class VoiceService
             _pktCount = 0;
         }
 
-        // 有监听客户端才拷贝 PCM（省内存）
-        if (Clients.Count == 0) return;
+        // 有已鉴权监听客户端才拷贝 PCM（省内存；pending 不计入）
+        if (CountAuthenticated() == 0) return;
 
         // 新一段讲话检测：距上次该说话者的包超过 800ms 视为新一轮，
         // 强制重发 speaker 帧（客户端按 1.5s 超时清理条目，静默后再次说话
@@ -287,20 +290,20 @@ public static class VoiceService
 
     private static void TickOnce()
     {
-        // 1. 接受新连接（带上限：超出直接拒绝，防止恶意连接耗尽资源）
+        // 1. 接受新连接：pending 与已鉴权分池。未握手连接不得占满 MaxClients。
         try
         {
             while (_listener != null && _listener.Pending())
             {
                 Socket sock = _listener.AcceptSocket();
-                if (Clients.Count >= MaxClients)
+                if (CountPending() >= MaxPendingClients)
                 {
-                    RateLimitedWarn($"[SLDataAPI] 语音监听连接数已满（上限 {MaxClients}），已拒绝新连接");
+                    RateLimitedWarn($"[SLDataAPI] 语音未握手连接数已满（上限 {MaxPendingClients}），已拒绝新连接");
                     try { sock.Close(); } catch { /* 忽略 */ }
                     continue;
                 }
                 Clients.Add(new VoiceClient(sock));
-                RateLimitedInfo("语音监听客户端已连接", Clients.Count);
+                RateLimitedInfo("语音监听客户端已连接", CountAuthenticated());
             }
         }
         catch (Exception ex) when (_running)
@@ -349,7 +352,7 @@ public static class VoiceService
         if (now - _lastHeartbeat > 300f)
         {
             _lastHeartbeat = now;
-            Log.Info($"[SLDataAPI] 语音心跳: 累计语音包={_totalPackets}, 监听客户端={Clients.Count}, 活跃说话者={Activities.Count}");
+            Log.Info($"[SLDataAPI] 语音心跳: 累计语音包={_totalPackets}, 已鉴权监听={CountAuthenticated()}/{MaxClients}, 握手中={CountPending()}/{MaxPendingClients}, 活跃说话者={Activities.Count}");
         }
     }
 
@@ -374,6 +377,26 @@ public static class VoiceService
         }
         sb.Append("]}");
         return sb.ToString();
+    }
+
+    private static int CountAuthenticated()
+    {
+        int n = 0;
+        foreach (var c in Clients)
+        {
+            if (c.Authenticated) n++;
+        }
+        return n;
+    }
+
+    private static int CountPending()
+    {
+        int n = 0;
+        foreach (var c in Clients)
+        {
+            if (c.IsOpen && !c.Authenticated) n++;
+        }
+        return n;
     }
 
     // ────────────── 内部类型 ──────────────
@@ -503,33 +526,39 @@ public static class VoiceService
             string method = parts[0];
             string path = parts[1];
 
-            // 鉴权：优先 X-Control-Token 请求头（L-05：不落反向代理/访问日志），
-            // 其次 query ?key=。与控制接口同一套防爆破锁定（常量时间比较 + 按 IP 锁定），
-            // 未配置 token 时一律拒绝（不裸奔监听）。
-            string? key = ExtractHeader(header, "X-Control-Token");
-            if (string.IsNullOrEmpty(key))
-                key = ExtractQuery(path, "key") ?? ExtractQuery(path, "access_key");
-            string cfgToken = Plugin.Instance?.Config.ControlToken ?? "";
-            if (string.IsNullOrEmpty(cfgToken))
-            {
-                SendHttp("403 Forbidden", "application/json", "{\"ok\":false,\"error\":\"服务端未配置 ControlToken\"}");
-                _state = -1;
-                return;
-            }
-
+            // v2.6.0 推出，代号 PEAK：语音口 API Key（Authorization: Bearer / X-SLDataAPI-Key）；不再接受 X-Control-Token / ?key=
+            string? key = ApiKeyService.ExtractKeyFromRawHeader(header);
             string clientIp = "";
             try { clientIp = ((IPEndPoint)_socket.RemoteEndPoint).Address.ToString(); } catch { /* 忽略 */ }
 
-            if (!ControlAuth.TryAuthenticate(clientIp, key ?? "", cfgToken, out string authErr))
+            if (!ApiKeyService.TryAuthenticate(clientIp, key, out var principal, out string authErr) || principal == null)
             {
-                Log.Warn($"[SLDataAPI][Voice] 鉴权失败 from {clientIp}: {authErr} {ControlAuth.DescribeMismatch(key, cfgToken)}");
-                SendHttp("403 Forbidden", "application/json", "{\"ok\":false,\"error\":\"" + JsonEscape(authErr) + "\"}");
+                Log.Warn($"[SLDataAPI][Voice] 鉴权失败 from {clientIp}: {authErr}");
+                SendHttp("401 Unauthorized", "application/json", "{\"ok\":false,\"error\":\"" + JsonEscape(authErr) + "\"}");
                 _state = -1;
                 return;
             }
 
-            if (method == "GET" && path.StartsWith("/ws", StringComparison.OrdinalIgnoreCase))
+            // 去掉 query 再匹配路径
+            string pathOnly = path;
+            int q = pathOnly.IndexOf('?');
+            if (q >= 0) pathOnly = pathOnly.Substring(0, q);
+
+            if (method == "GET" && pathOnly.StartsWith("/ws", StringComparison.OrdinalIgnoreCase))
             {
+                if (!principal.Allows("voice:/ws", wantWrite: false))
+                {
+                    SendHttp("403 Forbidden", "application/json", "{\"ok\":false,\"error\":\"API Key 未授权 voice:/ws\"}");
+                    _state = -1;
+                    return;
+                }
+                if (CountAuthenticated() >= MaxClients)
+                {
+                    SendHttp("503 Service Unavailable", "application/json",
+                        "{\"ok\":false,\"error\":\"语音已鉴权监听数已满\"}");
+                    _state = -1;
+                    return;
+                }
                 if (TryHandshake(header))
                 {
                     _state = 1;
@@ -539,8 +568,14 @@ public static class VoiceService
                 return;
             }
 
-            if (method == "GET" && path.StartsWith("/status", StringComparison.OrdinalIgnoreCase))
+            if (method == "GET" && pathOnly.StartsWith("/status", StringComparison.OrdinalIgnoreCase))
             {
+                if (!principal.Allows("voice:/status", wantWrite: false))
+                {
+                    SendHttp("403 Forbidden", "application/json", "{\"ok\":false,\"error\":\"API Key 未授权 voice:/status\"}");
+                    _state = -1;
+                    return;
+                }
                 SendHttp("200 OK", "application/json", BuildStatusJson());
                 _state = -1;
                 return;
@@ -787,7 +822,7 @@ public static class VoiceService
         return h;
     }
 
-    /// <summary>从握手 HTTP 头中提取指定请求头（L-05：语音 WS 支持 X-Control-Token 头鉴权）。</summary>
+    /// <summary>从握手 HTTP 头中提取指定请求头。</summary>
     private static string? ExtractHeader(string header, string name)
     {
         foreach (var line in header.Split('\n'))

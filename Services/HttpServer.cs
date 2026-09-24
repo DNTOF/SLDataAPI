@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Net;
@@ -30,6 +30,8 @@ public class HttpServer
     // 的接收超时（每 29s 发 1 字节即可无限占用连接），必须用总时限兜底。
     // 只约束"读请求"阶段，不影响控制端点最长 5s 的主线程派发与响应写出。
     private const int RequestDeadlineMs = 15000;
+
+    private static int _queryTokenDeprecationLogged;
 
     public HttpServer(int port, Config config)
     {
@@ -261,20 +263,15 @@ public class HttpServer
                     return;
                 }
 
-                string reqToken = ExtractQueryValue(query, "token");
-                // 与控制接口共用同一套防爆破锁定（常量时间比较 + 按 IP 锁定）
-                if (!ControlAuth.TryAuthenticate(remoteIp, reqToken, _config.VerifyToken ?? "", out string readErr, highPrivilege: false))
-                {
-                    Log.Warn($"[SLDataAPI] 数据接口鉴权失败 from {remoteIp}: {readErr} {ControlAuth.DescribeMismatch(reqToken, _config.VerifyToken)}");
-                    SendJson(stream, 403, Err(readErr));
+                if (!TryAuthorizeDataPlane(stream, remoteIp, query, headers, "数据接口"))
                     return;
-                }
 
                 // 快照模式：BuildJson 只读 volatile 快照 + 局部 Clone + 主线程派发，无共享可变状态，无需加锁
                 string json = DataCollector.BuildJson();
                 SendJson(stream, 200, json);
                 return;
             }
+
 
             // ---- Adapted plugin discovery (verify_token, same as get_sl_data) ----
             if (path == "/plugins/adapted")
@@ -285,13 +282,8 @@ public class HttpServer
                     return;
                 }
 
-                string reqTokenAp = ExtractQueryValue(query, "token");
-                if (!ControlAuth.TryAuthenticate(remoteIp, reqTokenAp, _config.VerifyToken ?? "", out string apErr, highPrivilege: false))
-                {
-                    Log.Warn($"[SLDataAPI] /plugins/adapted 鉴权失败 from {remoteIp}: {apErr} {ControlAuth.DescribeMismatch(reqTokenAp, _config.VerifyToken)}");
-                    SendJson(stream, 403, Err(apErr));
+                if (!TryAuthorizeDataPlane(stream, remoteIp, query, headers, "/plugins/adapted"))
                     return;
-                }
 
                 // Authoritative full list: use latest main-thread snapshot from DataCollector.
                 var snapAp = DataCollector.CachedData?.adapted_plugins ?? PluginEndpointRegistry.Snapshot(includeLiveStatus: false);
@@ -312,13 +304,8 @@ public class HttpServer
                     return;
                 }
 
-                string reqTokenRt = ExtractQueryValue(query, "token");
-                if (!ControlAuth.TryAuthenticate(remoteIp, reqTokenRt, _config.VerifyToken ?? "", out string rtErr, highPrivilege: false))
-                {
-                    Log.Warn($"[SLDataAPI] adapted route 鉴权失败 from {remoteIp}: {rtErr} {ControlAuth.DescribeMismatch(reqTokenRt, _config.VerifyToken)}");
-                    SendJson(stream, 403, Err(rtErr));
+                if (!TryAuthorizeDataPlane(stream, remoteIp, query, headers, "adapted route"))
                     return;
-                }
 
                 // Expected: /plugins/{plugin_id}/{route_path}  (exactly two segments after /plugins/)
                 string rest = path.Substring("/plugins/".Length);
@@ -385,14 +372,12 @@ public class HttpServer
                     return;
                 }
 
-                string reqToken = headers.TryGetValue("X-Control-Token", out var h)
-                    ? h
-                    : ExtractQueryValue(query, "token");
-
-                if (!ControlAuth.TryAuthenticate(remoteIp, reqToken, _config.ControlToken, out string authErr))
+                // v2.6.0 推出，代号 PEAK：控制面 API Key（Bearer / X-SLDataAPI-Key）；不再接受 X-Control-Token / ?token=
+                string? apiKey = SLDataAPI.Auth.ApiKeyService.ExtractKeyFromHeaders(headers);
+                if (!SLDataAPI.Auth.ApiKeyService.TryAuthenticate(remoteIp, apiKey, out var principal, out string authErr))
                 {
-                    Log.Warn($"[SLDataAPI][Control] 鉴权失败 from {remoteIp}: {authErr} {ControlAuth.DescribeMismatch(reqToken, _config.ControlToken)}");
-                    SendJson(stream, 403, Err(authErr));
+                    Log.Warn($"[SLDataAPI][Control] 鉴权失败 from {remoteIp}: {authErr}");
+                    SendJson(stream, 401, Err(authErr));
                     return;
                 }
 
@@ -402,7 +387,15 @@ public class HttpServer
                     return;
                 }
 
-                var (status, json) = ControlController.Handle(path, body);
+                bool wantWrite = SLDataAPI.Auth.EndpointAcl.IsWriteOperation(path, body);
+                if (principal == null || !principal.Allows(path, wantWrite))
+                {
+                    Log.Warn($"[SLDataAPI][Control] 端点未授权 key={principal?.Id} path={path} write={wantWrite}");
+                    SendJson(stream, 403, Err("API Key 有效但未授权该端点"));
+                    return;
+                }
+
+                var (status, json) = ControlController.Handle(path, body, principal.Id);
                 SendJson(stream, status, json);
                 return;
             }
@@ -414,6 +407,38 @@ public class HttpServer
             Log.Error($"[SLDataAPI] 路由处理异常: {ex}");
             try { SendJson(stream, 500, Err("内部错误")); } catch { }
         }
+    }
+
+    /// <summary>
+    /// 数据口鉴权：弱/默认 verify_token fail-closed（不比较、不放行）；
+    /// 令牌来自 Authorization / X-SLDataAPI-Token，兼容 <c>?token=</c>。
+    /// </summary>
+    private bool TryAuthorizeDataPlane(Stream stream, string remoteIp, string query,
+        Dictionary<string, string> headers, string logTag)
+    {
+        if (!ControlAuth.IsAcceptableVerifyToken(_config.VerifyToken))
+        {
+            SendJson(stream, 503, Err(
+                "数据接口已关闭：verify_token 未设置为强随机值（禁止出厂默认/空/弱口令）。请修改 config.yml 后重启。"));
+            return false;
+        }
+
+        string reqToken = ControlAuth.ExtractDataPlaneToken(headers, query);
+        if (ControlAuth.QueryHasTokenParam(query) &&
+            (headers == null || ControlAuth.ExtractDataPlaneToken(headers, "") == "") &&
+            Interlocked.Exchange(ref _queryTokenDeprecationLogged, 1) == 0)
+        {
+            Log.Warn("[SLDataAPI] 数据口仍在使用 URL ?token=（可能进入访问日志/代理日志）。请改用 Authorization: Bearer 或 X-SLDataAPI-Token；?token= 已弃用，后续版本将移除。");
+        }
+
+        if (!ControlAuth.TryAuthenticate(remoteIp, reqToken, _config.VerifyToken ?? "", out string err, highPrivilege: false))
+        {
+            Log.Warn($"[SLDataAPI] {logTag} 鉴权失败 from {remoteIp}: {err} {ControlAuth.DescribeMismatch(reqToken, _config.VerifyToken)}");
+            SendJson(stream, 403, Err(err));
+            return false;
+        }
+
+        return true;
     }
 
     private static void SendJson(Stream stream, int code, string jsonBody)
@@ -442,6 +467,7 @@ public class HttpServer
         {
             case 200: return "OK";
             case 400: return "Bad Request";
+            case 401: return "Unauthorized";
             case 403: return "Forbidden";
             case 404: return "Not Found";
             case 405: return "Method Not Allowed";

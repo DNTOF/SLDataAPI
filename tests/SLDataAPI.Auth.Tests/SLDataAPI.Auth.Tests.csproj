@@ -22,5 +22,6 @@
     <Compile Include="..\..\Auth\ControlAuditView.cs" Link="ControlAuditView.cs" />
     <Compile Include="..\..\Control\ControlAuth.cs" Link="ControlAuth.cs" />
     <Compile Include="..\..\Control\WsCallGate.cs" Link="WsCallGate.cs" />
+    <Compile Include="..\..\Control\ControlMessageValidation.cs" Link="ControlMessageValidation.cs" />
   </ItemGroup>
 </Project>

@@ -81,6 +81,31 @@ public class RoundActionRequest
     public string action { get; set; } = "";
 }
 
+/// <summary>POST /control/broadcast —— 全服屏幕中央广播。</summary>
+public class BroadcastRequest
+{
+    /// <summary>广播文本（必填）。</summary>
+    public string message { get; set; } = "";
+
+    /// <summary>显示时长（秒）。≤0 回落到 5，上限 60（与 /control/moderation/msg 一致）。</summary>
+    public float duration_seconds { get; set; } = 5f;
+
+    /// <summary>可选：发送前清空玩家当前广播队列。默认 false。</summary>
+    public bool clear_previous { get; set; }
+}
+
+/// <summary>POST /control/staffchat —— RA 管理聊天（仅有 AdminChat 权限的玩家可见）。</summary>
+public class StaffChatRequest
+{
+    /// <summary>聊天文本（必填）。</summary>
+    public string message { get; set; } = "";
+
+    /// <summary>
+    /// 可选：true 时不附带管理聊天的屏幕广播提示（LabAPI isSilent）。默认 false。
+    /// </summary>
+    public bool is_silent { get; set; }
+}
+
 /// <summary>POST /control/cassie</summary>
 public class CassieRequest
 {

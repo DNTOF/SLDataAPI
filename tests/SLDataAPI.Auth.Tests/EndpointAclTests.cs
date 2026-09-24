@@ -143,7 +143,31 @@ public class TemplateMergeTests
         var g = EndpointAcl.MergeEffective("admin", null, null);
         Assert.True(EndpointAcl.IsAllowed(g, "/control/moderation/ban", true));
         Assert.True(EndpointAcl.IsAllowed(g, "/control/admin/teleport", true));
+        Assert.True(EndpointAcl.IsAllowed(g, "/control/broadcast", true));
+        Assert.True(EndpointAcl.IsAllowed(g, "/control/staffchat", true));
         Assert.True(EndpointAcl.IsAllowed(g, "voice:/ws", false));
+    }
+
+    [Fact]
+    public void Duty_Default_DeniesBroadcastAndStaffChat()
+    {
+        var g = EndpointAcl.MergeEffective("duty", null, null);
+        Assert.False(EndpointAcl.IsAllowed(g, "/control/broadcast", true));
+        Assert.False(EndpointAcl.IsAllowed(g, "/control/broadcast", false));
+        Assert.False(EndpointAcl.IsAllowed(g, "/control/staffchat", true));
+        Assert.False(EndpointAcl.IsAllowed(g, "/control/staffchat", false));
+        Assert.False(EndpointAcl.IsAllowed(g, "/control/cassie", true));
+    }
+
+    [Fact]
+    public void Catalog_BroadcastAndStaffChat_AdminTrue_DutyFalse()
+    {
+        Assert.True(EndpointAcl.DefaultCatalog["/control/broadcast"]);
+        Assert.True(EndpointAcl.DefaultCatalog["/control/staffchat"]);
+        Assert.True(EndpointAcl.DutyDefaults.TryGetValue("/control/broadcast", out var bc));
+        Assert.True(EndpointAcl.DutyDefaults.TryGetValue("/control/staffchat", out var sc));
+        Assert.False(bc.Permits(true));
+        Assert.False(sc.Permits(true));
     }
 
     [Fact]
@@ -240,5 +264,12 @@ public class WriteDetectionTests
     {
         Assert.False(EndpointAcl.IsWriteOperation("/control/reports", "{\"action\":\"list\"}"));
         Assert.True(EndpointAcl.IsWriteOperation("/control/reports", "{\"action\":\"handle\",\"id\":\"x\"}"));
+    }
+
+    [Fact]
+    public void BroadcastAndStaffChat_AreWrites()
+    {
+        Assert.True(EndpointAcl.IsWriteOperation("/control/broadcast", "{\"message\":\"hi\"}"));
+        Assert.True(EndpointAcl.IsWriteOperation("/control/staffchat", "{\"message\":\"hi\"}"));
     }
 }

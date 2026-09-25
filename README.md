@@ -50,8 +50,8 @@ SCP:SL 专用服务器的 **LabAPI 原生插件**（v2.4 起，非 EXILED）。�
 
 **获取渠道：**
 
-- `0Harmony.dll`：Harmony 官方仓库 https://github.com/pardeike/Harmony/releases（选择 **net472** 版本，文件名为 `0Harmony.dll`）
-- `Newtonsoft.Json.dll`：NuGet https://www.nuget.org/packages/Newtonsoft.Json（13.0.x）
+- `0Harmony.dll`：Harmony 官方仓库 https://github.com/pardeike/Harmony/releases （选择 **net472** 版本，文件名为 `0Harmony.dll`）
+- `Newtonsoft.Json.dll`：NuGet https://www.nuget.org/packages/Newtonsoft.Json （13.0.x）
 - 或从已完整安装 LabAPI 的其他服务器 `LabAPI/dependencies/global/` 直接复制
 
 放入后重启服务器生效。

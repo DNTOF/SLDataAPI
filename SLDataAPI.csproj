@@ -9,6 +9,9 @@
     <AssemblyVersion>2.6.0.0</AssemblyVersion>
     <FileVersion>2.6.0.0</FileVersion>
     <InformationalVersion>2.6.0 PEAK</InformationalVersion>
+    <Authors>DNT_OF</Authors>
+    <Copyright>Copyright (C) 2026 DNT_OF</Copyright>
+    <PackageLicenseExpression>GPL-3.0-only</PackageLicenseExpression>
     <!-- CS8002：强签名程序集引用未签名程序集——游戏 DLL / 0Harmony 等运行时依赖本就无强名称，属预期 -->
     <NoWarn>CS0618;CS1591;CS8002</NoWarn>
 

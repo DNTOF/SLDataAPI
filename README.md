@@ -186,4 +186,8 @@ Content-Type: application/json
 
 ## 许可证
 
-[GPLv3](LICENSE)
+Copyright (C) 2026 DNT_OF
+
+以 [GPL-3.0-only](LICENSE) 授权，详见 [NOTICE](NOTICE)。
+
+复用或改写本项目代码（尤其语音流相关实现）时，须保留源文件版权头与 NOTICE、以 GPL-3.0-only 开源，并注明来自 [DNTOF/SLDataAPI](https://github.com/DNTOF/SLDataAPI)。

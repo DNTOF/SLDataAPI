@@ -1,0 +1,56 @@
+SLDataAPI
+Copyright (C) 2026 DNT_OF
+SPDX-License-Identifier: GPL-3.0-only
+源码 / Source: https://github.com/DNTOF/SLDataAPI
+
+本程序依据 GNU 通用公共许可证第 3 版（仅限第 3 版，GPL-3.0-only）发布，完整条款见仓库根目录 LICENSE。
+This program is licensed under the GNU General Public License version 3 only
+(GPL-3.0-only). See LICENSE for the full text.
+
+
+一、原创组件 / Original components
+（作者 DNT_OF；日期为首次提交时间，UTC+8 / author DNT_OF; dates are first-commit times, UTC+8）
+
+1. 语音转发 / Voice forwarding — Voice/VoiceService.cs
+   包括 / Includes:
+   - SLDataAPI 语音 WebSocket 帧协议 / SLDataAPI voice WebSocket frame protocol:
+     二进制帧 / binary frame: 0x01 | channel | playerId (LE16) | seq (LE32) | float32 PCM
+     以及 hello / speaker JSON 文本帧 / plus hello / speaker JSON frames
+   - 基于 FNV-1a 哈希的重复帧过滤 / FNV-1a duplicate-frame filtering
+   - 连接保护 / connection guards
+   首次提交 / First committed: 2026-08-15 12:28 (UTC+8), commit 4c0dbba (v2.3.0；当时位于仓库根目录 VoiceService.cs)
+   迁移至 LabAPI / Ported to LabAPI: 2026-08-16 19:31 (UTC+8), commit 36a25d1 (v2.4.0；移至 Voice/VoiceService.cs)
+
+2. 语音录音 / 时间线 / Voice recorder / timeline — Voice/VoiceRecorder.cs
+   首次提交 / First committed: 2026-08-18 19:06 (UTC+8), commit 8de5e22 (v2.5.0)
+
+语音部分的设计源自作者本人更早的最小原型（VoiceStreamPlugin / get_the_voice_channel），并非第三方代码。
+The voice design derives from the author's own earlier minimal prototype
+(VoiceStreamPlugin / get_the_voice_channel), not from third-party code.
+
+
+二、致谢与第三方组件 / Acknowledgements and third-party components
+
+- SCP: Secret Laboratory 游戏程序集及 VoiceChat Opus 编解码器 — Northwood Studios。
+  仅在编译期引用，本项目不再分发。
+  SCP: Secret Laboratory game assemblies and VoiceChat Opus codec by Northwood Studios
+  (referenced only, not redistributed).
+- LabAPI — SCP: Secret Laboratory 官方插件框架 / the official SCP:SL plugin framework.
+- Harmony (0Harmony, https://github.com/pardeike/Harmony) — MIT License。
+- Newtonsoft.Json (https://www.newtonsoft.com/json) — MIT License。
+- WebSocket 握手与帧格式遵循公开标准 RFC 6455。
+  WebSocket handshake/framing follows the public RFC 6455 standard.
+- 按 netId 区分说话者的逐说话人解码器是常见做法，CedMod 亦采用类似方式。
+  A per-speaker decoder keyed by netId is a common approach, also used by CedMod.
+
+
+三、复用要求 / Reuse requirements
+
+复用或改写本项目代码（尤其语音流相关实现）时，须：
+When reusing or adapting code from this project (especially the voice streaming code), you must:
+  1. 保留源文件中的版权 / SPDX 头以及本 NOTICE 文件；
+     keep the copyright/SPDX headers in source files and this NOTICE file;
+  2. 衍生作品以 GPL-3.0-only 发布并提供源代码；
+     distribute derivative works under GPL-3.0-only, with source code;
+  3. 注明来自 DNTOF/SLDataAPI（https://github.com/DNTOF/SLDataAPI）。
+     credit DNTOF/SLDataAPI (https://github.com/DNTOF/SLDataAPI).

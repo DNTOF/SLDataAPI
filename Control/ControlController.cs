@@ -94,6 +94,12 @@ public static class ControlController
                 "/control/logs" => LogsAction(body),
                 "/control/reports" => ReportsAction(body),
                 "/control/audit/list" => AuditListAction(body, actor),
+                // [内测] beta_file_root_ws：分块读写 + stat（HTTP / WS call 共用）
+                "/control/files/stat" => FilesBetaAction(body, "stat", actor),
+                "/control/files/read_chunk" => FilesBetaAction(body, "read_chunk", actor),
+                "/control/files/write_chunk" => FilesBetaAction(body, "write_chunk", actor),
+                // [内测] beta_adapted_plugin_actions：适配插件写 / 动作路由
+                _ when path.StartsWith(AdaptedActionPrefix, StringComparison.Ordinal) => AdaptedPluginAction(path, body, actor),
                 _ => (404, Json(false, "未知控制端点（2.6 已移除旧路径别名，请使用 RA 对齐新路径）")),
             };
 
@@ -112,7 +118,7 @@ public static class ControlController
                 bool ok = status >= 200 && status < 300;
                 string msg = "";
                 try { msg = JObject.Parse(json)["message"]?.ToString() ?? ""; } catch { /* 解析失败留空 */ }
-                ControlLogService.Record(path, body, ok, msg, actor);
+                ControlLogService.Record(path, AuditBody(path, body), ok, msg, actor);
             }
 
             return (status, json);
@@ -146,6 +152,8 @@ public static class ControlController
                 case "/control/files/read":
                 case "/control/audit/list":
                 case "/control/player/data":
+                case "/control/files/stat":       // [内测]
+                case "/control/files/read_chunk": // [内测]
                     return true;
                 case "/control/map/facility":
                     return false; // 门/梯/灯
@@ -1196,6 +1204,171 @@ public static class ControlController
         {
             return (400, Json(false, ex.Message));
         }
+    }
+
+    // ------------------------------------------------------------------
+    // [内测] beta_file_root_ws：/control/files/{stat|read_chunk|write_chunk}
+    // 与 files/list|read|write 同一套：FileRoot 沙箱（含 symlink/junction 拒绝）、ACL（/control/files/ 前缀）、
+    // 审计（write_chunk 记录，块数据在审计里只记长度）。纯 IO，不派发主线程。
+    // ------------------------------------------------------------------
+    private static readonly FileUploadSessions FileUploads = new(FileService.MaxWriteBytesLimit);
+
+    /// <summary>插件停用时清空未完成的分块上传（内存态）。</summary>
+    public static void ClearFileUploads() => FileUploads.Clear();
+
+    private static (int, string) FilesBetaAction(string body, string kind, string? actor)
+    {
+        if (Plugin.Instance?.Config.BetaFileRootWs != true)
+            return (404, Json(false, "内测端点未开启（config: beta_file_root_ws: false）"));
+
+        string root = Plugin.Instance?.Config.FileRoot ?? "";
+        if (!FileService.IsEnabled(root))
+            return (404, Json(false, "文件端点未启用（服务器未配置 FileRoot）"));
+
+        JObject req;
+        try { req = string.IsNullOrWhiteSpace(body) ? new JObject() : JObject.Parse(body); }
+        catch { return (400, Json(false, "请求体不是合法 JSON 对象")); }
+        string relPath = req["path"]?.ToString() ?? "";
+        string who = actor ?? "";
+
+        try
+        {
+            switch (kind)
+            {
+                case "stat":
+                    return (200, Json(true, "ok", FileService.Stat(root, relPath)));
+
+                case "read_chunk":
+                {
+                    long offset = req["offset"]?.Value<long?>() ?? 0;
+                    int length = req["length"]?.Value<int?>() ?? FileService.DefaultChunkBytes;
+                    return (200, Json(true, "ok", FileService.ReadChunk(root, relPath, offset, length)));
+                }
+
+                case "write_chunk":
+                {
+                    string action = (req["action"]?.ToString() ?? "append").Trim().ToLowerInvariant();
+                    string uploadId = req["upload_id"]?.ToString() ?? "";
+
+                    if (action == "abort")
+                    {
+                        bool removed = FileUploads.Abort(uploadId, who);
+                        return (200, Json(true, removed ? "已取消上传" : "会话不存在或已过期", new { upload_id = uploadId, aborted = removed }));
+                    }
+                    if (action != "append")
+                        return (400, Json(false, $"未知 action: {action}（支持 append / abort）"));
+
+                    long offset = req["offset"]?.Value<long?>() ?? 0;
+                    bool final = req["final"]?.Value<bool?>() ?? false;
+                    string? sha = req["sha256"]?.ToString();
+                    byte[] chunk;
+                    try { chunk = Convert.FromBase64String(req["data"]?.ToString() ?? ""); }
+                    catch { return (400, Json(false, "data 不是合法 base64")); }
+
+                    if (string.IsNullOrEmpty(uploadId))
+                    {
+                        if (offset != 0)
+                            return (400, Json(false, "新上传必须从 offset 0 开始（或携带 upload_id 续传）"));
+                        FileService.PreflightWrite(root, relPath); // 开会话前就跑完全部写入防线，越界/受保护路径立即拒绝
+                        uploadId = FileUploads.Begin(who, relPath);
+                    }
+
+                    long received = FileUploads.Append(uploadId, who, relPath, offset, chunk);
+                    if (!final)
+                        return (200, Json(true, "ok", new { upload_id = uploadId, received, committed = false }));
+
+                    byte[] all = FileUploads.Complete(uploadId, who, relPath, sha);
+                    object written = FileService.WriteBytes(root, relPath, all);
+                    return (200, Json(true, "已写入", new { upload_id = uploadId, received, committed = true, file = written }));
+                }
+
+                default:
+                    return (400, Json(false, "未知文件操作"));
+            }
+        }
+        catch (Exception ex) when (ex is ArgumentException || ex is InvalidOperationException || ex is IOException ||
+                                   ex is UnauthorizedAccessException || ex is FormatException || ex is OverflowException)
+        {
+            return (400, Json(false, ex.Message));
+        }
+    }
+
+    /// <summary>
+    /// 审计落盘前整形：write_chunk 的 base64 块只记长度（否则单条审计可达数百 KB，500 条上限会把 control_log 撑到上百 MB）。
+    /// 其余端点原样（ControlLogService 仍会做密钥打码）。
+    /// </summary>
+    private static string AuditBody(string path, string body)
+    {
+        if (path != "/control/files/write_chunk" || string.IsNullOrWhiteSpace(body))
+            return body;
+        try
+        {
+            var o = JObject.Parse(body);
+            if (o["data"] is JValue v && v.Type == JTokenType.String)
+                o["data"] = $"<base64 {((string?)v)?.Length ?? 0} chars>";
+            return o.ToString(Formatting.None);
+        }
+        catch
+        {
+            return "<unparsable body>";
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // [内测] beta_adapted_plugin_actions：POST /control/adapted/<plugin_id>/<action>
+    // 鉴权 / ACL 已在传输层完成（HttpServer / WsControlService：API Key + EndpointAcl，默认拒绝）；
+    // 一律按写操作计（IsWriteOperation 默认 true），经 Handle 统一写入 control_log。
+    // 处理器在主线程执行（MainThreadExecutor，超时 3s）。
+    // ------------------------------------------------------------------
+    internal const string AdaptedActionPrefix = "/control/adapted/";
+
+    private static (int, string) AdaptedPluginAction(string path, string body, string? actor)
+    {
+        if (Plugin.Instance?.Config.BetaAdaptedPluginActions != true)
+            return (404, Json(false, "内测端点未开启（config: beta_adapted_plugin_actions: false）"));
+
+        string rest = path.Substring(AdaptedActionPrefix.Length);
+        string[] segs = rest.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+        if (segs.Length != 2)
+            return (404, Json(false, "路径不存在（需要 /control/adapted/<plugin_id>/<action>）"));
+
+        string pluginId = segs[0];
+        string actionPath = segs[1];
+        if (pluginId.Contains("..") || actionPath.Contains(".."))
+            return (400, Json(false, "invalid path"));
+
+        if (!string.IsNullOrWhiteSpace(body))
+        {
+            try { JToken.Parse(body); }
+            catch { return (400, Json(false, "请求体不是合法 JSON")); }
+        }
+
+        string transport = Plugin.Instance?.Config.ControlTransport ?? "http";
+        var (st, data) = MainThreadExecutor.RunOnMainThread(
+            () => PluginEndpointRegistry.HandleActionOnMainThread(pluginId, actionPath, body ?? "", actor ?? "", transport),
+            out var err,
+            timeoutMs: PluginEndpointRegistry.ActionTimeoutMs);
+
+        if (err != null)
+        {
+            Log.Warn($"[SLDataAPI][Control] adapted action dispatch failed {pluginId}/{actionPath}: {err.Message}");
+            return (504, Json(false, "动作超时或派发失败"));
+        }
+
+        if (st >= 200 && st < 300)
+        {
+            JToken? token = null;
+            if (!string.IsNullOrEmpty(data))
+            {
+                try { token = JToken.Parse(data!); } catch { token = JValue.CreateString(data); }
+            }
+            return (200, Json(true, "ok", new { plugin_id = pluginId, action = actionPath, result = token }));
+        }
+
+        // 插件 / 注册表返回的错误体形如 {"success":false,"message":...}，统一转成 ControlResponse
+        string msg = "动作失败";
+        try { msg = JObject.Parse(data ?? "{}")["message"]?.ToString() ?? msg; } catch { /* 留默认 */ }
+        return (st <= 0 ? 500 : st, Json(false, msg));
     }
 
     // ------------------------------------------------------------------

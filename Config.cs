@@ -193,4 +193,22 @@ public class Config
     /// 开启也不影响命令 response（始终只回一次性文件路径，不含明文）。
     /// </summary>
     public bool ApikeyCopyToClipboard { get; set; } = false;
+
+    // ================== 内测（beta）开关：默认全部关闭，仅供本机内测 ==================
+
+    /// <summary>
+    /// [内测] 适配插件写操作：允许第三方插件经 PluginEndpointRegistry.TryRegisterActions 注册写/动作路由，
+    /// 通过控制面 POST /control/adapted/&lt;plugin_id&gt;/&lt;action&gt;（HTTP 或 WS call，随 control_transport）调用。
+    /// 鉴权走 API Key；ACL 默认拒绝（/control/adapted/ 不随 admin/all_control_true 授予，需 endpoints_override 显式放开）；
+    /// 每次调用都写入 control_log 审计。关闭时端点一律 404，discovery 不列出 actions。默认 false。
+    /// </summary>
+    public bool BetaAdaptedPluginActions { get; set; } = false;
+
+    /// <summary>
+    /// [内测] FileRoot 的 WS 适配：开启 /control/files/stat、/control/files/read_chunk、/control/files/write_chunk
+    /// （分块 + sha256 校验，突破 WS 单消息 256KB / HTTP 请求体 64KB 对 files/read|write 的限制）。
+    /// 与 files/list|read|write 共用同一套鉴权、ACL（/control/files/ 默认拒绝）、路径沙箱与审计。
+    /// 仍需配置 file_root。关闭时上述新端点一律 404。默认 false。
+    /// </summary>
+    public bool BetaFileRootWs { get; set; } = false;
 }

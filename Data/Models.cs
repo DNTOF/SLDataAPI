@@ -61,6 +61,13 @@ public class AdaptedPluginInfo
     public List<string> capabilities { get; set; } = new();
     public List<string> routes { get; set; } = new();
 
+    /// <summary>
+    /// [beta] Write / action routes (POST /control/adapted/&lt;id&gt;/&lt;action&gt; on the control plane).
+    /// Omitted entirely unless beta_adapted_plugin_actions is on (read-only discovery shape unchanged).
+    /// </summary>
+    [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+    public List<string>? actions { get; set; }
+
     /// <summary>Small JSON status object from the plugin's status callback (≤4KB); null if none.</summary>
     public JToken? status { get; set; }
 }

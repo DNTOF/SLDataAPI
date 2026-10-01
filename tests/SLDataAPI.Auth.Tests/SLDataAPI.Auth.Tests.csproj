@@ -23,5 +23,7 @@
     <Compile Include="..\..\Control\ControlAuth.cs" Link="ControlAuth.cs" />
     <Compile Include="..\..\Control\WsCallGate.cs" Link="WsCallGate.cs" />
     <Compile Include="..\..\Control\ControlMessageValidation.cs" Link="ControlMessageValidation.cs" />
+    <Compile Include="..\..\Services\FileSandbox.cs" Link="FileSandbox.cs" />
+    <Compile Include="..\..\Services\FileUploadSessions.cs" Link="FileUploadSessions.cs" />
   </ItemGroup>
 </Project>

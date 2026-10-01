@@ -260,7 +260,7 @@ public static class PluginEndpointRegistry
         }
 
         Log.Info($"[SLDataAPI] Adapted plugin actions registered: {id}, actions={list.Count}" +
-                 (ActionsEnabled ? "" : "（beta_adapted_plugin_actions 未开启，暂不对外）"));
+                 "（对外与否取决于 beta_adapted_plugin_actions，实时生效）");
         return true;
     }
 

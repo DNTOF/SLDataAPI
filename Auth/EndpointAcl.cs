@@ -127,6 +127,8 @@ public static class EndpointAcl
             ["/control/plugins"] = false,
             ["/control/plugins/"] = false,
             ["/control/files/"] = false,
+            // [内测] 适配插件写操作：默认拒绝，admin / all_control_true 也不自动授予，须 endpoints_override 显式放开
+            ["/control/adapted/"] = false,
             ["/control/logs"] = true,
             ["/control/reports"] = true,
             ["/control/audit/list"] = true,
@@ -156,6 +158,7 @@ public static class EndpointAcl
             ["/control/plugins"] = EndpointGrant.FromBool(false),
             ["/control/plugins/"] = EndpointGrant.FromBool(false),
             ["/control/files/"] = EndpointGrant.FromBool(false),
+            ["/control/adapted/"] = EndpointGrant.FromBool(false),
             ["/control/reports"] = EndpointGrant.FromBool(false),
             ["/control/broadcast"] = EndpointGrant.FromBool(false),
             ["/control/staffchat"] = EndpointGrant.FromBool(false),
@@ -335,6 +338,8 @@ public static class EndpointAcl
                 case "/control/logs":
                 case "/control/files/list":
                 case "/control/files/read":
+                case "/control/files/stat":       // [内测] beta_file_root_ws
+                case "/control/files/read_chunk": // [内测] beta_file_root_ws
                 case "/control/audit/list":
                 case "voice:/status":
                 case "voice:/ws":

@@ -50,6 +50,16 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
         ValidateConfigFileIntegrity();
         ValidateControlConfig();
 
+        // [内测] beta 开关（默认全关）：discovery 是否列出适配插件 actions；启动时明确打印，避免"以为开了其实没开"
+        SLDataAPI.Integrations.PluginEndpointRegistry.ActionsEnabled = Config.BetaAdaptedPluginActions;
+        if (Config.BetaAdaptedPluginActions || Config.BetaFileRootWs)
+        {
+            Log.Warn(
+                "[SLDataAPI] 内测功能已开启（仅供内测，勿用于公网生产服）：" +
+                $"beta_adapted_plugin_actions={(Config.BetaAdaptedPluginActions ? "开 → POST /control/adapted/<id>/<action>（ACL 默认拒绝，需 endpoints_override 显式授权）" : "关")}，" +
+                $"beta_file_root_ws={(Config.BetaFileRootWs ? (string.IsNullOrWhiteSpace(Config.FileRoot) ? "开（但 file_root 为空，文件端点仍不可用）" : "开 → /control/files/{stat,read_chunk,write_chunk}") : "关")}。");
+        }
+
         bool dataPlaneOk = ControlAuth.IsAcceptableVerifyToken(Config.VerifyToken);
         if (!dataPlaneOk)
         {
@@ -151,6 +161,8 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
         ReportService.Dispose();
         server?.Stop();
         ControlController.ClearPluginStaged(); // X-05：插件重载后清空启停暂存
+        ControlController.ClearFileUploads();  // [内测] 丢弃未完成的分块上传
+        SLDataAPI.Integrations.PluginEndpointRegistry.ActionsEnabled = false;
         WsControlService.ShutdownAll();
         DataCollector.StopTimer();
         UpdateChecker.Stop();

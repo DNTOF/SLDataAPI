@@ -312,6 +312,7 @@ public static class WsControlService
                 ["server"] = "SLDataAPI",
                 ["version"] = Plugin.Instance?.Version?.ToString() ?? "",
                 ["endpoints"] = "/control/*",
+                ["beta"] = BetaFeatures(),
             });
 
             var fragments = new List<byte>(1024);
@@ -395,6 +396,20 @@ public static class WsControlService
 
             Close();
             Log.Debug($"[SLDataAPI][WsControl] 控制通道已断开 from {_remoteIp}");
+        }
+
+        /// <summary>
+        /// [内测] 已开启的内测能力（hello 里告知客户端，便于平台按需启用 UI）：
+        /// adapted_actions → /control/adapted/&lt;id&gt;/&lt;action&gt;；file_chunks → /control/files/{stat,read_chunk,write_chunk}。
+        /// 均走 call 信封，鉴权 / ACL / 审计与其他 /control/* 一致。
+        /// </summary>
+        private static JArray BetaFeatures()
+        {
+            var arr = new JArray();
+            var cfg = Plugin.Instance?.Config;
+            if (cfg?.BetaAdaptedPluginActions == true) arr.Add("adapted_actions");
+            if (cfg?.BetaFileRootWs == true) arr.Add("file_chunks");
+            return arr;
         }
 
         private void HandleTextMessage(string text)

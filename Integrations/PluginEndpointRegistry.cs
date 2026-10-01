@@ -27,6 +27,17 @@ public static class PluginEndpointRegistry
     public const int MaxNameLength = 128;
     public const int MaxVersionLength = 32;
 
+    // ---- 内测（beta_adapted_plugin_actions）：写 / 动作路由 ----
+    public const int MaxActionsPerPlugin = 16;
+    public const int MaxActionBodyBytes = 65536;
+    public const int ActionTimeoutMs = 3000;
+
+    /// <summary>
+    /// 由 SLDataAPI 根据 config 的 beta_adapted_plugin_actions 设置。关闭时：
+    /// 仍接受注册（便于插件无条件调用），但 discovery 不列出 actions，控制面端点 404。
+    /// </summary>
+    public static bool ActionsEnabled { get; internal set; }
+
     private static readonly object Gate = new object();
     private static readonly Dictionary<string, Registration> ById =
         new Dictionary<string, Registration>(StringComparer.OrdinalIgnoreCase);
@@ -214,6 +225,114 @@ public static class PluginEndpointRegistry
         }
     }
 
+    /// <summary>
+    /// [内测] 为已通过 <see cref="TryRegister"/> 注册的插件追加写 / 动作路由（替换该插件此前注册的全部动作）。
+    /// 动作经控制面 POST /control/adapted/&lt;id&gt;/&lt;action&gt; 调用（API Key + ACL 显式授权 + 审计），
+    /// 处理器在主线程执行，超时 <see cref="ActionTimeoutMs"/>。
+    /// 向后兼容：只读插件无需调用本方法；旧版 SLDataAPI 没有本方法（调用方应捕获 MissingMethodException）。
+    /// 内置包装（SLPlayer / OmegaWarhead 探测器）不可追加动作。
+    /// </summary>
+    public static bool TryRegisterActions(string id, IEnumerable<AdaptedAction>? actions, out string error)
+    {
+        error = "";
+        if (string.IsNullOrWhiteSpace(id) || !IdRegex.IsMatch(id))
+        {
+            error = "invalid id";
+            return false;
+        }
+
+        var list = NormalizeActions(actions, out error);
+        if (error.Length > 0) return false;
+
+        lock (Gate)
+        {
+            if (!ById.TryGetValue(id, out var reg))
+            {
+                error = $"plugin '{id}' not registered (call TryRegister first)";
+                return false;
+            }
+            if (reg.Internal)
+            {
+                error = $"plugin '{id}' is a built-in wrapper; actions not allowed";
+                return false;
+            }
+            reg.Actions = list;
+        }
+
+        Log.Info($"[SLDataAPI] Adapted plugin actions registered: {id}, actions={list.Count}" +
+                 (ActionsEnabled ? "" : "（beta_adapted_plugin_actions 未开启，暂不对外）"));
+        return true;
+    }
+
+    /// <summary>
+    /// [内测] 执行一个动作。必须经 MainThreadExecutor 在主线程调用（ControlController 负责派发）。
+    /// 返回 HTTP 状态 + 插件返回的 JSON（null 表示无返回体）。
+    /// </summary>
+    public static (int status, string? json) HandleActionOnMainThread(
+        string pluginId, string actionPath, string bodyJson, string actor, string transport)
+    {
+        if (string.IsNullOrEmpty(pluginId) || string.IsNullOrEmpty(actionPath))
+            return (404, Err("not found"));
+        if (!IdRegex.IsMatch(pluginId) || !RoutePathRegex.IsMatch(actionPath))
+            return (400, Err("invalid path"));
+        if (Encoding.UTF8.GetByteCount(bodyJson ?? "") > MaxActionBodyBytes)
+            return (413, Err("action body too large"));
+
+        Registration? reg;
+        AdaptedAction? action = null;
+        lock (Gate)
+        {
+            if (!ById.TryGetValue(pluginId, out reg))
+                return (404, Err("plugin not registered"));
+            foreach (var a in reg.Actions)
+            {
+                if (string.Equals(a.Path, actionPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    action = a;
+                    break;
+                }
+            }
+        }
+        if (action == null)
+            return (404, Err("action not found"));
+
+        try
+        {
+            string? body = action.Handler?.Invoke(new AdaptedActionRequest
+            {
+                PluginId = reg.Id,
+                Path = action.Path,
+                BodyJson = string.IsNullOrWhiteSpace(bodyJson) ? "{}" : bodyJson!,
+                Actor = actor ?? "",
+                Transport = transport ?? "",
+            });
+
+            if (body == null)
+                return (200, null);
+            if (Encoding.UTF8.GetByteCount(body) > MaxRouteBodyBytes)
+                return (413, Err("action response too large"));
+            try
+            {
+                JToken.Parse(body);
+                return (200, body);
+            }
+            catch
+            {
+                return (200, JsonConvert.SerializeObject(body));
+            }
+        }
+        catch (AdaptedActionException aex)
+        {
+            int st = aex.StatusCode is >= 400 and < 500 ? aex.StatusCode : 400;
+            return (st, Err(aex.Message));
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"[SLDataAPI] Adapted action error {pluginId}/{actionPath}: {ex.Message}");
+            return (500, Err("action handler error"));
+        }
+    }
+
     /// <summary>Upsert a built-in / detector-backed registration (used by DntofDetector wrappers).</summary>
     internal static void UpsertInternal(
         string id,
@@ -231,6 +350,7 @@ public static class PluginEndpointRegistry
             Capabilities = capabilities ?? Array.Empty<string>(),
             StatusCallback = statusCallback,
             Routes = routes != null ? routes.ToList() : new List<AdaptedRoute>(),
+            Internal = true,
         };
         lock (Gate)
         {
@@ -250,6 +370,7 @@ public static class PluginEndpointRegistry
         version = r.Version,
         capabilities = r.Capabilities.ToList(),
         routes = r.Routes.Select(x => x.Path).ToList(),
+        actions = ActionsEnabled ? r.Actions.Select(x => x.Path).ToList() : null,
         status = null,
     };
 
@@ -325,6 +446,42 @@ public static class PluginEndpointRegistry
         return list;
     }
 
+    private static List<AdaptedAction> NormalizeActions(IEnumerable<AdaptedAction>? actions, out string error)
+    {
+        error = "";
+        var list = new List<AdaptedAction>();
+        if (actions == null) return list;
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var a in actions)
+        {
+            if (a == null || string.IsNullOrWhiteSpace(a.Path) || a.Handler == null)
+            {
+                error = "invalid action entry";
+                return new List<AdaptedAction>();
+            }
+            var path = a.Path.Trim().Trim('/');
+            if (!RoutePathRegex.IsMatch(path) || path.Contains(".."))
+            {
+                error = $"invalid action path '{a.Path}'";
+                return new List<AdaptedAction>();
+            }
+            if (!seen.Add(path))
+            {
+                error = $"duplicate action '{path}'";
+                return new List<AdaptedAction>();
+            }
+            string desc = (a.Description ?? "").Trim();
+            if (desc.Length > MaxNameLength) desc = desc.Substring(0, MaxNameLength);
+            list.Add(new AdaptedAction { Path = path, Handler = a.Handler, Description = desc });
+            if (list.Count > MaxActionsPerPlugin)
+            {
+                error = $"too many actions (max {MaxActionsPerPlugin})";
+                return new List<AdaptedAction>();
+            }
+        }
+        return list;
+    }
+
     private static string Err(string message) =>
         JsonConvert.SerializeObject(new { success = false, message });
 
@@ -336,6 +493,8 @@ public static class PluginEndpointRegistry
         public string[] Capabilities = Array.Empty<string>();
         public Func<string?>? StatusCallback;
         public List<AdaptedRoute> Routes = new List<AdaptedRoute>();
+        public List<AdaptedAction> Actions = new List<AdaptedAction>();
+        public bool Internal;
     }
 }
 
@@ -350,4 +509,43 @@ public sealed class AdaptedRouteRequest
 {
     public string PluginId { get; set; } = "";
     public string Path { get; set; } = "";
+}
+
+/// <summary>
+/// [内测] 写 / 动作路由描述符，传给 <see cref="PluginEndpointRegistry.TryRegisterActions"/>。
+/// Path 为单段（字母数字/下划线/连字符，≤64）；Handler 在主线程执行，返回 JSON 字符串（或 null 表示无返回体）。
+/// 需要以特定状态码拒绝时抛 <see cref="AdaptedActionException"/>。
+/// </summary>
+public sealed class AdaptedAction
+{
+    public string Path { get; set; } = "";
+    public string Description { get; set; } = "";
+    public Func<AdaptedActionRequest, string?>? Handler { get; set; }
+}
+
+/// <summary>[内测] 传给动作处理器的请求上下文。</summary>
+public sealed class AdaptedActionRequest
+{
+    public string PluginId { get; set; } = "";
+    public string Path { get; set; } = "";
+
+    /// <summary>调用方请求体（JSON 文本，空请求体为 "{}"；≤64KB）。插件自行解析与校验。</summary>
+    public string BodyJson { get; set; } = "{}";
+
+    /// <summary>调用方 API Key 的 id（与 control_log 的 actor 一致），可用于插件侧二次授权 / 记录。</summary>
+    public string Actor { get; set; } = "";
+
+    /// <summary>"http" 或 "ws"（随 control_transport）。</summary>
+    public string Transport { get; set; } = "";
+}
+
+/// <summary>[内测] 动作处理器抛出以返回 4xx（默认 400）与自定义 message。</summary>
+public sealed class AdaptedActionException : Exception
+{
+    public int StatusCode { get; }
+
+    public AdaptedActionException(string message, int statusCode = 400) : base(message)
+    {
+        StatusCode = statusCode;
+    }
 }

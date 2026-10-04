@@ -1,8 +1,10 @@
 # Changelog
 
-## Unreleased（内测 / beta，默认全关）
+## 2.6.1 RIDGE
 
-> 仅供内测：两个开关默认 `false`，关闭时新端点一律 404、行为与 2.6.0 PEAK 一致。
+SLDataAPI **2.6.1 RIDGE**（相对 2.6.0 PEAK）。以 GitHub **预发布（Pre-release）** 形式发布：含两项默认关闭的内测功能；自动更新只认稳定版，不会把 2.6.0 用户推到本版本。
+
+> 内测功能：两个开关默认 `false`，关闭时新端点一律 404、行为与 2.6.0 PEAK 一致。
 
 ### 适配插件写操作（`beta_adapted_plugin_actions`）
 
@@ -22,7 +24,17 @@
 
 ### 安全加固（不受开关影响）
 
-- FileRoot 沙箱拒绝路径中的符号链接 / junction（reparse point），防止经链接逃逸出 `file_root`
+- FileRoot 沙箱拒绝路径中的符号链接 / junction（reparse point），防止经链接逃逸出 `file_root`；对全部文件端点（`files/list|read|write` 及新增分块端点）生效
+
+### 修复
+
+- 适配插件动作注册日志不再附带依赖加载顺序的「未开启」提示（适配插件可能先于 SLDataAPI 启用；discovery 实时读取开关，原提示会误导）
+
+### 许可证 / 文档
+
+- 全部源码文件加 SPDX 头（`GPL-3.0-only`，`Copyright (C) 2026 DNT_OF`）；新增双语 `NOTICE`；README 增加许可证说明；`SLDataAPI.csproj` 补充 `Authors` / `Copyright` / `PackageLicenseExpression`
+- README 按 2.6.0 PEAK 重写，恢复 Harmony / Newtonsoft 依赖下载链接并修正库来源链接格式
+- 版本号 2.6.1（`InformationalVersion` `2.6.1 RIDGE`）；示例插件 `AdaptedPluginSample` 1.1.0
 
 ## 2.6.0 PEAK
 

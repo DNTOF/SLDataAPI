@@ -25,7 +25,7 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin
     public override string Name => "AdaptedPluginSample";
     public override string Description => "SLDataAPI adapted-plugin registration sample (dntof.sample_adapted)";
     public override string Author => "DNT_OF";
-    public override Version Version => new Version(1, 0, 0);
+    public override Version Version => new Version(1, 1, 0);
     public override Version RequiredApiVersion => new Version(1, 1, 7);
 
     public override void Enable()

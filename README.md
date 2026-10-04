@@ -10,7 +10,7 @@ SCP:SL 专用服务器的 **LabAPI 原生插件**（v2.4 起，非 EXILED）。�
 
 | | |
 |---|---|
-| **当前版本** | **2.6.0 PEAK** · [Release](https://github.com/DNTOF/SLDataAPI/releases/tag/v2.6.0_PEAK) |
+| **当前版本** | **2.6.1 RIDGE**（预发布，含默认关闭的内测功能）· [Release](https://github.com/DNTOF/SLDataAPI/releases/tag/v2.6.1_RIDGE) · 上一稳定版 [2.6.0 PEAK](https://github.com/DNTOF/SLDataAPI/releases/tag/v2.6.0_PEAK) |
 | **文档** | [Wiki](https://github.com/DNTOF/SLDataAPI/wiki) · 现行接口 [HTTP-API](https://github.com/DNTOF/SLDataAPI/wiki/HTTP-API) · 2.5.x 旧接口 [Old-HTTP-API](https://github.com/DNTOF/SLDataAPI/wiki/Old-HTTP-API) |
 | **反馈** | [Issues](https://github.com/DNTOF/SLDataAPI/issues)（大版本升级后遇到问题请积极反馈） |
 
@@ -60,7 +60,7 @@ SCP:SL 专用服务器的 **LabAPI 原生插件**（v2.4 起，非 EXILED）。�
 
 ## 安装 / 升级
 
-1. 从 [Release](https://github.com/DNTOF/SLDataAPI/releases/tag/v2.6.0_PEAK) 下载 `SLDataAPI.dll`（或自行 `dotnet build -c Release`，见 [Building](https://github.com/DNTOF/SLDataAPI/wiki/Building)）
+1. 从 [Release](https://github.com/DNTOF/SLDataAPI/releases/tag/v2.6.1_RIDGE) 下载 `SLDataAPI.dll`（或自行 `dotnet build -c Release`，见 [Building](https://github.com/DNTOF/SLDataAPI/wiki/Building)）
 2. 确认上方两个依赖已就位
 3. 升级前备份 `config.yml` 与 `apikey.config`
 4. 将 `SLDataAPI.dll` 放入 `%AppData%/SCP Secret Laboratory/LabAPI/plugins/global/`
@@ -175,7 +175,7 @@ Content-Type: application/json
 
 [Development-Guide](https://github.com/DNTOF/SLDataAPI/wiki/Development-Guide) · [Architecture](https://github.com/DNTOF/SLDataAPI/wiki/Architecture) · [Building](https://github.com/DNTOF/SLDataAPI/wiki/Building)
 
-开发 skill 与冒烟脚本：Release 附件 `SLDataAPI-DevKit-v2.6.0_PEAK.zip`。
+开发 skill 与冒烟脚本：Release 附件 `SLDataAPI-DevKit-v2.6.1_RIDGE.zip`。
 
 ---
 

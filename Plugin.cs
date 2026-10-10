@@ -86,6 +86,14 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
             $"录音={(Config.VoiceRecordEnabled ? $"开(保留 {Config.VoiceRecordMaxRounds} 局)" : "关")}，" +
             $"webdav={(Config.WebdavUploadEnabled ? "开" : "关")}。");
 
+        // 插件配置目录（configs/<port>/SLDataAPI/）：TLS 证书、举报、API Key、审计日志共用
+        string reportConfigDir = "";
+        try { reportConfigDir = Path.GetDirectoryName(ConfigurationLoader.GetConfigPath(this, ConfigFileName)) ?? ""; } catch { /* 目录获取失败则按禁用处理 */ }
+
+        // 自签 TLS（contract v1）：必须在 HTTP / 语音监听启动前完成证书加载/生成
+        string tlsBanner = TlsCertificateService.Init(Config.TlsMode, reportConfigDir);
+        Log.Info("[SLDataAPI] " + tlsBanner);
+
         // 弱/默认 verify_token：不绑定 HTTP，除非控制面已启用（同端口还要伺候 /control）。
         if (dataPlaneOk || Config.ControlEnabled)
         {
@@ -120,8 +128,6 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
         VoiceRecorder.OnZipFinalized = WebDavUploadService.Enqueue;
 
         // 举报功能（v2.5.4 推出，代号 GIS,GNSS,RS!）：SSS 面板举报 + 平台端点，默认关闭
-        string reportConfigDir = "";
-        try { reportConfigDir = Path.GetDirectoryName(ConfigurationLoader.GetConfigPath(this, ConfigFileName)) ?? ""; } catch { /* 目录获取失败则按禁用处理 */ }
         ReportService.Init(Config.ReportEnabled, Config.ReportMaxRecords, Config.ReportRateLimit, Config.ReportRateWindowMinutes, reportConfigDir);
 
         // API Key（v2.6.0 推出，代号 PEAK）：控制面 / 语音 / 控制 WS 鉴权；与 verify_token 双轨
@@ -139,7 +145,7 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
         string httpStatus = server != null
             ? $"HTTP on port {Config.HttpPort}" + (dataPlaneOk ? "" : "（仅控制面，数据口已关闭）")
             : "HTTP 未绑定";
-        Log.Info($"SLDataAPI v{Version} (2.6.1 RIDGE / LabAPI) enabled. {httpStatus}. Control API: {(Config.ControlEnabled ? $"{Config.ControlTransport.ToUpperInvariant()} 模式，API Key" : "关闭")}. Voice: {(Config.VoiceEnabled ? $"启用(端口 {Config.VoicePort})" : "关闭")}.");
+        Log.Info($"SLDataAPI v{Version} (2.6.1 RIDGE / LabAPI) enabled. {httpStatus}. Control API: {(Config.ControlEnabled ? $"{Config.ControlTransport.ToUpperInvariant()} 模式，API Key" : "关闭")}. Voice: {(Config.VoiceEnabled ? $"启用(端口 {Config.VoicePort})" : "关闭")}. {tlsBanner}.");
     }
 
     public override void Disable()

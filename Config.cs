@@ -21,6 +21,18 @@ public class Config
     public int HttpPort { get; set; } = 8081;
     public int PushIntervalSeconds { get; set; } = 8;
 
+    /// <summary>
+    /// 自签 TLS 模式（HTTP/WS 主端口与语音端口同端口嗅探：首字节 0x16 走 TLS，其它走明文）。
+    /// <list type="bullet">
+    /// <item><c>off</c>：不生成/加载证书，行为与引入 TLS 前完全一致；</item>
+    /// <item><c>optional</c>（默认）：同端口同时接受 TLS 与明文；</item>
+    /// <item><c>required</c>：明文 HTTP / 明文 WS（控制 + 语音）一律 426，<c>data.code = "tls_required"</c>。</item>
+    /// </list>
+    /// 证书 <c>sld_tls.pfx</c> 与随机口令 <c>sld_tls.pwd</c> 首次启动时生成于本配置目录（RSA-2048 / SHA-256 / 约 10 年，CN=SLDataAPI）；
+    /// 客户端应按启动横幅或 <c>sldataapi cert show</c> 给出的 SHA-256 指纹固定（pin）证书。非法值按 optional 处理并告警。
+    /// </summary>
+    public string TlsMode { get; set; } = "optional";
+
     // ================== 控制接口（v2.1 推出；v2.5.0 WebSocket 长连接化，代号 Yagami Light；v2.6.0 推出 API Key 双轨鉴权，代号 PEAK） ==================
 
     /// <summary>

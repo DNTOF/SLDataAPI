@@ -81,6 +81,7 @@ debug: false
 verify_token: "your_secret_token"   # 必须改成强随机值；默认/弱口令会 fail-closed 关闭数据口
 http_port: 8081
 push_interval_seconds: 8
+tls_mode: optional                  # off | optional | required：同端口自签 TLS（见下文「TLS」）
 
 control_enabled: false              # 关则所有 /control/* → 404
 control_transport: http             # http | ws（硬互斥）
@@ -138,6 +139,21 @@ sldataapi apikey revoke <id>
 - `duty` 偏只读，默认不授予 `/control/audit/list`、广播、管理聊天；`admin` 按端点目录授权，控制台 / 插件 / 文件等需 `endpoints_override` 单独放开。
 - 若用权限插件收窄 RemoteAdmin，请同时拒绝 `sldataapi` / `slda`。
 
+### TLS（自签，同端口）
+
+- `tls_mode: optional`（默认）时，HTTP/WS 主端口与语音端口**同端口**同时接受 TLS 与明文：首字节为 TLS 握手（`0x16`）走 TLS 1.2，否则按明文处理；`https://` / `wss://` 与 `http://` / `ws://` 用同一个端口。
+- 首次启动在配置目录生成 `sld_tls.pfx` 与随机口令文件 `sld_tls.pwd`（RSA-2048 / SHA-256 / 约 10 年，`CN=SLDataAPI`，已尽力收紧文件权限）。启动日志打印 `TLS: <mode>, SHA-256 <指纹>`；客户端应固定（pin）该指纹，而不是信任 CA。
+- 控制 WS 与语音 WS 的 `hello` 增加 `tls`（本连接是否加密）与 `cert_fingerprint`（`tls_mode: off` 时为 `null`）。
+- `tls_mode: required`：明文 HTTP、明文控制 WS / 语音 WS 一律 `426`，`{"success":false,"message":"…","data":{"code":"tls_required"}}`。
+- `tls_mode: off`：不生成/加载证书，行为与旧版一致。
+
+```text
+sldataapi cert show     # 查看模式 / 指纹 / 有效期
+sldataapi cert regen    # 重新生成并热替换（仅对新连接生效；已 pin 的客户端须重新确认指纹）
+```
+
+- `cert` 子命令**仅限服务器本地控制台（LocalAdmin）**：RemoteAdmin 与远程控制通道一律拒绝（比 `apikey` 更严格）。`regen` 写入控制审计日志。
+
 ---
 
 ## 接口入口
@@ -148,6 +164,7 @@ sldataapi apikey revoke <id>
 | 控制 HTTP | `POST http://<host>:8081/control/...` + API Key 头 |
 | 控制 WS | `ws://<host>:8081/control` + 握手 API Key 头（`control_transport: ws`） |
 | 语音 | `ws://<host>:8082/ws` · `GET :8082/status` + API Key |
+| TLS | 以上均可同端口改用 `https://` / `wss://`（`tls_mode` 非 `off` 时；自签证书，按指纹固定） |
 
 全服广播示例：
 

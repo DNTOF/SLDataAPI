@@ -94,6 +94,15 @@
       <HintPath>$(SCPSL_DIR)\Pooling.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <!-- 自签 TLS 证书生成：游戏自带 Mono.Security（首选）与 BouncyCastle（回退），不打包 -->
+    <Reference Include="Mono.Security">
+      <HintPath>$(SCPSL_DIR)\Mono.Security.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="BouncyCastle.Cryptography">
+      <HintPath>$(SCPSL_DIR)\BouncyCastle.Cryptography.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
     <Reference Include="YamlDotNet">
       <HintPath>$(SCPSL_DIR)\YamlDotNet.dll</HintPath>
       <Private>false</Private>

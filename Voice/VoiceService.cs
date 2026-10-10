@@ -6,6 +6,7 @@ using SLDataAPI.Auth;
 using System.Collections.Generic;
 using System.IO;
 using System.Net;
+using System.Net.Security;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
@@ -13,6 +14,7 @@ using System.Threading;
 using MEC;
 using PlayerRoles;
 using SLDataAPI.Control;
+using SLDataAPI.Services;
 using VoiceChat;
 using VoiceChat.Networking;
 using Player = LabApi.Features.Wrappers.Player;
@@ -458,15 +460,33 @@ public static class VoiceService
         private int _state; // 0=HTTP 待握手 1=已握手
         private int _frameSeq;
 
+        // ── 同端口 TLS（contract v1）──
+        // 传输状态：Undecided=尚未收到首字节；Plain=明文（沿用原 Socket 非阻塞读写）；
+        // TlsHandshaking=后台线程握手中；Tls=握手完成（后台线程阻塞读 SslStream → 收件队列，主线程写）；Failed=握手失败。
+        private const int TransportUndecided = 0, TransportPlain = 1, TransportTlsHandshaking = 2, TransportTls = 3, TransportFailed = -1;
+        private const int MaxTlsRxQueueBytes = 64 * 1024;
+        private volatile int _transport;
+        private volatile SslStream? _ssl;
+        private readonly object _rxLock = new();
+        private readonly Queue<byte[]> _rxQueue = new();
+        private int _rxQueuedBytes;
+        private volatile bool _rxClosed;
+        private readonly object _txLock = new();
+        private readonly TlsMode _tlsMode;
+
+        public bool IsTls => _transport == TransportTls;
+
         public bool IsOpen => _socket.Connected && _state >= 0;
         public bool Authenticated => _state == 1;
 
         /// <summary>连接时间（主线程时钟）：超过 HandshakeTimeoutSec 仍未完成握手则超时。</summary>
-        private readonly float _connectedAt = UnityEngine.Time.time;
+        // 用真实时钟（不受 timeScale 影响）：服务器进入 idle mode 时 Time.time 几乎停滞，
+        // 用它计时会让未握手的连接（含卡在 TLS 握手前的连接）永不超时。
+        private readonly int _connectedTick = Environment.TickCount;
 
         /// <summary>握手超时判定——连上后不发/慢发 HTTP 头的连接（Slowloris 式占用）强制断开。</summary>
         public bool HandshakeTimedOut =>
-            _state == 0 && UnityEngine.Time.time - _connectedAt > HandshakeTimeoutSec;
+            _state == 0 && unchecked(Environment.TickCount - _connectedTick) > (int)(HandshakeTimeoutSec * 1000);
 
         public VoiceClient(Socket socket)
         {
@@ -478,6 +498,9 @@ public static class VoiceService
             // 正常情况下永远走不到这个超时）。
             _socket.SendTimeout = 250;
             _stream = new NetworkStream(socket, false);
+            _tlsMode = TlsCertificateService.Mode;
+            // tls_mode: off → 不嗅探，直接明文（与引入 TLS 前完全一致）
+            _transport = TlsPolicy.ShouldSniff(_tlsMode) ? TransportUndecided : TransportPlain;
         }
 
         public void Pump()
@@ -485,11 +508,36 @@ public static class VoiceService
             if (_state < 0) return;
             try
             {
-                while (_socket.Available > 0 && _inLen < _inBuf.Length)
+                if (_transport == TransportUndecided)
                 {
-                    int n = _socket.Receive(_inBuf, _inLen, _inBuf.Length - _inLen, SocketFlags.None);
-                    if (n <= 0) { _state = -1; return; }
-                    _inLen += n;
+                    // 主线程不阻塞：只有已有字节可读时才窥视首字节（握手超时由 HandshakeTimedOut 兜底）
+                    if (_socket.Available <= 0) return;
+                    byte[] first = new byte[1];
+                    int pn = _socket.Receive(first, 0, 1, SocketFlags.Peek);
+                    if (pn <= 0) { _state = -1; return; }
+                    if (TlsPolicy.IsTlsClientHello(_tlsMode, first[0]))
+                    {
+                        StartTlsInBackground();
+                        return;
+                    }
+                    _transport = TransportPlain;
+                }
+
+                if (_transport == TransportTlsHandshaking) return; // 等后台握手
+                if (_transport == TransportFailed) { _state = -1; return; }
+
+                if (_transport == TransportTls)
+                {
+                    DrainTlsRx();
+                }
+                else
+                {
+                    while (_socket.Available > 0 && _inLen < _inBuf.Length)
+                    {
+                        int n = _socket.Receive(_inBuf, _inLen, _inBuf.Length - _inLen, SocketFlags.None);
+                        if (n <= 0) { _state = -1; return; }
+                        _inLen += n;
+                    }
                 }
 
                 if (_state == 0)
@@ -506,9 +554,128 @@ public static class VoiceService
                 {
                     ProcessWsFrames();
                 }
+
+                if (_transport == TransportTls && _rxClosed && _state >= 0)
+                {
+                    lock (_rxLock)
+                    {
+                        if (_rxQueue.Count == 0) _state = -1; // 对端关闭且已处理完全部入站数据
+                    }
+                }
             }
             catch (SocketException) { _state = -1; }
             catch (IOException) { _state = -1; }
+        }
+
+        /// <summary>
+        /// 后台线程：TLS 握手 + 阻塞读循环（主线程协程绝不能阻塞在握手 / SslStream.Read 上）。
+        /// 握手总时长受 HandshakeTimedOut（连接后 10s 未完成 HTTP 握手即断开）约束：
+        /// 主线程超时 Dispose 关闭 socket，后台的 AuthenticateAsServer / Read 随即抛出并退出。
+        /// </summary>
+        private void StartTlsInBackground()
+        {
+            var cert = TlsCertificateService.Current;
+            if (cert == null) { _transport = TransportFailed; _state = -1; return; }
+            _transport = TransportTlsHandshaking;
+            var t = new Thread(() =>
+            {
+                SslStream? ssl = null;
+                try
+                {
+                    _socket.ReceiveTimeout = (int)(HandshakeTimeoutSec * 1000);
+                    ssl = new SslStream(new NetworkStream(_socket, false), leaveInnerStreamOpen: false);
+                    ssl.AuthenticateAsServer(cert, false, TlsPolicy.ServerProtocols, false);
+                    _socket.ReceiveTimeout = 0; // 已握手：读循环阻塞等待（Dispose 关闭 socket 时退出）
+                    _ssl = ssl;
+                    _transport = TransportTls;
+                }
+                catch (Exception ex)
+                {
+                    try { ssl?.Dispose(); } catch { /* 忽略 */ }
+                    _transport = TransportFailed;
+                    Log.Debug($"[SLDataAPI][Voice] TLS 握手失败: {ex.GetType().Name}: {ex.Message}");
+                    return;
+                }
+
+                var buf = new byte[4096];
+                try
+                {
+                    while (_state >= 0)
+                    {
+                        int n = ssl.Read(buf, 0, buf.Length);
+                        if (n <= 0) break;
+                        var chunk = new byte[n];
+                        Buffer.BlockCopy(buf, 0, chunk, 0, n);
+                        lock (_rxLock)
+                        {
+                            // 入站只有 HTTP 头与 ping/close 小帧：积压超限说明对端在灌数据，判死
+                            if (_rxQueuedBytes + n > MaxTlsRxQueueBytes) break;
+                            _rxQueue.Enqueue(chunk);
+                            _rxQueuedBytes += n;
+                        }
+                    }
+                }
+                catch { /* 连接关闭 / 超时 */ }
+                finally { _rxClosed = true; }
+            })
+            {
+                IsBackground = true,
+                Name = "SLDataAPI-VoiceTls",
+            };
+            t.Start();
+        }
+
+        /// <summary>主线程：把后台收到的明文搬进 _inBuf（容量满则留在队列里下一轮再搬）。</summary>
+        private void DrainTlsRx()
+        {
+            lock (_rxLock)
+            {
+                while (_rxQueue.Count > 0 && _inLen < _inBuf.Length)
+                {
+                    byte[] chunk = _rxQueue.Peek();
+                    int space = _inBuf.Length - _inLen;
+                    if (chunk.Length <= space)
+                    {
+                        Buffer.BlockCopy(chunk, 0, _inBuf, _inLen, chunk.Length);
+                        _inLen += chunk.Length;
+                        _rxQueue.Dequeue();
+                        _rxQueuedBytes -= chunk.Length;
+                    }
+                    else
+                    {
+                        Buffer.BlockCopy(chunk, 0, _inBuf, _inLen, space);
+                        _inLen += space;
+                        var rest = new byte[chunk.Length - space];
+                        Buffer.BlockCopy(chunk, space, rest, 0, rest.Length);
+                        _rxQueue.Dequeue();
+                        _rxQueuedBytes -= space;
+                        // 放回队首：Queue 不支持 push-front，重建
+                        var tmp = new Queue<byte[]>();
+                        tmp.Enqueue(rest);
+                        while (_rxQueue.Count > 0) tmp.Enqueue(_rxQueue.Dequeue());
+                        while (tmp.Count > 0) _rxQueue.Enqueue(tmp.Dequeue());
+                        break;
+                    }
+                }
+            }
+        }
+
+        /// <summary>统一写出：明文走 Socket.Send；TLS 走 SslStream.Write（调用方已做 PrepareSend 可写性检查）。</summary>
+        private void WriteRaw(byte[] data)
+        {
+            var ssl = _ssl;
+            if (_transport == TransportTls && ssl != null)
+            {
+                lock (_txLock)
+                {
+                    ssl.Write(data, 0, data.Length);
+                    ssl.Flush();
+                }
+            }
+            else
+            {
+                _socket.Send(data);
+            }
         }
 
         private int FindHeaderEnd()
@@ -528,6 +695,14 @@ public static class VoiceService
             if (parts.Length < 2) { _state = -1; return; }
             string method = parts[0];
             string path = parts[1];
+
+            // tls_mode: required：明文语音连接（WS 升级与 /status）一律 426（data.code = tls_required）
+            if (TlsPolicy.IsPlaintextRejected(_tlsMode, IsTls))
+            {
+                SendHttp("426 Upgrade Required", "application/json", TlsPolicy.BuildTlsRequiredJson());
+                _state = -1;
+                return;
+            }
 
             // v2.6.0 推出，代号 PEAK：语音口 API Key（Authorization: Bearer / X-SLDataAPI-Key）；不再接受 X-Control-Token / ?key=
             string? key = ApiKeyService.ExtractKeyFromRawHeader(header);
@@ -565,7 +740,11 @@ public static class VoiceService
                 if (TryHandshake(header))
                 {
                     _state = 1;
-                    SendWsFrame(0x1, Encoding.UTF8.GetBytes("{\"type\":\"hello\",\"sampleRate\":48000,\"channels\":1,\"format\":\"float32\"}"));
+                    string fp = _tlsMode == TlsMode.Off || TlsCertificateService.Fingerprint == null
+                        ? "null" : "\"" + JsonEscape(TlsCertificateService.Fingerprint) + "\"";
+                    SendWsFrame(0x1, Encoding.UTF8.GetBytes(
+                        "{\"type\":\"hello\",\"sampleRate\":48000,\"channels\":1,\"format\":\"float32\"," +
+                        "\"tls\":" + (IsTls ? "true" : "false") + ",\"cert_fingerprint\":" + fp + "}"));
                 }
                 else _state = -1;
                 return;
@@ -610,7 +789,7 @@ public static class VoiceService
                 "Connection: Upgrade\r\n" +
                 $"Sec-WebSocket-Accept: {accept}\r\n" +
                 "\r\n";
-            _socket.Send(Encoding.ASCII.GetBytes(response));
+            WriteRaw(Encoding.ASCII.GetBytes(response));
             return true;
         }
 
@@ -779,7 +958,7 @@ public static class VoiceService
                 byte[] full = new byte[off + payload.Length];
                 Array.Copy(header, full, off);
                 Array.Copy(payload, 0, full, off, payload.Length);
-                _socket.Send(full);
+                WriteRaw(full);
             }
             catch { _state = -1; }
         }
@@ -796,8 +975,8 @@ public static class VoiceService
                 "\r\n";
             try
             {
-                _socket.Send(Encoding.ASCII.GetBytes(head));
-                _socket.Send(bodyBytes);
+                WriteRaw(Encoding.ASCII.GetBytes(head));
+                WriteRaw(bodyBytes);
             }
             catch { /* 忽略 */ }
         }
@@ -805,6 +984,7 @@ public static class VoiceService
         public void Dispose()
         {
             _state = -1;
+            try { _ssl?.Dispose(); } catch { /* 忽略 */ }
             try { _socket.Close(); } catch { /* 忽略 */ }
             try { _stream.Dispose(); } catch { /* 忽略 */ }
         }

@@ -25,5 +25,6 @@
     <Compile Include="..\..\Control\ControlMessageValidation.cs" Link="ControlMessageValidation.cs" />
     <Compile Include="..\..\Services\FileSandbox.cs" Link="FileSandbox.cs" />
     <Compile Include="..\..\Services\FileUploadSessions.cs" Link="FileUploadSessions.cs" />
+    <Compile Include="..\..\Services\TlsPolicy.cs" Link="TlsPolicy.cs" />
   </ItemGroup>
 </Project>

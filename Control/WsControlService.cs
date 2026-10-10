@@ -31,7 +31,7 @@ namespace SLDataAPI.Control;
 /// 上游平台对同一台服务器高频调用时开销与延迟都显著；长连接复用后仅剩帧级开销。
 ///
 /// 协议（JSON 文本帧，UTF-8，信封对齐平台端 call/result 设计）：
-///   建连后 S→C {"type":"hello","version":...,"endpoints":"/control/*"}
+///   建连后 S→C {"type":"hello","version":...,"endpoints":"/control/*","tls":bool,"cert_fingerprint":string|null}
 ///   C→S {"type":"ping"}                          → S→C {"type":"pong"}
 ///   C→S {"type":"call","reqId","path","body"?}   → S→C {"type":"result","reqId","ok","status","data"/"message"}
 /// path 必须是现有 /control/* 端点；语义与 HTTP POST 完全一致（同一个 ControlController 分发），
@@ -73,7 +73,7 @@ public static class WsControlService
     /// </summary>
     public static bool TryHandle(
         System.Net.Sockets.TcpClient client, Stream stream, string method, string path, string query,
-        Dictionary<string, string> headers, string remoteIp, Config config)
+        Dictionary<string, string> headers, string remoteIp, Config config, bool isTls = false)
     {
         // /control/ 是与传输无关的公用命名空间：/control 与 /ws/control 都接受 WS 升级
         //（后者是早期别名，兼容已按旧文档对接的平台），call 里的 path 继续用 /control/*。
@@ -151,7 +151,7 @@ public static class WsControlService
         // 长连接不设接收超时（心跳由协议层 ping/pong + 空闲清扫器负责）
         client.ReceiveTimeout = 0;
 
-        var session = new Session(stream, remoteIp, principal);
+        var session = new Session(stream, remoteIp, principal, isTls);
         int current;
         lock (RegistryLock)
         {
@@ -269,6 +269,7 @@ public static class WsControlService
         private readonly Stream _stream;
         private readonly string _remoteIp;
         private readonly ApiKeyPrincipal _principal;
+        private readonly bool _isTls;
         private readonly object _sendLock = new();
         private int _pendingCalls;
         private volatile bool _closed;
@@ -276,8 +277,9 @@ public static class WsControlService
         public DateTime LastActivity = DateTime.UtcNow;
         public volatile bool EventsSubscribed; // 是否订阅服务器事件推送（subscribe_events 消息控制）
 
-        public Session(Stream stream, string remoteIp, ApiKeyPrincipal principal)
+        public Session(Stream stream, string remoteIp, ApiKeyPrincipal principal, bool isTls)
         {
+            _isTls = isTls;
             _stream = stream;
             _remoteIp = remoteIp;
             _principal = principal;
@@ -313,6 +315,11 @@ public static class WsControlService
                 ["version"] = Plugin.Instance?.Version?.ToString() ?? "",
                 ["endpoints"] = "/control/*",
                 ["beta"] = BetaFeatures(),
+                // TLS（contract v1）：tls = 本连接是否加密；cert_fingerprint = 当前证书 SHA-256（tls_mode: off 时为 null）
+                ["tls"] = _isTls,
+                ["cert_fingerprint"] = TlsCertificateService.Mode == TlsMode.Off || TlsCertificateService.Fingerprint == null
+                    ? JValue.CreateNull()
+                    : new JValue(TlsCertificateService.Fingerprint),
             });
 
             var fragments = new List<byte>(1024);

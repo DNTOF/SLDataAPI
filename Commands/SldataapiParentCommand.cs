@@ -17,16 +17,17 @@ public sealed class SldataapiParentCommand : ParentCommand
     public override string Command => "sldataapi";
     public override string[] Aliases => new[] { "slda" };
     public override string Description =>
-        "SLDataAPI 管理命令（API Key 等）。远程 /control/console 已硬拒绝；若用权限插件收窄 RemoteAdmin，请同时拒绝 sldataapi / slda。";
+        "SLDataAPI 管理命令（API Key / TLS 证书）。远程 /control/console 已硬拒绝；若用权限插件收窄 RemoteAdmin，请同时拒绝 sldataapi / slda。";
 
     public override void LoadGeneratedCommands()
     {
         RegisterCommand(new ApikeyParentCommand());
+        RegisterCommand(new CertParentCommand());
     }
 
     protected override bool ExecuteParent(ArraySegment<string> arguments, ICommandSender sender, out string response)
     {
-        response = "用法: sldataapi apikey <create|revoke|list> …";
+        response = "用法: sldataapi apikey <create|revoke|list> … | sldataapi cert <show|regen>（cert 仅限本地控制台）";
         return false;
     }
 }

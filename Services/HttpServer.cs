@@ -115,11 +115,46 @@ public class HttpServer
                     try { remoteIp = ((IPEndPoint)client.Client.RemoteEndPoint)?.Address.ToString() ?? "unknown"; }
                     catch { }
 
-                        using (var stream = client.GetStream())
-                        {
-                            // ---- Slowloris 防护：请求必须整体在时限内送达 ----
-                            int startTick = Environment.TickCount;
+                    // ---- Slowloris 防护：请求必须整体在时限内送达（含 TLS 嗅探与握手）----
+                    int startTick = Environment.TickCount;
 
+                    // ---- 同端口 TLS 嗅探（tls_mode != off）：窥视首字节，0x16 = TLS ClientHello ----
+                    // off 时完全不碰连接（行为与引入 TLS 前一致）。
+                    bool isTls = false;
+                    Stream stream = client.GetStream();
+                    TlsMode tlsMode = TlsCertificateService.Mode;
+                    if (TlsPolicy.ShouldSniff(tlsMode))
+                    {
+                        int first = TlsTransport.PeekFirstByte(client.Client, RequestDeadlineMs);
+                        if (first < 0)
+                        {
+                            // 超时未发任何字节 / 已断开：静默关闭（不给慢连接回包机会）
+                            try { stream.Dispose(); } catch { }
+                            return;
+                        }
+                        if (TlsPolicy.IsTlsClientHello(tlsMode, first))
+                        {
+                            var cert = TlsCertificateService.Current;
+                            if (cert == null)
+                            {
+                                try { stream.Dispose(); } catch { }
+                                return;
+                            }
+                            int remaining = RequestDeadlineMs - unchecked(Environment.TickCount - startTick);
+                            var ssl = TlsTransport.TryAuthenticateServer(stream, cert,
+                                Math.Min(TlsTransport.HandshakeTimeoutMs, Math.Max(1000, remaining)), out string tlsErr);
+                            if (ssl == null)
+                            {
+                                Log.Debug($"[SLDataAPI] {tlsErr} from {remoteIp}");
+                                return;
+                            }
+                            stream = ssl;
+                            isTls = true;
+                        }
+                    }
+
+                        using (stream)
+                        {
                             // ---- 读请求头（请求行+头部），上限 16KB ----
                             byte[] headBuf = new byte[MaxHeaderBytes];
                             int headLen = 0;
@@ -181,6 +216,13 @@ public class HttpServer
                             query = rawTarget.Substring(qIdx + 1);
                         }
 
+                        // ---- tls_mode: required：明文 HTTP 与明文 WS 升级一律 426（data.code = tls_required）----
+                        if (TlsPolicy.IsPlaintextRejected(tlsMode, isTls))
+                        {
+                            SendJson(stream, 426, TlsPolicy.BuildTlsRequiredJson());
+                            return;
+                        }
+
                         // ---- 读请求体（Content-Length，上限 64KB） ----
                         int contentLength = 0;
                         if (headers.TryGetValue("Content-Length", out var clStr) &&
@@ -223,7 +265,7 @@ public class HttpServer
                         // ---- 控制接口 WebSocket 升级（v2.5）----
                         // /ws/control 长连接：call/result 信封，语义与 /control/* HTTP 完全一致。
                         // 返回 true 表示连接已被完整接管（含整个 WS 会话生命周期）。
-                        if (WsControlService.TryHandle(client, stream, method, path, query, headers, remoteIp, _config))
+                        if (WsControlService.TryHandle(client, stream, method, path, query, headers, remoteIp, _config, isTls))
                             return;
 
                         Route(stream, remoteIp, method, path, query, headers, body);
@@ -476,6 +518,7 @@ public class HttpServer
             case 405: return "Method Not Allowed";
             case 408: return "Request Timeout";
             case 413: return "Payload Too Large";
+            case 426: return "Upgrade Required";
             case 431: return "Request Header Fields Too Large";
             case 500: return "Internal Server Error";
             case 501: return "Not Implemented";

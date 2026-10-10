@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### 自签 TLS（同端口，contract v1）
+
+- 新配置 `tls_mode: off | optional | required`（默认 `optional`；非法值按 `optional` 处理并告警）
+- 首次启动在 `configs/<port>/SLDataAPI/` 生成自签证书 `sld_tls.pfx` 与随机口令 `sld_tls.pwd`（RSA-2048 / SHA-256 / 约 10 年，`CN=SLDataAPI`）；优先用游戏自带 Mono.Security 生成，失败回退 BouncyCastle（DER + 3DES PKCS#12）；口令与证书文件尽力收紧 ACL。证书损坏时改名 `.bad-<时间>` 后重新生成
+- HTTP/WS 主端口与语音端口**同端口**首字节嗅探：`0x16` → TLS（服务端 TLS 1.2 / 1.3，以运行时支持为准；Unity Mono 实际协商 TLS 1.2），否则明文。主端口握手计入 Slowloris 时限并另设 10s 上限；语音端口握手与读取在后台线程进行，主线程只做非阻塞收发（发送前仍有可写性检查）
+- 启动横幅 `TLS: <mode>, SHA-256 <指纹>`（DER 的 SHA-256，大写十六进制冒号分隔）
+- 控制 WS / 语音 WS `hello` 增加 `tls`（本连接是否加密）与 `cert_fingerprint`（`off` 时为 `null`）
+- `tls_mode: required`：明文 HTTP 与明文 WS（控制 + 语音）返回 `426`，`data.code = "tls_required"`
+- `tls_mode: off`：不生成/加载证书，行为与此前一致
+- 新命令 `sldataapi cert show` / `sldataapi cert regen`（仅服务器本地控制台；RemoteAdmin 与远程控制通道均拒绝）。`regen` 热替换证书（仅对新连接生效），提示已固定指纹的客户端须重新确认，并写入控制审计日志
+- 修复：语音端口未完成握手的连接超时改用真实时钟——服务器处于 idle mode 时 `Time.time` 停滞，原先静默连接可无限期占用 pending 名额
+
 ## 2.6.1 RIDGE
 
 SLDataAPI **2.6.1 RIDGE**（相对 2.6.0 PEAK）。以 GitHub **预发布（Pre-release）** 形式发布：含两项默认关闭的内测功能；自动更新只认稳定版，不会把 2.6.0 用户推到本版本。

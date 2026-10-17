@@ -124,7 +124,7 @@ sldataapi apikey revoke <id>
 ### TLS（自签，同端口）
 
 - `tls_mode: optional`（默认）时，HTTP/WS 主端口与语音端口**同端口**同时接受 TLS 与明文：首字节为 TLS 握手（`0x16`）走 TLS 1.2，否则按明文处理；`https://` / `wss://` 与 `http://` / `ws://` 用同一个端口。
-- 首次启动在配置目录生成 `sld_tls.pfx` 与随机口令文件 `sld_tls.pwd`（RSA-2048 / SHA-256 / 约 10 年，`CN=SLDataAPI`，已尽力收紧文件权限）。启动日志打印 `TLS: <mode>, SHA-256 <指纹>`；客户端应固定（pin）该指纹，而不是信任 CA。
+- 首次启动在配置目录生成 `sld_tls.pfx` 与随机口令文件 `sld_tls.pwd`（RSA-2048 / SHA-256 / 约 10 年，`CN=SLDataAPI`；Windows 上文件权限暂未收紧，请自行限制配置目录访问）。启动日志打印 `TLS: <mode>, SHA-256 <指纹>`；客户端应固定（pin）该指纹，而不是信任 CA。
 - 控制 WS 与语音 WS 的 `hello` 增加 `tls`（本连接是否加密）与 `cert_fingerprint`（`tls_mode: off` 时为 `null`）。
 - `tls_mode: required`：明文 HTTP、明文控制 WS / 语音 WS 一律 `426`，`{"success":false,"message":"…","data":{"code":"tls_required"}}`。
 - `tls_mode: off`：不生成/加载证书，行为与旧版一致。

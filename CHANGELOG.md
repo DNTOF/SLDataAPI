@@ -1,8 +1,8 @@
 # Changelog
 
-## 2.6.1 CODENAME_TBD
+## 2.6.1 Mores
 
-SLDataAPI **2.6.1 CODENAME_TBD**（相对 2.6.0 PEAK）。以 GitHub **正式版**发布：在 2026-10-04 预发布版（当时代号 RIDGE）的两项默认关闭的内测功能之上，加入同端口自签 TLS。2.6.0 PEAK 的更新检查会提示本版本。
+SLDataAPI **2.6.1 Mores**（相对 2.6.0 PEAK）。以 GitHub **正式版**发布：2.6.1 曾于 2026-10-04 以 **2.6.1-preview RIDGE** 预发布；本正式版在其两项默认关闭的内测功能之上，加入同端口自签 TLS。2.6.0 PEAK 的更新检查会提示本版本。
 
 > TLS：`tls_mode` 默认 `optional`，同端口同时接受 TLS 与明文，现有明文客户端无需改动。
 
@@ -55,7 +55,7 @@ SLDataAPI **2.6.1 CODENAME_TBD**（相对 2.6.0 PEAK）。以 GitHub **正式版
 
 - 全部源码文件加 SPDX 头（`GPL-3.0-only`，`Copyright (C) 2026 DNT_OF`）；新增双语 `NOTICE`；README 增加许可证说明；`SLDataAPI.csproj` 补充 `Authors` / `Copyright` / `PackageLicenseExpression`
 - README 按 2.6.0 PEAK 重写，恢复 Harmony / Newtonsoft 依赖下载链接并修正库来源链接格式
-- 版本号 2.6.1（`InformationalVersion` `2.6.1 CODENAME_TBD`）；示例插件 `AdaptedPluginSample` 1.1.0
+- 版本号 2.6.1（`InformationalVersion` `2.6.1 Mores`）；示例插件 `AdaptedPluginSample` 1.1.0
 
 ## 2.6.0 PEAK
 

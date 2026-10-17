@@ -26,7 +26,7 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
     private HttpServer? server;
 
     public override string Name => "SLDataAPI";
-    public override string Description => "通过 HTTP API 向外部（WebUI / 机器人）提供服务器数据采集与远程控制能力（LabAPI 原生插件，v2.6.1，代号 CODENAME_TBD）";
+    public override string Description => "通过 HTTP API 向外部（WebUI / 机器人）提供服务器数据采集与远程控制能力（LabAPI 原生插件，v2.6.1，代号 Mores）";
     public override string Author => "DNT_OF";
     public override Version Version => new Version(2, 6, 1);
     public override Version RequiredApiVersion => new Version(1, 1, 7);
@@ -145,7 +145,7 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
         string httpStatus = server != null
             ? $"HTTP on port {Config.HttpPort}" + (dataPlaneOk ? "" : "（仅控制面，数据口已关闭）")
             : "HTTP 未绑定";
-        Log.Info($"SLDataAPI v{Version} (2.6.1 CODENAME_TBD / LabAPI) enabled. {httpStatus}. Control API: {(Config.ControlEnabled ? $"{Config.ControlTransport.ToUpperInvariant()} 模式，API Key" : "关闭")}. Voice: {(Config.VoiceEnabled ? $"启用(端口 {Config.VoicePort})" : "关闭")}. {tlsBanner}.");
+        Log.Info($"SLDataAPI v{Version} (2.6.1 Mores / LabAPI) enabled. {httpStatus}. Control API: {(Config.ControlEnabled ? $"{Config.ControlTransport.ToUpperInvariant()} 模式，API Key" : "关闭")}. Voice: {(Config.VoiceEnabled ? $"启用(端口 {Config.VoicePort})" : "关闭")}. {tlsBanner}.");
     }
 
     public override void Disable()

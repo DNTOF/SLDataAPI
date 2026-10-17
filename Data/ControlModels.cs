@@ -65,6 +65,12 @@ public class PlayerActionRequest
     /// <summary>effect 用：效果时长（秒），默认 10。</summary>
     public float effect_duration { get; set; } = 10f;
 
+    /// <summary>
+    /// effect 用：效果强度 0-255，默认 1；0 = 关闭该效果。
+    /// 例：TemporaryBypass 强度 1 = SCP 越权（ScpOverride），≥2 = 全部门权限（游戏 14.2.8+ 生效）。
+    /// </summary>
+    public int effect_intensity { get; set; } = 1;
+
     /// <summary>state 用：无敌模式（true/false）。</summary>
     public bool? godmode { get; set; }
 

@@ -1,5 +1,32 @@
 # Changelog
 
+## 2.6.2-preview CODENAME_TBD_262
+
+SLDataAPI **2.6.2-preview CODENAME_TBD_262**（相对 2.6.1 CODENAME_TBD，含其全部 TLS 改动）。以 GitHub **预发布（Pre-release）** 形式发布，适配游戏 **14.2.8（万圣节测试版，Steam `holiday` 分支）** 新增的两处接口。编译引用 14.2.8 的 `Assembly-CSharp.dll`；运行时仍兼容 14.2.7（缺少新成员时自动回落）。
+
+### 数据口
+
+- `get_sl_data` 新增 `game_version`（游戏版本串）与 `active_holiday`（`None` / `Christmas` / `Halloween` / `AprilFools`）
+
+### 控制面
+
+- `/control/player/data` 新增：
+  - `effects`：玩家当前生效的效果（`name` / `intensity` / `duration`（0=无限期）/ `time_left` / `classification` / `door_permissions`）。14.2.8 起读 `PlayerEffectsController.EnabledEffects`，14.2.7 回落为 `AllEffects` 中已启用的项
+  - `temporary_bypass`：`active` / `intensity` / `level`（`none` / `scp_override`（强度 1）/ `all`（强度 ≥2））/ `time_left` / `grants_door_access`（本服游戏版本中该效果是否参与开门判定：14.2.8+ 为 `true`）
+  - `effect_door_permissions`：所有生效效果提供的开门权限合集（`DoorPermissionFlags`，如 `None` / `ScpOverride` / `All`）
+- `/control/player/effects` 新增可选 `effect_intensity`（0-255，默认 1 与旧行为一致；0 = 关闭该效果）。例如 `{"target":"2","effect":"TemporaryBypass","effect_intensity":2,"effect_duration":30}` 给玩家 30 秒全部门权限。ACL 与审计沿用原端点（admin 默认开放、duty 默认拒绝，写入 `control_log`）
+
+> 游戏侧说明：14.2.8 开门判定顺序变为「效果 → 角色 → 手持物品」，任一效果给出足够权限即放行。
+
+### 更新检查
+
+- 预发布构建（`InformationalVersion` 含 `preview` 等标记）在同版本号的正式版发布后也会提示更新（例如 2.6.2-preview → 2.6.2）；正式版构建行为不变
+
+### 已知限制
+
+- 14.2.7 回落路径只验证了编译，未在 14.2.7 服务器上运行实测
+- 带 TemporaryBypass 的真人开门未实测（假人无法开门）
+
 ## 2.6.1 CODENAME_TBD
 
 SLDataAPI **2.6.1 CODENAME_TBD**（相对 2.6.0 PEAK）。以 GitHub **正式版**发布：在 2026-10-04 预发布版（当时代号 RIDGE）的两项默认关闭的内测功能之上，加入同端口自签 TLS。2.6.0 PEAK 的更新检查会提示本版本。

@@ -20,8 +20,8 @@ SCP:SL 专用服务器的 **LabAPI 原生插件**（v2.4 起，非 EXILED）。�
 
 | 能力 | 说明 |
 |------|------|
-| 数据查询 | `GET /get_sl_data`：人数、回合、核弹、玩家（SteamID/坐标）、DNT_OF 插件状态；`GET /plugins/adapted` + `adapted_plugins` 适配插件发现 |
-| 控制接口 | `/control/*`：玩家 / 管理 / 回合 / 地图 / CASSIE / 全服广播 / 管理聊天 / 控制台 / 插件 / 文件 / 日志 / 举报等；HTTP 或 WS 二选一 |
+| 数据查询 | `GET /get_sl_data`：人数、回合、核弹、玩家（SteamID/坐标）、游戏版本与当前节日（`game_version` / `active_holiday`）、DNT_OF 插件状态；`GET /plugins/adapted` + `adapted_plugins` 适配插件发现 |
+| 控制接口 | `/control/*`：玩家 / 管理 / 回合 / 地图 / CASSIE / 全服广播 / 管理聊天 / 控制台 / 插件 / 文件 / 日志 / 举报等；HTTP 或 WS 二选一。`/control/player/data` 含当前生效效果与 TemporaryBypass 开门权限 |
 | 事件流 | 控制 WS 订阅：回合、进出、死亡、电梯、门等 |
 | 语音转发 | 独立端口 WS，全频道 48kHz PCM（SPY） |
 | 语音录音 | 分轨 WAV + 时间轴 TSV，按局保留；可选 WebDAV（仅 https）自动上传定稿 zip |

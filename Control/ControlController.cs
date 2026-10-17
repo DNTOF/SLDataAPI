@@ -487,7 +487,9 @@ public static class ControlController
                     break;
 
                 case "effect":
-                    if (!TryEnableEffect(player, req.effect, Math.Max(0.1f, req.effect_duration)))
+                    if (req.effect_intensity < 0 || req.effect_intensity > 255)
+                        throw new InvalidOperationException($"effect_intensity 超出范围: {req.effect_intensity}（0-255，0=关闭）");
+                    if (!TryEnableEffect(player, req.effect, Math.Max(0.1f, req.effect_duration), (byte)req.effect_intensity))
                         throw new InvalidOperationException($"无效效果名: {req.effect}");
                     break;
 
@@ -532,8 +534,11 @@ public static class ControlController
             ["amnesiaitems"] = "Amnesia",
         };
 
-    /// <summary>按名称给玩家上效果：先直接匹配，再走别名表，最后按效果类名兜底。</summary>
-    private static bool TryEnableEffect(Player player, string? name, float duration)
+    /// <summary>
+    /// 按名称给玩家上效果：先直接匹配，再走别名表，最后按效果类名兜底。
+    /// intensity 默认 1（旧行为）；0 = 关闭该效果。
+    /// </summary>
+    private static bool TryEnableEffect(Player player, string? name, float duration, byte intensity = 1)
     {
         if (string.IsNullOrWhiteSpace(name))
             return false;
@@ -542,14 +547,14 @@ public static class ControlController
 
         if (player.TryGetEffect(effect, out var statusEffect))
         {
-            player.EnableEffect(statusEffect, 1, duration);
+            ApplyEffect(player, statusEffect, intensity, duration);
             return true;
         }
 
         if (EffectAliases.TryGetValue(effect, out string? canonical) &&
             player.TryGetEffect(canonical, out statusEffect))
         {
-            player.EnableEffect(statusEffect, 1, duration);
+            ApplyEffect(player, statusEffect, intensity, duration);
             return true;
         }
 
@@ -559,13 +564,21 @@ public static class ControlController
                 string.Equals(e.GetType().Name, effect, StringComparison.OrdinalIgnoreCase));
             if (byClass != null)
             {
-                player.EnableEffect(byClass, 1, duration);
+                ApplyEffect(player, byClass, intensity, duration);
                 return true;
             }
         }
         catch { /* ActiveEffects 不可用时忽略，走失败路径 */ }
 
         return false;
+    }
+
+    private static void ApplyEffect(Player player, CustomPlayerEffects.StatusEffectBase effect, byte intensity, float duration)
+    {
+        if (intensity == 0)
+            effect.ServerDisable();
+        else
+            player.EnableEffect(effect, intensity, duration);
     }
 
     /// <summary>
@@ -1388,6 +1401,11 @@ public static class ControlController
             var p = Player.Get(req.target);
             if (p == null)
                 throw new InvalidOperationException($"未找到玩家: {req.target}");
+            // 14.2.8：PlayerEffectsController.EnabledEffects（旧版自动回落），效果可提供开门权限（TemporaryBypass）
+            var enabled = HolidayFeatures.EnabledEffects(p.ReferenceHub);
+            var effectDoor = Interactables.Interobjects.DoorUtils.DoorPermissionFlags.None;
+            foreach (var e in enabled)
+                effectDoor |= HolidayFeatures.EffectDoorPermissions(e);
             var data = new
             {
                 nickname = p.Nickname,
@@ -1397,6 +1415,9 @@ public static class ControlController
                 health = p.Health,
                 position = new { x = p.Position.x, y = p.Position.y, z = p.Position.z },
                 room = p.Room?.Name.ToString() ?? "",
+                effects = enabled.Select(HolidayFeatures.DescribeEffect).ToList(),
+                temporary_bypass = HolidayFeatures.DescribeTemporaryBypass(enabled),
+                effect_door_permissions = effectDoor.ToString(),
             };
             return (200, Json(true, "ok", data));
         }, out var err);

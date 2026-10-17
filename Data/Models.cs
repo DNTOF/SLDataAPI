@@ -34,6 +34,12 @@ public class ServerData
 
     /// <summary>语音转发端口（VoiceEnabled=true 时非 0；前端据此建立 WebSocket）。</summary>
     public int voice_port { get; set; }
+
+    /// <summary>游戏版本串（如 "14.2.8"）。</summary>
+    public string game_version { get; set; } = "";
+
+    /// <summary>当前生效的节日：None / Christmas / Halloween / AprilFools（GameCore.Version.ActiveHoliday）。</summary>
+    public string active_holiday { get; set; } = "None";
     public int d_count { get; set; }
     public int foundation_count { get; set; }
     public int scp_count { get; set; }

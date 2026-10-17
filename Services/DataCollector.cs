@@ -100,6 +100,8 @@ public static class DataCollector
         nuke_status = src.nuke_status,
         nuke_countdown = src.nuke_countdown,
         voice_port = src.voice_port,
+        game_version = src.game_version,
+        active_holiday = src.active_holiday,
         d_count = src.d_count,
         foundation_count = src.foundation_count,
         scp_count = src.scp_count,
@@ -126,6 +128,8 @@ public static class DataCollector
             fresh.voice_port = Plugin.Instance?.Config != null && Plugin.Instance.Config.VoiceEnabled
                 ? Plugin.Instance.Config.VoicePort
                 : 0;
+            fresh.game_version = HolidayFeatures.GameVersion();
+            fresh.active_holiday = HolidayFeatures.ActiveHoliday();
             fresh.players_count = players.Count;
             fresh.max_players = Server.MaxPlayers;
             fresh.round_started = Round.IsRoundStarted;

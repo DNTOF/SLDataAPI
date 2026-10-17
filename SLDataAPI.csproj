@@ -5,10 +5,10 @@
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <OutputType>Library</OutputType>
-    <Version>2.6.1</Version>
-    <AssemblyVersion>2.6.1.0</AssemblyVersion>
-    <FileVersion>2.6.1.0</FileVersion>
-    <InformationalVersion>2.6.1 CODENAME_TBD</InformationalVersion>
+    <Version>2.6.2-preview</Version>
+    <AssemblyVersion>2.6.2.0</AssemblyVersion>
+    <FileVersion>2.6.2.0</FileVersion>
+    <InformationalVersion>2.6.2-preview CODENAME_TBD_262</InformationalVersion>
     <Authors>DNT_OF</Authors>
     <Copyright>Copyright (C) 2026 DNT_OF</Copyright>
     <PackageLicenseExpression>GPL-3.0-only</PackageLicenseExpression>

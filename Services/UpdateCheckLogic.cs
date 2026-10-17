@@ -137,7 +137,9 @@ public static class UpdateCheckLogic
         current!.SequenceEqual(incoming!);
 
     /// <summary>评估 GitHub /releases/latest JSON。detail 不含机密。</summary>
-    public static UpdateCheckOutcome EvaluateLatestRelease(string? json, Version current, out Version? remote, out string detail)
+    /// <param name="currentIsPreRelease">当前运行的是预发布构建（如 2.6.2-preview）时为 true：同版本号的正式版（2.6.2）也视为更新。</param>
+    public static UpdateCheckOutcome EvaluateLatestRelease(string? json, Version current, out Version? remote, out string detail,
+        bool currentIsPreRelease = false)
     {
         remote = null;
         detail = "";
@@ -179,7 +181,7 @@ public static class UpdateCheckLogic
         }
 
         remote = parsed;
-        if (parsed <= current)
+        if (parsed < current || (parsed == current && !currentIsPreRelease))
         {
             detail = tag;
             return UpdateCheckOutcome.UpToDate;
@@ -194,6 +196,18 @@ public static class UpdateCheckLogic
     {
         if (string.IsNullOrEmpty(tag)) return false;
         foreach (string seg in tag.Split('-', '_', '.'))
+        {
+            if (PreReleaseSegmentRegex.IsMatch(seg))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>InformationalVersion（如 "2.6.2-preview CODENAME"）是否标记为预发布：按空格与 -_.+ 分段判定。</summary>
+    public static bool IsPreReleaseInformationalVersion(string? informational)
+    {
+        if (string.IsNullOrWhiteSpace(informational)) return false;
+        foreach (string seg in informational!.Split(new[] { ' ', '-', '_', '.', '+' }, StringSplitOptions.RemoveEmptyEntries))
         {
             if (PreReleaseSegmentRegex.IsMatch(seg))
                 return true;

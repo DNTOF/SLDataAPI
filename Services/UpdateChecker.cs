@@ -143,7 +143,10 @@ public static class UpdateChecker
         }
 
         string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
-        var outcome = UpdateCheckLogic.EvaluateLatestRelease(body, currentVersion, out var remote, out string detail);
+        string? informational = typeof(UpdateChecker).Assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+        bool currentIsPre = UpdateCheckLogic.IsPreReleaseInformationalVersion(informational);
+        var outcome = UpdateCheckLogic.EvaluateLatestRelease(body, currentVersion, out var remote, out string detail, currentIsPre);
         switch (outcome)
         {
             case UpdateCheckOutcome.Failed:

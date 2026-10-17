@@ -144,6 +144,38 @@ public class UpdateCheckLogicTests
     }
 
     [Fact]
+    public void Evaluate_PreviewBuild_SameVersionStable_UpdateAvailable()
+    {
+        string json = """{"tag_name":"v2.6.2_X","prerelease":false,"draft":false}""";
+        Assert.Equal(UpdateCheckOutcome.UpdateAvailable,
+            UpdateCheckLogic.EvaluateLatestRelease(json, new Version(2, 6, 2), out var remote, out _, currentIsPreRelease: true));
+        Assert.Equal(new Version(2, 6, 2), remote);
+        Assert.Equal(UpdateCheckOutcome.UpToDate,
+            UpdateCheckLogic.EvaluateLatestRelease(json, new Version(2, 6, 2), out _, out _, currentIsPreRelease: false));
+    }
+
+    [Fact]
+    public void Evaluate_PreviewBuild_OlderStable_UpToDate()
+    {
+        string json = """{"tag_name":"v2.6.1_X","prerelease":false,"draft":false}""";
+        Assert.Equal(UpdateCheckOutcome.UpToDate,
+            UpdateCheckLogic.EvaluateLatestRelease(json, new Version(2, 6, 2), out _, out _, currentIsPreRelease: true));
+    }
+
+    [Theory]
+    [InlineData("2.6.2-preview CODENAME", true)]
+    [InlineData("2.6.2-preview", true)]
+    [InlineData("2.7.0 rc1", true)]
+    [InlineData("2.6.1 CODENAME", false)]
+    [InlineData("2.6.0 PEAK", false)]
+    [InlineData("", false)]
+    [InlineData(null, false)]
+    public void IsPreReleaseInformationalVersion_Detects(string? info, bool expected)
+    {
+        Assert.Equal(expected, UpdateCheckLogic.IsPreReleaseInformationalVersion(info));
+    }
+
+    [Fact]
     public void Evaluate_Prerelease_Skipped()
     {
         string json = """{"tag_name":"v2.7.0-beta","prerelease":true,"draft":false}""";

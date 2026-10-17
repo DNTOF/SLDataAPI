@@ -1,8 +1,8 @@
 # Changelog
 
-## 2.6.2-preview CODENAME_TBD_262
+## 2.6.2-preview Holiday26
 
-SLDataAPI **2.6.2-preview CODENAME_TBD_262**（相对 2.6.1 CODENAME_TBD，含其全部 TLS 改动）。以 GitHub **预发布（Pre-release）** 形式发布，适配游戏 **14.2.8（万圣节测试版，Steam `holiday` 分支）** 新增的两处接口。编译引用 14.2.8 的 `Assembly-CSharp.dll`；运行时仍兼容 14.2.7（缺少新成员时自动回落）。
+SLDataAPI **2.6.2-preview Holiday26**（相对 2.6.1 Mores，含其全部 TLS 改动）。以 GitHub **预发布（Pre-release）** 形式发布，适配游戏 **14.2.8（万圣节测试版，Steam `holiday` 分支）** 新增的两处接口。编译引用 14.2.8 的 `Assembly-CSharp.dll`；运行时仍兼容 14.2.7（缺少新成员时自动回落）。
 
 ### 数据口
 
@@ -27,9 +27,9 @@ SLDataAPI **2.6.2-preview CODENAME_TBD_262**（相对 2.6.1 CODENAME_TBD，含�
 - 14.2.7 回落路径只验证了编译，未在 14.2.7 服务器上运行实测
 - 带 TemporaryBypass 的真人开门未实测（假人无法开门）
 
-## 2.6.1 CODENAME_TBD
+## 2.6.1 Mores
 
-SLDataAPI **2.6.1 CODENAME_TBD**（相对 2.6.0 PEAK）。以 GitHub **正式版**发布：在 2026-10-04 预发布版（当时代号 RIDGE）的两项默认关闭的内测功能之上，加入同端口自签 TLS。2.6.0 PEAK 的更新检查会提示本版本。
+SLDataAPI **2.6.1 Mores**（相对 2.6.0 PEAK）。以 GitHub **正式版**发布：2.6.1 曾于 2026-10-04 以 **2.6.1-preview RIDGE** 预发布；本正式版在其两项默认关闭的内测功能之上，加入同端口自签 TLS。2.6.0 PEAK 的更新检查会提示本版本。
 
 > TLS：`tls_mode` 默认 `optional`，同端口同时接受 TLS 与明文，现有明文客户端无需改动。
 
@@ -82,7 +82,7 @@ SLDataAPI **2.6.1 CODENAME_TBD**（相对 2.6.0 PEAK）。以 GitHub **正式版
 
 - 全部源码文件加 SPDX 头（`GPL-3.0-only`，`Copyright (C) 2026 DNT_OF`）；新增双语 `NOTICE`；README 增加许可证说明；`SLDataAPI.csproj` 补充 `Authors` / `Copyright` / `PackageLicenseExpression`
 - README 按 2.6.0 PEAK 重写，恢复 Harmony / Newtonsoft 依赖下载链接并修正库来源链接格式
-- 版本号 2.6.1（`InformationalVersion` `2.6.1 CODENAME_TBD`）；示例插件 `AdaptedPluginSample` 1.1.0
+- 版本号 2.6.1（`InformationalVersion` `2.6.1 Mores`）；示例插件 `AdaptedPluginSample` 1.1.0
 
 ## 2.6.0 PEAK
 

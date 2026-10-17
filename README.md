@@ -1,20 +1,7 @@
 # SLDataAPI
 
-> ## ⚠️ 安全警告
->
-> 服务端链路为**明文**：HTTP（默认 8081）、控制/语音 WebSocket（`ws://`，语音默认 8082）。中间节点可窃听凭据与语音；凭据泄露等同服务器被控。
->
-> 防火墙、反向代理（HTTPS/WSS）、凭据强度与保管由**使用者自行负责**；相关后果本项目与作者不承担责任。建议仅内网使用，对外必须走加密代理。详见 Wiki [Security-Model](https://github.com/DNTOF/SLDataAPI/wiki/Security-Model)。
+SCP:SL 专用服务器的 **LabAPI 原生插件**。对外提供 HTTP 数据查询、远程控制、控制 WebSocket 事件流、语音转发与录音取证。
 
-SCP:SL 专用服务器的 **LabAPI 原生插件**（v2.4 起，非 EXILED）。对外提供 HTTP 数据查询、远程控制、控制 WebSocket 事件流、语音转发与录音取证。
-
-| | |
-|---|---|
-| **当前版本** | **2.6.1 CODENAME_TBD**（正式版：同端口自签 TLS + 默认关闭的内测功能）· [Release](https://github.com/DNTOF/SLDataAPI/releases/tag/v2.6.1_CODENAME_TBD) · 上一稳定版 [2.6.0 PEAK](https://github.com/DNTOF/SLDataAPI/releases/tag/v2.6.0_PEAK) |
-| **文档** | [Wiki](https://github.com/DNTOF/SLDataAPI/wiki) · 现行接口 [HTTP-API](https://github.com/DNTOF/SLDataAPI/wiki/HTTP-API) · 2.5.x 旧接口 [Old-HTTP-API](https://github.com/DNTOF/SLDataAPI/wiki/Old-HTTP-API) |
-| **反馈** | [Issues](https://github.com/DNTOF/SLDataAPI/issues)（大版本升级后遇到问题请积极反馈） |
-
----
 
 ## 能力概览
 
@@ -28,13 +15,9 @@ SCP:SL 专用服务器的 **LabAPI 原生插件**（v2.4 起，非 EXILED）。�
 | 举报 | Esc 服务器设置面板 + `/control/reports`（默认关） |
 | 审计 | 侵入性控制操作写入 `control_log.json`（默认开） |
 
-从 EXILED 迁移：DLL 放 `LabAPI/plugins/global/`；配置在 `LabAPI/configs/<端口>/SLDataAPI/config.yml`；启停用 `properties.yml` 或 `/control/plugins`。同服 EXILED 插件仍可通过反射桥探测 / 控制。
+## 运行依赖
 
----
-
-## ⚠️ 运行依赖（重点）
-
-插件运行时需要两个程序集，**游戏本身不自带**（`SCPSL_Data/Managed/` 里没有），由 LabAPI 的依赖目录提供。**手动安装或精简安装 LabAPI 的服务器很可能缺失**，缺失时插件会加载失败或启动即报错。
+插件运行时需要两个程序集：
 
 | 依赖 | 版本 | 缺失现象 |
 |------|------|----------|
@@ -52,7 +35,6 @@ SCP:SL 专用服务器的 **LabAPI 原生插件**（v2.4 起，非 EXILED）。�
 
 - `0Harmony.dll`：Harmony 官方仓库 https://github.com/pardeike/Harmony/releases （选择 **net472** 版本，文件名为 `0Harmony.dll`）
 - `Newtonsoft.Json.dll`：NuGet https://www.nuget.org/packages/Newtonsoft.Json （13.0.x）
-- 或从已完整安装 LabAPI 的其他服务器 `LabAPI/dependencies/global/` 直接复制
 
 放入后重启服务器生效。
 
@@ -60,7 +42,7 @@ SCP:SL 专用服务器的 **LabAPI 原生插件**（v2.4 起，非 EXILED）。�
 
 ## 安装 / 升级
 
-1. 从 [Release](https://github.com/DNTOF/SLDataAPI/releases/tag/v2.6.1_CODENAME_TBD) 下载 `SLDataAPI.dll`（或自行 `dotnet build -c Release`，见 [Building](https://github.com/DNTOF/SLDataAPI/wiki/Building)）
+1. 从 [Release](https://github.com/DNTOF/SLDataAPI/releases/tag/v2.6.1_Mores) 下载 `SLDataAPI.dll`（或自行 `dotnet build -c Release`，见 [Building](https://github.com/DNTOF/SLDataAPI/wiki/Building)）
 2. 确认上方两个依赖已就位
 3. 升级前备份 `config.yml` 与 `apikey.config`
 4. 将 `SLDataAPI.dll` 放入 `%AppData%/SCP Secret Laboratory/LabAPI/plugins/global/`
@@ -192,7 +174,7 @@ Content-Type: application/json
 
 [Development-Guide](https://github.com/DNTOF/SLDataAPI/wiki/Development-Guide) · [Architecture](https://github.com/DNTOF/SLDataAPI/wiki/Architecture) · [Building](https://github.com/DNTOF/SLDataAPI/wiki/Building)
 
-开发 skill 与冒烟脚本：Release 附件 `SLDataAPI-DevKit-v2.6.1_CODENAME_TBD.zip`。
+开发 skill 与冒烟脚本：Release 附件 `SLDataAPI-DevKit-v*.*.*_*.zip`（例如 `SLDataAPI-DevKit-v2.6.1_Mores.zip`）。
 
 ---
 

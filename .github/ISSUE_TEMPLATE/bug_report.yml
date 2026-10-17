@@ -15,7 +15,7 @@ body:
     attributes:
       label: SLDataAPI 版本
       description: 启动日志里会打印，或者看 DLL 属性 / release 版本号
-      placeholder: 例如 v2.6.1 RIDGE
+      placeholder: 例如 v2.6.1 CODENAME_TBD
     validations:
       required: true
 

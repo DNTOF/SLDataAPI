@@ -206,7 +206,7 @@ public class Config
     /// </summary>
     public bool ApikeyCopyToClipboard { get; set; } = false;
 
-    // ================== 内测（beta）开关（v2.6.1 推出，代号 RIDGE）：默认全部关闭，仅供内测 ==================
+    // ================== 内测（beta）开关（v2.6.1 推出，代号 CODENAME_TBD）：默认全部关闭，仅供内测 ==================
 
     /// <summary>
     /// [内测] 适配插件写操作：允许第三方插件经 PluginEndpointRegistry.TryRegisterActions 注册写/动作路由，

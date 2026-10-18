@@ -43,6 +43,25 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
         LabApi.Events.Handlers.PlayerEvents.Death              += OnPlayerDeath;
         LabApi.Events.Handlers.PlayerEvents.InteractedElevator += OnInteractedElevator;
         LabApi.Events.Handlers.PlayerEvents.InteractedDoor     += OnInteractedDoor;
+        // WS 事件流扩展（封禁/踢出/波次/去污/核弹/发电机/收容播报/逃脱/角色变化/举报；仅低频事件）
+        WsEventBridge.Register();
+
+        // 节日门控测试钩子：仅当设置了环境变量时生效，且只会把节日功能判为“未开启”，不会放宽游戏限制
+        try
+        {
+            string? holidayOverride = Environment.GetEnvironmentVariable(HolidayGate.OverrideEnvVar);
+            if (!string.IsNullOrWhiteSpace(holidayOverride))
+            {
+                if (HolidayGate.SetTestOverride(holidayOverride))
+                    Log.Warn($"[SLDataAPI] 测试钩子 {HolidayGate.OverrideEnvVar}={HolidayGate.TestOverride}：节日门控按该节日模拟判定（只收紧不放宽），勿用于生产服。");
+                else
+                    Log.Warn($"[SLDataAPI] 忽略无效的 {HolidayGate.OverrideEnvVar} 值（支持 None / Christmas / Halloween / AprilFools）。");
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Debug($"[SLDataAPI] 读取 {HolidayGate.OverrideEnvVar} 失败（忽略）: {ex.Message}");
+        }
 
         // 命令输出捕获（patch ServerConsole.AddLog）
         CommandOutputCapture.Init();
@@ -159,6 +178,8 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
         LabApi.Events.Handlers.PlayerEvents.InteractedElevator -= OnInteractedElevator;
         LabApi.Events.Handlers.PlayerEvents.InteractedDoor     -= OnInteractedDoor;
         LabApi.Events.Handlers.PlayerEvents.SendingVoiceMessage -= OnSendingVoiceMessage;
+        WsEventBridge.Unregister();
+        HolidayGate.SetTestOverride(null);
 
         VoiceService.Stop();
         VoiceRecorder.EndRound(waitFinalize: true); // 兜底：停服时定稿并等待打包完成（回调入队 WebDAV）

@@ -1,5 +1,38 @@
 # Changelog
 
+## 未发布（开发中）
+
+以下内容在开发分支上，尚未发布；发布时并入对应版本条目。
+
+### 控制面
+
+- `/control/player/inventory` 由 501 占位改为实现：`list`（默认，只读）/ `add` / `remove` / `clear`。`add`、`remove` 单次上限 8；弹药类型不走本端点（400 `ammo_not_supported`）；物品栏满返回 409 `inventory_full`。支持 `Lantern`、`MarshmallowItem` 等节日物品，节日未开启时返回 409 `holiday_inactive`
+- 新增 `/control/player/candy`：给 SCP-330 糖果（指定 `candy` 或随机），单次上限 6。糖果池跟随游戏当前节日（万圣节 13 种，否则 8 种普通糖果），节日专属糖果在节日未开启时返回 409 `holiday_inactive`
+- 新增 `/control/map/status`（只读）：回合统计、LCZ 去污、发电机、核弹（拉杆 / 锁定 / 倒计时）、SCP-914 旋钮、节日状态快照
+- `/control/map/facility` 的 `lights` 新增 `color`（`#RGB` / `#RRGGBB` / `#RRGGBBAA` / `reset`）、`flicker_seconds`（0.1-300）与 `scope: "all"`（全部房间）
+- `/control/player/data` 新增 `max_health`、`artificial_health` / `max_artificial_health`、`hume_shield` / `max_hume_shield`、`stamina`、`items`、`ammo`、`group`、`godmode`、`noclip`、`bypass`、`overwatch`、`spectating`、`zone`、`is_speaking`、`is_muted`、`is_intercom_muted`、`voice_channel`、`is_dummy`（不含 IP）；`target` 在 UserId 未命中时按 PlayerId / 昵称解析，与其他玩家端点一致
+- `/control/player/effects` 开启节日效果（如 `MarshmallowEffect` 棉花糖人）前检查节日是否开启，未开启返回 409 `holiday_inactive`；关闭效果（`effect_intensity: 0`）不受限制
+
+### 节日门控
+
+- 节日专属功能运行时判定：以游戏自身的 `IsAvailable` 与当前节日为准，游戏重新开启节日时无需改代码即可用
+- 不可用时统一返回 `{"success":false,"message":…,"data":{"code":"holiday_inactive","feature":…,"active_holiday":…,"required":[…]}}`（409）；游戏版本缺少所需类型 / 成员时返回 `feature_unavailable`（501），不抛 500
+- 节日相关类型 / 成员按名称反射查找并缓存，未来游戏版本删除或改名时 fail-closed
+- 测试钩子：环境变量 `SLDATAAPI_HOLIDAY_OVERRIDE`（`None` / `Christmas` / `Halloween` / `AprilFools`）只影响插件的门控判定、只收紧不放宽，用于在节日版本上演练「节日未开启」路径；启动时告警
+
+### 事件流（控制 WS）
+
+- 新增低频事件：`player_banned`、`player_kicked`、`player_escaped`、`player_role_changed`、`player_reported`（游戏内举报与插件举报面板）、`wave_respawned`、`decontamination_started`、`generator_activated`、`scp_terminated`、`warhead_started`、`warhead_stopped`、`warhead_detonated`。事件数据不含 IP
+
+### ACL
+
+- 端点目录：`/control/player/inventory` 改为 `true`（admin 默认获得），新增 `/control/player/candy`（admin 默认获得）；duty 默认均拒绝。`/control/map/status` 属于 `/control/map/`，duty 默认可读
+- 已有 `apikey.config` 的 `endpoint_catalog` 若写有 `/control/player/inventory: false`，以文件为准，需手动改为 `true` 才能让 admin 使用
+
+### 测试
+
+- 新增 `tests/SLDataAPI.Features.Tests`：节日门控、反射缓存、新端点入参规则
+
 ## 2.6.2-preview Holiday26
 
 SLDataAPI **2.6.2-preview Holiday26**（相对 2.6.1 Mores，含其全部 TLS 改动）。以 GitHub **预发布（Pre-release）** 形式发布，适配游戏 **14.2.8（万圣节测试版，Steam `holiday` 分支）** 新增的两处接口。编译引用 14.2.8 的 `Assembly-CSharp.dll`（无法用 14.2.7 的程序集编译）；设计上在 14.2.7 运行时缺少新成员会自动回落，但未实测。

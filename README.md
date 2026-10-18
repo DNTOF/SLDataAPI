@@ -13,8 +13,9 @@ SCP:SL 专用服务器的 **LabAPI 原生插件**。对外提供 HTTP 数据查�
 | 能力 | 说明 |
 |------|------|
 | 数据查询 | `GET /get_sl_data`：人数、回合、核弹、玩家（SteamID/坐标）、游戏版本与当前节日（`game_version` / `active_holiday`）、DNT_OF 插件状态；`GET /plugins/adapted` + `adapted_plugins` 适配插件发现 |
-| 控制接口 | `/control/*`：玩家 / 管理 / 回合 / 地图 / CASSIE / 全服广播 / 管理聊天 / 控制台 / 插件 / 文件 / 日志 / 举报等；HTTP 或 WS 二选一。`/control/player/data` 含当前生效效果与 TemporaryBypass 开门权限 |
-| 事件流 | 控制 WS 订阅：回合、进出、死亡、电梯、门等 |
+| 控制接口 | `/control/*`：玩家 / 物品栏 / 管理 / 回合 / 地图（含设施状态快照、灯光颜色）/ CASSIE / 全服广播 / 管理聊天 / 控制台 / 插件 / 文件 / 日志 / 举报等；HTTP 或 WS 二选一。`/control/player/data` 含生命 / 护盾 / 体力 / 物品 / 弹药 / 当前效果与 TemporaryBypass 开门权限 |
+| 节日 | 万圣节糖果 / 棉花糖人 / 节日物品：按游戏当前节日自动可用，未开启时返回结构化 `409 holiday_inactive`，无需改代码 |
+| 事件流 | 控制 WS 订阅：回合、进出、死亡、角色变化、逃脱、封禁 / 踢出、重生波次、核弹、去污、发电机、SCP 收容播报、举报等 |
 | 语音转发 | 独立端口 WS，全频道 48kHz PCM（SPY） |
 | 语音录音 | 分轨 WAV + 时间轴 TSV，按局保留；可选 WebDAV（仅 https）自动上传定稿 zip |
 | 举报 | Esc 服务器设置面板 + `/control/reports`（默认关） |
@@ -165,7 +166,7 @@ Content-Type: application/json
 
 完整端点表与 curl 示例：[HTTP-API](https://github.com/DNTOF/SLDataAPI/wiki/HTTP-API)。WS 协议与语音帧：[WS-Control-Protocol](https://github.com/DNTOF/SLDataAPI/wiki/WS-Control-Protocol) · [Voice-Forwarding](https://github.com/DNTOF/SLDataAPI/wiki/Voice-Forwarding)。
 
-仍为 501 占位：`/control/player/inventory`、`/control/dummies`。
+仍为 501 占位：`/control/dummies`。
 
 ---
 

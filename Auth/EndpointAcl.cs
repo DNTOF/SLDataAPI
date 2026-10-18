@@ -113,7 +113,8 @@ public static class EndpointAcl
             ["/control/player/data"] = true,
             ["/control/player/role"] = true,
             ["/control/player/effects"] = true,
-            ["/control/player/inventory"] = false,
+            ["/control/player/inventory"] = true,
+            ["/control/player/candy"] = true,
             ["/control/moderation/"] = true,
             ["/control/admin/"] = true,
             ["/control/broadcast"] = true,
@@ -165,6 +166,7 @@ public static class EndpointAcl
             ["/control/player/role"] = EndpointGrant.FromBool(false),
             ["/control/player/effects"] = EndpointGrant.FromBool(false),
             ["/control/player/inventory"] = EndpointGrant.FromBool(false),
+            ["/control/player/candy"] = EndpointGrant.FromBool(false),
             ["/control/dummies/"] = EndpointGrant.FromBool(false),
         };
 
@@ -347,7 +349,15 @@ public static class EndpointAcl
                     return false;
 
                 case "/control/map/seed":
+                case "/control/map/status":
                     return false;
+
+                case "/control/player/inventory":
+                {
+                    string? act = ExtractJsonString(body, "action");
+                    return !(string.IsNullOrWhiteSpace(act) ||
+                             string.Equals(act!.Trim(), "list", StringComparison.OrdinalIgnoreCase));
+                }
 
                 case "/control/map/facility":
                     return true;

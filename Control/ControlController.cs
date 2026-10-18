@@ -47,7 +47,7 @@ namespace SLDataAPI.Control;
 /// 控制接口的业务逻辑层。所有会触碰游戏 / Mirror 网络状态的调用
 /// 都通过 MainThreadExecutor 派发到主线程执行，HTTP 线程同步等待结果。
 /// </summary>
-public static class ControlController
+public static partial class ControlController
 {
     public static (int status, string json) Handle(string path, string body, string? actor = null)
     {
@@ -59,7 +59,8 @@ public static class ControlController
                 "/control/player/data" => PlayerDataAction(body),
                 "/control/player/role" => PlayerAction(body, "role"),
                 "/control/player/effects" => PlayerAction(body, "effect"),
-                "/control/player/inventory" => Stub501("player/inventory"),
+                "/control/player/inventory" => PlayerInventoryAction(body),
+                "/control/player/candy" => PlayerCandyAction(body),
                 // SERVER · Moderation
                 "/control/moderation/kick" => PlayerAction(body, "kick"),
                 "/control/moderation/ban" => PlayerAction(body, "ban"),
@@ -83,6 +84,7 @@ public static class ControlController
                 "/control/map/layout" => MapLayoutAction(),
                 "/control/map/export" => MapExportAction(),
                 "/control/map/seed" => MapSeedAction(),
+                "/control/map/status" => MapStatusAction(),
                 "/control/cassie" => CassieAction(body),
                 // 扩展
                 "/control/console/command" => RunCommand(body),
@@ -152,6 +154,7 @@ public static class ControlController
                 case "/control/files/read":
                 case "/control/audit/list":
                 case "/control/player/data":
+                case "/control/map/status":
                 case "/control/files/stat":       // [内测]
                 case "/control/files/read_chunk": // [内测]
                     return true;
@@ -159,6 +162,8 @@ public static class ControlController
                     return false; // 门/梯/灯
                 case "/control/reports":
                     return Parse<ReportRequest>(body)?.action == "list";
+                case "/control/player/inventory":
+                    return FeatureInputRules.IsInventoryAction(Parse<InventoryRequest>(body)?.action, out var invAct) && invAct == "list";
                 case "/control/admin/state":
                     var st = Parse<PlayerActionRequest>(body);
                     return st != null && st.godmode == null && st.bypass == null && st.health == null && st.intercom == null;
@@ -506,6 +511,8 @@ public static class ControlController
             }
         }, out var err);
 
+        if (err is HolidayGateException hg)
+            return (hg.Result.Status, Json(false, hg.Result.Message, hg.Result.ToData()));
         if (err != null)
             return (400, Json(false, err.Message));
 
@@ -547,6 +554,7 @@ public static class ControlController
 
         if (player.TryGetEffect(effect, out var statusEffect))
         {
+            EnsureEffectAvailable(statusEffect, intensity);
             ApplyEffect(player, statusEffect, intensity, duration);
             return true;
         }
@@ -554,6 +562,7 @@ public static class ControlController
         if (EffectAliases.TryGetValue(effect, out string? canonical) &&
             player.TryGetEffect(canonical, out statusEffect))
         {
+            EnsureEffectAvailable(statusEffect, intensity);
             ApplyEffect(player, statusEffect, intensity, duration);
             return true;
         }
@@ -564,6 +573,7 @@ public static class ControlController
                 string.Equals(e.GetType().Name, effect, StringComparison.OrdinalIgnoreCase));
             if (byClass != null)
             {
+                EnsureEffectAvailable(byClass, intensity);
                 ApplyEffect(player, byClass, intensity, duration);
                 return true;
             }
@@ -1398,7 +1408,8 @@ public static class ControlController
 
         var (status, json) = MainThreadExecutor.RunOnMainThread(() =>
         {
-            var p = Player.Get(req.target);
+            // UserId 精确匹配优先；再按 PlayerId / 昵称（与其它玩家端点一致，便于对 Dummy 查询）
+            var p = Player.Get(req.target) ?? FindPlayer(req.target);
             if (p == null)
                 throw new InvalidOperationException($"未找到玩家: {req.target}");
             // 14.2.8：PlayerEffectsController.EnabledEffects（旧版自动回落），效果可提供开门权限（TemporaryBypass）
@@ -1406,19 +1417,22 @@ public static class ControlController
             var effectDoor = Interactables.Interobjects.DoorUtils.DoorPermissionFlags.None;
             foreach (var e in enabled)
                 effectDoor |= HolidayFeatures.EffectDoorPermissions(e);
-            var data = new
+            var data = new Dictionary<string, object?>
             {
-                nickname = p.Nickname,
-                userid = p.UserId,
-                player_id = p.PlayerId,
-                role = p.Role.ToString(),
-                health = p.Health,
-                position = new { x = p.Position.x, y = p.Position.y, z = p.Position.z },
-                room = p.Room?.Name.ToString() ?? "",
-                effects = enabled.Select(HolidayFeatures.DescribeEffect).ToList(),
-                temporary_bypass = HolidayFeatures.DescribeTemporaryBypass(enabled),
-                effect_door_permissions = effectDoor.ToString(),
+                ["nickname"] = p.Nickname,
+                ["userid"] = p.UserId,
+                ["player_id"] = p.PlayerId,
+                ["role"] = p.Role.ToString(),
+                ["health"] = p.Health,
+                ["position"] = new { x = p.Position.x, y = p.Position.y, z = p.Position.z },
+                ["room"] = p.Room?.Name.ToString() ?? "",
+                ["effects"] = enabled.Select(HolidayFeatures.DescribeEffect).ToList(),
+                ["temporary_bypass"] = HolidayFeatures.DescribeTemporaryBypass(enabled),
+                ["effect_door_permissions"] = effectDoor.ToString(),
             };
+            // 扩展字段（逐项容错，读取失败为 null；不含 IP）
+            foreach (var kv in PlayerDataExtras(p))
+                data[kv.Key] = kv.Value;
             return (200, Json(true, "ok", data));
         }, out var err);
         return err != null ? (400, Json(false, err.Message)) : (status, json);
@@ -1492,6 +1506,18 @@ public static class ControlController
         string action = req.action.ToLowerInvariant();
         if (action is "layout" or "seed")
             return (400, Json(false, "layout/seed 请分别调用 /control/map/layout 与 /control/map/seed"));
+
+        // lights 新参数预校验（color / flicker_seconds），非法值直接 400，不进主线程
+        float lr = 0f, lg = 0f, lb = 0f, la = 0f, flicker = 0f;
+        bool colorReset = false;
+        if (action == "lights")
+        {
+            if (req.color != null &&
+                !FeatureInputRules.TryParseColor(req.color, out lr, out lg, out lb, out la, out colorReset))
+                return (400, Json(false, $"无效颜色: {req.color}（#RGB / #RRGGBB / #RRGGBBAA / reset）", new { code = "invalid_color" }));
+            if (req.flicker_seconds.HasValue && !FeatureInputRules.TryClampFlicker(req.flicker_seconds.Value, out flicker))
+                return (400, Json(false, "无效 flicker_seconds", new { code = "invalid_flicker" }));
+        }
 
         var (mapStatus, mapJson) = MainThreadExecutor.RunOnMainThread(() =>
         {
@@ -1664,33 +1690,51 @@ public static class ControlController
 
                 case "lights":
                 {
-                    if (!Enum.TryParse<MapGeneration.RoomName>(req.room_type, true, out var roomName))
-                        throw new InvalidOperationException($"无效房间类型: {req.room_type}");
-
-                    // ★ N-05：同名房间可能有多处（Room.Get 返回集合），统一全部处理（此前只处理第一间）
-                    var rooms = Room.Get(roomName).ToList();
-                    if (rooms.Count == 0)
-                        throw new InvalidOperationException($"未找到房间: {req.room_type}");
-
-                    if (req.lights_off == true)
+                    // scope=all：全部房间（忽略 room_type）；否则按 room_type
+                    bool allRooms = string.Equals(req.scope?.Trim(), "all", StringComparison.OrdinalIgnoreCase);
+                    List<Room> rooms;
+                    if (allRooms)
                     {
-                        float dur = Math.Max(1f, req.duration);
-                        foreach (var room in rooms)
-                            foreach (var lc in room.AllLightControllers)
-                                lc.FlickerLights(dur);
+                        rooms = Room.List.Where(r => r != null).ToList();
                     }
                     else
                     {
-                        // duration=0 → 立即恢复照明
-                        foreach (var room in rooms)
-                            foreach (var lc in room.AllLightControllers)
-                                lc.LightsEnabled = true;
+                        if (!Enum.TryParse<MapGeneration.RoomName>(req.room_type, true, out var roomName))
+                            throw new InvalidOperationException($"无效房间类型: {req.room_type}");
+                        // ★ N-05：同名房间可能有多处（Room.Get 返回集合），统一全部处理（此前只处理第一间）
+                        rooms = Room.Get(roomName).ToList();
+                    }
+                    if (rooms.Count == 0)
+                        throw new InvalidOperationException($"未找到房间: {req.room_type}");
+
+                    bool hasColor = req.color != null;
+                    bool hasFlicker = req.flicker_seconds.HasValue;
+                    int controllers = 0;
+                    foreach (var room in rooms)
+                    {
+                        foreach (var lc in room.AllLightControllers)
+                        {
+                            controllers++;
+                            if (hasColor)
+                                lc.OverrideLightsColor = colorReset ? Color.clear : new Color(lr, lg, lb, la);
+
+                            if (req.lights_off == true)
+                                lc.FlickerLights(Math.Max(1f, req.duration));
+                            else if (hasFlicker)
+                                lc.FlickerLights(flicker);
+                            else if (req.lights_off == false || !hasColor)
+                                lc.LightsEnabled = true; // 旧行为：未给 color/flicker 时 = 立即恢复照明
+                        }
                     }
 
                     return (200, Json(true, "ok", new
                     {
-                        room_type = req.room_type,
-                        lights_off = req.lights_off == true
+                        room_type = allRooms ? "all" : req.room_type,
+                        rooms = rooms.Count,
+                        light_controllers = controllers,
+                        lights_off = req.lights_off == true,
+                        color = hasColor ? (colorReset ? "reset" : req.color) : null,
+                        flicker_seconds = req.lights_off != true && hasFlicker ? flicker : (float?)null,
                     }));
                 }
 

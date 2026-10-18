@@ -181,7 +181,34 @@ public class TemplateMergeTests
         Assert.False(EndpointAcl.IsAllowed(g, "/control/console/command", false));
         Assert.False(EndpointAcl.IsAllowed(g, "/control/plugins", true));
         Assert.False(EndpointAcl.IsAllowed(g, "/control/files/read", false));
-        Assert.False(EndpointAcl.IsAllowed(g, "/control/player/inventory", true));
+    }
+
+    [Fact]
+    public void InventoryAndCandy_AdminTrue_DutyWriteDenied()
+    {
+        var admin = EndpointAcl.MergeEffective("admin", null, null);
+        Assert.True(EndpointAcl.IsAllowed(admin, "/control/player/inventory", true));
+        Assert.True(EndpointAcl.IsAllowed(admin, "/control/player/candy", true));
+
+        var duty = EndpointAcl.MergeEffective("duty", null, null);
+        Assert.False(EndpointAcl.IsAllowed(duty, "/control/player/inventory", true));
+        Assert.False(EndpointAcl.IsAllowed(duty, "/control/player/inventory", false));
+        Assert.False(EndpointAcl.IsAllowed(duty, "/control/player/candy", true));
+        // 设施状态快照属于 /control/map/ 只读，值班可读
+        Assert.True(EndpointAcl.IsAllowed(duty, "/control/map/status", false));
+    }
+
+    [Theory]
+    [InlineData("/control/player/inventory", "{\"target\":\"2\"}", false)]
+    [InlineData("/control/player/inventory", "{\"target\":\"2\",\"action\":\"list\"}", false)]
+    [InlineData("/control/player/inventory", "{\"target\":\"2\",\"action\":\"LIST\"}", false)]
+    [InlineData("/control/player/inventory", "{\"target\":\"2\",\"action\":\"add\",\"item\":\"Lantern\"}", true)]
+    [InlineData("/control/player/inventory", "{\"target\":\"2\",\"action\":\"clear\"}", true)]
+    [InlineData("/control/player/candy", "{\"target\":\"2\"}", true)]
+    [InlineData("/control/map/status", "", false)]
+    public void NewEndpoints_ReadWriteClassification(string path, string body, bool write)
+    {
+        Assert.Equal(write, EndpointAcl.IsWriteOperation(path, body));
     }
 
     [Fact]

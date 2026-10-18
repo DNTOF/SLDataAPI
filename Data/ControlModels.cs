@@ -285,6 +285,43 @@ public class MapControlRequest
 
     /// <summary>lights 用：关灯持续秒数（默认 30）。</summary>
     public float duration { get; set; } = 30f;
+
+    /// <summary>lights 用：覆盖灯光颜色 #RGB / #RRGGBB / #RRGGBBAA；"reset" 清除覆盖色。null = 不改颜色。</summary>
+    public string? color { get; set; }
+
+    /// <summary>lights 用：闪烁（短暂熄灯）秒数，0.1-300。null = 不闪烁。与 lights_off 同时给出时以 lights_off 为准。</summary>
+    public float? flicker_seconds { get; set; }
+}
+
+/// <summary>POST /control/player/inventory —— 玩家物品栏。</summary>
+public class InventoryRequest
+{
+    /// <summary>玩家标识（PlayerId / UserId / 昵称）。</summary>
+    public string target { get; set; } = "";
+
+    /// <summary>list（默认，只读）| add | remove | clear。</summary>
+    public string action { get; set; } = "list";
+
+    /// <summary>add / remove 用：ItemType 枚举名（如 Medkit / Lantern / MarshmallowItem）。</summary>
+    public string item { get; set; } = "";
+
+    /// <summary>add / remove 用：数量，默认 1，上限 8。</summary>
+    public int amount { get; set; } = 1;
+
+    /// <summary>clear 用：是否同时清空弹药（默认 false，只清物品）。</summary>
+    public bool clear_ammo { get; set; }
+}
+
+/// <summary>POST /control/player/candy —— 给 SCP-330 糖果（节日糖果按当前游戏节日自动可用 / 不可用）。</summary>
+public class CandyRequest
+{
+    public string target { get; set; } = "";
+
+    /// <summary>CandyKindID 名（如 Red / Rainbow / Evil）；为空或 "random" = 从当前糖果池随机。</summary>
+    public string candy { get; set; } = "";
+
+    /// <summary>数量，默认 1，上限 6（糖果袋容量）。</summary>
+    public int amount { get; set; } = 1;
 }
 
 /// <summary>POST /control/reports —— 举报记录管理（需 report_enabled=true）</summary>

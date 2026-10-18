@@ -243,9 +243,10 @@ public static class ReportService
                 return;
             }
 
+            string reportId = Guid.NewGuid().ToString("N");
             AppendRecord(new ReportRecord
             {
-                id = Guid.NewGuid().ToString("N"),
+                id = reportId,
                 reporter_steam64 = reporterKey,
                 reporter_name = player.Nickname ?? "?",
                 reporter_ip = player.IpAddress ?? "",
@@ -255,6 +256,10 @@ public static class ReportService
                 reported_at = DateTime.UtcNow.ToString("o"),
                 status = "pending",
             });
+
+            // WS 事件流：举报提交（不含举报人 IP）
+            WsEventBridge.EmitPluginReport(reportId, player.Nickname ?? "?", reporterKey,
+                target.Nickname ?? "?", Steam64(target), reason);
 
             ShowFeedback(hub, "已提交，感谢反馈");
         }

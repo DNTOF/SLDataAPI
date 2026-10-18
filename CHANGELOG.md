@@ -2,7 +2,7 @@
 
 ## 2.6.2-preview Holiday26
 
-SLDataAPI **2.6.2-preview Holiday26**（相对 2.6.1 Mores，含其全部 TLS 改动）。以 GitHub **预发布（Pre-release）** 形式发布，适配游戏 **14.2.8（万圣节测试版，Steam `holiday` 分支）** 新增的两处接口。编译引用 14.2.8 的 `Assembly-CSharp.dll`；运行时仍兼容 14.2.7（缺少新成员时自动回落）。
+SLDataAPI **2.6.2-preview Holiday26**（相对 2.6.1 Mores，含其全部 TLS 改动）。以 GitHub **预发布（Pre-release）** 形式发布，适配游戏 **14.2.8（万圣节测试版，Steam `holiday` 分支）** 新增的两处接口。编译引用 14.2.8 的 `Assembly-CSharp.dll`（无法用 14.2.7 的程序集编译）；设计上在 14.2.7 运行时缺少新成员会自动回落，但未实测。
 
 ### 数据口
 
@@ -24,7 +24,7 @@ SLDataAPI **2.6.2-preview Holiday26**（相对 2.6.1 Mores，含其全部 TLS �
 
 ### 已知限制
 
-- 14.2.7 回落路径只验证了编译，未在 14.2.7 服务器上运行实测
+- 本版本无法针对 14.2.7 编译；14.2.7 回落是运行时设计（缺少新成员时自动回落），未在 14.2.7 服务器上运行实测
 - 带 TemporaryBypass 的真人开门未实测（假人无法开门）
 
 ## 2.6.1 Mores

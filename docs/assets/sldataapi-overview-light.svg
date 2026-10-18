@@ -1,12 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="420" viewBox="0 0 1200 420" role="img" aria-labelledby="t d">
-<title id="t">SLDataAPI 2.6.1 Mores 数据流示意</title>
+<title id="t">SLDataAPI 数据流示意</title>
 <desc id="d">SCP:SL 专用服务器经 LabAPI 加载 SLDataAPI；SLDataAPI 在 8081 端口提供数据接口与控制接口（HTTP 或 WebSocket 二选一），在 8082 端口提供语音 WebSocket；两个端口同端口支持自签 TLS。机器人、Web 面板与 SLConsole App 等客户端按 verify_token 或 API Key 访问。</desc>
 <rect width="1200" height="420" rx="24" fill="#ECE9E0"/>
 <defs><radialGradient id="g" cx="0.1" cy="0.05" r="0.7"><stop offset="0" stop-color="#D97757" stop-opacity="0.10"/><stop offset="1" stop-color="#D97757" stop-opacity="0"/></radialGradient><marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto"><path d="M1 1 L7 4 L1 7" fill="none" stroke="#9B9890" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
 <rect width="1200" height="420" rx="24" fill="url(#g)"/>
 <text x="48" y="82" font-family="Lora, 'DM Serif Display', Georgia, 'Noto Serif CJK SC', 'Source Han Serif SC', 'Songti SC', SimSun, serif" font-size="44" fill="#141413">SLDataAPI</text>
 <text x="48" y="116" font-family="Poppins, 'DM Sans', 'Segoe UI', 'Helvetica Neue', Arial, 'Noto Sans CJK SC', 'Source Han Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="17" fill="#6B6860">把一台 SCP:SL 服务器，变成机器人和面板能读、能管、能听的接口。</text>
-<text x="1152" y="80" text-anchor="end" font-family="Poppins, 'DM Sans', 'Segoe UI', 'Helvetica Neue', Arial, 'Noto Sans CJK SC', 'Source Han Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="15" letter-spacing="0.4" fill="#9B9890">2.6.1 Mores · LabAPI 插件</text>
 <rect x="48" y="152" width="212" height="200" rx="16" fill="#F5F3EC" stroke="#D8D5CC"/>
 <text x="72" y="194" font-family="Lora, 'DM Serif Display', Georgia, 'Noto Serif CJK SC', 'Source Han Serif SC', 'Songti SC', SimSun, serif" font-size="22" fill="#141413">SCP:SL 服务器</text>
 <text x="72" y="220" font-family="Poppins, 'DM Sans', 'Segoe UI', 'Helvetica Neue', Arial, 'Noto Sans CJK SC', 'Source Han Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="15" fill="#6B6860">专用服务器 + LabAPI</text>

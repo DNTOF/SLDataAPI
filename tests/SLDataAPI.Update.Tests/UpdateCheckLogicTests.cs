@@ -155,6 +155,26 @@ public class UpdateCheckLogicTests
     }
 
     [Fact]
+    public void Evaluate_StableBuild_SameVersionPreviewTag_NotAnUpdate()
+    {
+        // 正式版 2.6.2 不会被同号预发布 tag 当成更新（无论 prerelease 标记是否设置）
+        string pre = """{"tag_name":"v2.6.2-preview_Holiday26","prerelease":true,"draft":false}""";
+        Assert.Equal(UpdateCheckOutcome.PreReleaseSkipped,
+            UpdateCheckLogic.EvaluateLatestRelease(pre, new Version(2, 6, 2), out _, out _));
+        string mislabeled = """{"tag_name":"v2.6.2-preview_Holiday26","prerelease":false,"draft":false}""";
+        Assert.NotEqual(UpdateCheckOutcome.UpdateAvailable,
+            UpdateCheckLogic.EvaluateLatestRelease(mislabeled, new Version(2, 6, 2), out _, out _));
+        // 预发布构建 2.6.2-preview 看到正式 tag v2.6.2_Holiday26 → 提示更新
+        string stable = """{"tag_name":"v2.6.2_Holiday26","prerelease":false,"draft":false}""";
+        Assert.Equal(UpdateCheckOutcome.UpdateAvailable,
+            UpdateCheckLogic.EvaluateLatestRelease(stable, new Version(2, 6, 2), out _, out _,
+                currentIsPreRelease: UpdateCheckLogic.IsPreReleaseInformationalVersion("2.6.2-preview Holiday26")));
+        Assert.Equal(UpdateCheckOutcome.UpToDate,
+            UpdateCheckLogic.EvaluateLatestRelease(stable, new Version(2, 6, 2), out _, out _,
+                currentIsPreRelease: UpdateCheckLogic.IsPreReleaseInformationalVersion("2.6.2 Holiday26")));
+    }
+
+    [Fact]
     public void Evaluate_PreviewBuild_OlderStable_UpToDate()
     {
         string json = """{"tag_name":"v2.6.1_X","prerelease":false,"draft":false}""";
@@ -167,6 +187,7 @@ public class UpdateCheckLogicTests
     [InlineData("2.6.2-preview", true)]
     [InlineData("2.7.0 rc1", true)]
     [InlineData("2.6.1 CODENAME", false)]
+    [InlineData("2.6.2 Holiday26", false)]
     [InlineData("2.6.0 PEAK", false)]
     [InlineData("", false)]
     [InlineData(null, false)]

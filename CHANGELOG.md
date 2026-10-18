@@ -1,8 +1,15 @@
 # Changelog
 
-## 未发布（开发中）
+## 2.6.2 Holiday26
 
-以下内容在开发分支上，尚未发布；发布时并入对应版本条目。
+SLDataAPI **2.6.2 Holiday26**（相对 2.6.1 Mores）。以 GitHub **正式版**发布。节日相关接口曾于 2026-10-17 以 **2.6.2-preview Holiday26** 预发布（见下方条目）；本正式版包含其全部内容，并新增物品栏 / 糖果 / 设施状态端点、节日自动回退与事件流扩展。游戏公开分支已更新到 **14.2.8**（万圣节版本），本版本按 14.2.8 编译。2.6.1 Mores 与 2.6.2-preview 的更新检查都会提示本版本。
+
+### 自预发布版并入
+
+- `get_sl_data`：`game_version`、`active_holiday`
+- `/control/player/data`：`effects`、`temporary_bypass`、`effect_door_permissions`
+- `/control/player/effects`：`effect_intensity`（0-255，0 = 关闭）
+- 预发布构建在同版本号正式版发布后提示更新
 
 ### 控制面
 
@@ -33,7 +40,14 @@
 
 - 新增 `tests/SLDataAPI.Features.Tests`：节日门控、反射缓存、新端点入参规则
 
+### 已知限制
+
+- 以下只用假人和控制面在测试服验证，**尚未有真人实测**：`player_escaped`、`generator_activated`、`player_reported`、`player_banned`、`decontamination_started` 事件；带 TemporaryBypass 的真人开门；`is_speaking` / `spectating` / 体力等真人状态字段；灯光颜色的实际观感
+- `MarshmallowEffect` 开启时游戏会让玩家丢出全部物品（游戏行为）
+
 ## 2.6.2-preview Holiday26
+
+> 历史条目：本预发布版内容已并入 2.6.2 Holiday26 正式版。
 
 SLDataAPI **2.6.2-preview Holiday26**（相对 2.6.1 Mores，含其全部 TLS 改动）。以 GitHub **预发布（Pre-release）** 形式发布，适配游戏 **14.2.8（万圣节测试版，Steam `holiday` 分支）** 新增的两处接口。编译引用 14.2.8 的 `Assembly-CSharp.dll`（无法用 14.2.7 的程序集编译）；设计上在 14.2.7 运行时缺少新成员会自动回落，但未实测。
 

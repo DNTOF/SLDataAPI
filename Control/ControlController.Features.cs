@@ -121,6 +121,16 @@ public static partial class ControlController
         return err != null ? (400, Json(false, err.Message)) : (status, json);
     }
 
+    /// <summary>/control/player/data 用：不按 IP 匹配（PlayerId → UserId → 昵称精确 → LabAPI 模糊昵称）。</summary>
+    private static Player? FindPlayerWithoutIp(string target)
+    {
+        if (string.IsNullOrWhiteSpace(target)) return null;
+        return PlayerLookup.Find(target, Player.List,
+                   p => p.PlayerId, p => p.UserId, _ => null, p => p.Nickname, allowIp: false)
+               ?? Player.GetByNickname(target, requireFullMatch: true)
+               ?? Player.GetByNickname(target);
+    }
+
     private static bool TryParseItemType(string? name, out ItemType type)
     {
         type = ItemType.None;

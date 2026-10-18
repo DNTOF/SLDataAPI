@@ -19,5 +19,6 @@
     <Compile Include="..\..\Services\HolidayGate.cs" Link="HolidayGate.cs" />
     <Compile Include="..\..\Services\ReflectionLookup.cs" Link="ReflectionLookup.cs" />
     <Compile Include="..\..\Control\FeatureInputRules.cs" Link="FeatureInputRules.cs" />
+    <Compile Include="..\..\Control\PlayerLookup.cs" Link="PlayerLookup.cs" />
   </ItemGroup>
 </Project>

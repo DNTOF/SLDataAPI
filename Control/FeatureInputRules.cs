@@ -18,6 +18,15 @@ public static class FeatureInputRules
     /// <summary>灯光闪烁（熄灯）时长上限，秒。</summary>
     public const float MaxFlickerSeconds = 300f;
 
+    /// <summary>wave_respawned 的 team 短名：FoundationStaff → mtf，FoundationEnemy → chaos，其余为原值小写。</summary>
+    public static string WaveTeam(string? faction)
+    {
+        string f = (faction ?? "").Trim();
+        if (f.Equals("FoundationStaff", StringComparison.OrdinalIgnoreCase)) return "mtf";
+        if (f.Equals("FoundationEnemy", StringComparison.OrdinalIgnoreCase)) return "chaos";
+        return f.ToLowerInvariant();
+    }
+
     public static readonly string[] InventoryActions = { "list", "add", "remove", "clear" };
 
     public static bool IsInventoryAction(string? action, out string normalized)

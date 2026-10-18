@@ -1408,8 +1408,8 @@ public static partial class ControlController
 
         var (status, json) = MainThreadExecutor.RunOnMainThread(() =>
         {
-            // UserId 精确匹配优先；再按 PlayerId / 昵称（与其它玩家端点一致，便于对 Dummy 查询）
-            var p = Player.Get(req.target) ?? FindPlayer(req.target);
+            // 不按 IP 匹配：UserId 精确 → PlayerId → UserId（忽略大小写）→ 昵称精确 → 昵称模糊
+            var p = Player.Get(req.target) ?? FindPlayerWithoutIp(req.target);
             if (p == null)
                 throw new InvalidOperationException($"未找到玩家: {req.target}");
             // 14.2.8：PlayerEffectsController.EnabledEffects（旧版自动回落），效果可提供开门权限（TemporaryBypass）

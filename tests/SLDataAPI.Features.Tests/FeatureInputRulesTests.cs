@@ -23,6 +23,18 @@ public class FeatureInputRulesTests
     }
 
     [Theory]
+    [InlineData("FoundationStaff", "mtf")]
+    [InlineData("FoundationEnemy", "chaos")]
+    [InlineData("foundationenemy", "chaos")]
+    [InlineData("Flamingos", "flamingos")]
+    [InlineData("", "")]
+    [InlineData(null, "")]
+    public void WaveTeam_ShortNames(string? faction, string team)
+    {
+        Assert.Equal(team, FeatureInputRules.WaveTeam(faction));
+    }
+
+    [Theory]
     [InlineData(0, 8, true, 1)]
     [InlineData(-5, 8, true, 1)]
     [InlineData(8, 8, true, 8)]

@@ -106,6 +106,42 @@ public static class EndpointAcl
 {
     public const string AllControlTrue = "all_control_true";
 
+    /// <summary>
+    /// apikey.config 端点目录格式版本。缺省（旧文件）= 1；新生成 / 保存的文件写 endpoint_catalog_version: 2。
+    /// 版本 &lt; 2 的文件会把已知的旧占位默认值迁移为当前默认值（见 LegacyPlaceholderDefaults）。
+    /// </summary>
+    public const int CurrentCatalogVersion = 2;
+
+    /// <summary>
+    /// 旧版本因“端点未实现（501 占位）”而写进 endpoint_catalog 的默认值。端点实现后，旧文件中的该值不代表管理员意图，
+    /// 加载时迁移为当前 DefaultCatalog 值。只列确知的占位项。
+    /// </summary>
+    public static IReadOnlyDictionary<string, bool> LegacyPlaceholderDefaults { get; } =
+        new Dictionary<string, bool>(StringComparer.Ordinal)
+        {
+            ["/control/player/inventory"] = false,
+        };
+
+    /// <summary>
+    /// 迁移旧占位默认值（只改 endpoint_catalog 中与占位值完全相同的项；其他条目、模板、per-key override 一律不动）。
+    /// catalogVersion &gt;= CurrentCatalogVersion 时不迁移（管理员在新格式文件里显式写 false 会被尊重）。
+    /// 返回被迁移的键。
+    /// </summary>
+    public static List<string> MigrateLegacyCatalog(IDictionary<string, bool> catalog, int catalogVersion)
+    {
+        var migrated = new List<string>();
+        if (catalog == null || catalogVersion >= CurrentCatalogVersion)
+            return migrated;
+        foreach (var kv in LegacyPlaceholderDefaults)
+        {
+            if (!catalog.TryGetValue(kv.Key, out bool current) || current != kv.Value) continue;
+            if (!DefaultCatalog.TryGetValue(kv.Key, out bool now) || now == current) continue;
+            catalog[kv.Key] = now;
+            migrated.Add(kv.Key);
+        }
+        return migrated;
+    }
+
     /// <summary>内置端点目录（与契约 §3.1 / §4.2 对齐）。</summary>
     public static IReadOnlyDictionary<string, bool> DefaultCatalog { get; } =
         new Dictionary<string, bool>(StringComparer.Ordinal)

@@ -150,6 +150,7 @@ public static class WsEventBridge
         return new JObject
         {
             ["faction"] = ev.Wave?.Faction.ToString() ?? "",
+            ["team"] = FeatureInputRules.WaveTeam(ev.Wave?.Faction.ToString()),
             ["count"] = players.Count,
             ["players"] = arr,
         };

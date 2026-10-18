@@ -198,6 +198,45 @@ public class TemplateMergeTests
         Assert.True(EndpointAcl.IsAllowed(duty, "/control/map/status", false));
     }
 
+    [Fact]
+    public void LegacyCatalog_InventoryPlaceholderFalse_MigratedToTrue()
+    {
+        var cat = EndpointAcl.DefaultCatalog.ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.Ordinal);
+        cat["/control/player/inventory"] = false;   // 旧文件写入的 501 占位值
+        cat["/control/console/"] = false;           // 无关条目：保持
+        cat["/control/broadcast"] = false;          // 管理员自己改的无关条目：保持
+
+        var migrated = EndpointAcl.MigrateLegacyCatalog(cat, 1);
+
+        Assert.Equal(new[] { "/control/player/inventory" }, migrated);
+        Assert.True(cat["/control/player/inventory"]);
+        Assert.False(cat["/control/console/"]);
+        Assert.False(cat["/control/broadcast"]);
+
+        var admin = EndpointAcl.MergeEffective("admin", null, null, cat);
+        Assert.True(EndpointAcl.IsAllowed(admin, "/control/player/inventory", true));
+        var duty = EndpointAcl.MergeEffective("duty", null, null, cat);
+        Assert.False(EndpointAcl.IsAllowed(duty, "/control/player/inventory", true));
+    }
+
+    [Fact]
+    public void CurrentCatalogVersion_ExplicitFalse_Respected()
+    {
+        var cat = new Dictionary<string, bool>(StringComparer.Ordinal) { ["/control/player/inventory"] = false };
+        Assert.Empty(EndpointAcl.MigrateLegacyCatalog(cat, EndpointAcl.CurrentCatalogVersion));
+        Assert.False(cat["/control/player/inventory"]);
+    }
+
+    [Fact]
+    public void LegacyCatalog_AlreadyTrueOrMissing_NoChange()
+    {
+        var cat = new Dictionary<string, bool>(StringComparer.Ordinal) { ["/control/player/inventory"] = true };
+        Assert.Empty(EndpointAcl.MigrateLegacyCatalog(cat, 1));
+        var empty = new Dictionary<string, bool>(StringComparer.Ordinal);
+        Assert.Empty(EndpointAcl.MigrateLegacyCatalog(empty, 1));
+        Assert.Empty(empty);
+    }
+
     [Theory]
     [InlineData("/control/player/inventory", "{\"target\":\"2\"}", false)]
     [InlineData("/control/player/inventory", "{\"target\":\"2\",\"action\":\"list\"}", false)]

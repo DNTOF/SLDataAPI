@@ -301,6 +301,7 @@ public static class ApiKeyService
         sb.AppendLine("# 密钥明文不会写回此文件；此处只存不可逆指纹 + 权限");
         sb.AppendLine("# 管理命令：sldataapi apikey create|revoke|list");
         sb.AppendLine();
+        sb.AppendLine($"endpoint_catalog_version: {EndpointAcl.CurrentCatalogVersion}");
         sb.AppendLine("endpoint_catalog:");
         foreach (var kv in EndpointAcl.DefaultCatalog)
             sb.AppendLine($"  \"{kv.Key}\": {(kv.Value ? "true" : "false")}");
@@ -355,6 +356,15 @@ public static class ApiKeyService
                     if (kv.Value is bool b) _catalog[k] = b;
                     else if (bool.TryParse(kv.Value?.ToString(), out bool bb)) _catalog[k] = bb;
                 }
+
+                // 旧文件（无 endpoint_catalog_version）：把已知 501 占位默认值迁移为当前默认值（仅内存；下次保存时随新版本号落盘）
+                int catalogVersion = 1;
+                if (root.TryGetValue("endpoint_catalog_version", out var cv) && cv != null &&
+                    int.TryParse(cv.ToString(), out int parsed))
+                    catalogVersion = parsed;
+                var migrated = EndpointAcl.MigrateLegacyCatalog(_catalog, catalogVersion);
+                if (migrated.Count > 0)
+                    Log.Info($"[SLDataAPI] apikey.config 旧占位默认值已迁移：{string.Join(", ", migrated)} → true（文件未改写；如需禁用请写 endpoint_catalog_version: {EndpointAcl.CurrentCatalogVersion} 后再设 false，或用 endpoints_override）");
             }
 
             if (TryGetMap(root, "templates", out var tmplMap))
@@ -450,6 +460,7 @@ public static class ApiKeyService
 
         var root = new Dictionary<object, object>
         {
+            ["endpoint_catalog_version"] = EndpointAcl.CurrentCatalogVersion,
             ["endpoint_catalog"] = _catalog.ToDictionary(kv => (object)kv.Key, kv => (object)kv.Value),
             ["templates"] = BuildTemplatesForSave(),
             ["keys"] = _keys.Select(k =>

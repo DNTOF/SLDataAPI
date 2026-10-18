@@ -15,7 +15,7 @@ body:
     attributes:
       label: SLDataAPI 版本
       description: 启动日志里会打印，或者看 DLL 属性 / release 版本号
-      placeholder: 例如 v2.6.1 Mores
+      placeholder: 填启动日志里的版本号，例如 v<版本> <代号>
     validations:
       required: true
 
@@ -24,7 +24,7 @@ body:
     attributes:
       label: 运行环境
       description: LabAPI 版本、服务端系统（Windows/Linux）、是否用了 Docker 等
-      placeholder: 例如 LabAPI 1.1.7 / Windows Server 2022
+      placeholder: 例如 LabAPI <版本> / Windows Server
     validations:
       required: true
 

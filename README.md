@@ -47,7 +47,7 @@ SCP:SL 专用服务器的 **LabAPI 原生插件**。对外提供 HTTP 数据查�
 
 ## 安装 / 升级
 
-1. 从 [Release](https://github.com/DNTOF/SLDataAPI/releases/tag/v2.6.1_Mores) 下载 `SLDataAPI.dll`（或自行 `dotnet build -c Release`，见 [Building](https://github.com/DNTOF/SLDataAPI/wiki/Building)）
+1. 从 [最新 Release](https://github.com/DNTOF/SLDataAPI/releases/latest) 下载 `SLDataAPI.dll`（或自行 `dotnet build -c Release`，见 [Building](https://github.com/DNTOF/SLDataAPI/wiki/Building)）
 2. 确认上方两个依赖已就位
 3. 升级前备份 `config.yml` 与 `apikey.config`
 4. 将 `SLDataAPI.dll` 放入 `%AppData%/SCP Secret Laboratory/LabAPI/plugins/global/`
@@ -55,7 +55,7 @@ SCP:SL 专用服务器的 **LabAPI 原生插件**。对外提供 HTTP 数据查�
 6. 需要控制面时：本地控制台执行 `sldataapi apikey create <id> admin`（或 `duty`）
 7. 防火墙按需放行 `http_port`（及启用时的 `voice_port`）
 
-从 2.5.x 升级：控制端改用 API Key、路径改为 RA 对齐分组，对照表见 Wiki [HTTP-API](https://github.com/DNTOF/SLDataAPI/wiki/HTTP-API)。
+从旧版 `control_token` 鉴权升级：控制端改用 API Key、路径改为 RA 对齐分组，对照表见 Wiki [HTTP-API](https://github.com/DNTOF/SLDataAPI/wiki/HTTP-API)。
 
 ---
 
@@ -179,7 +179,7 @@ Content-Type: application/json
 
 [Development-Guide](https://github.com/DNTOF/SLDataAPI/wiki/Development-Guide) · [Architecture](https://github.com/DNTOF/SLDataAPI/wiki/Architecture) · [Building](https://github.com/DNTOF/SLDataAPI/wiki/Building)
 
-开发 skill 与冒烟脚本：Release 附件 `SLDataAPI-DevKit-v*.*.*_*.zip`（例如 `SLDataAPI-DevKit-v2.6.1_Mores.zip`）。
+开发 skill 与冒烟脚本：[最新 Release](https://github.com/DNTOF/SLDataAPI/releases/latest) 附件 `SLDataAPI-DevKit-v<版本>_<代号>.zip`。
 
 ---
 

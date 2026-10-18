@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="420" viewBox="0 0 1200 420" role="img" aria-labelledby="t d">
+<title id="t">SLDataAPI 2.6.1 Mores 数据流示意</title>
+<desc id="d">SCP:SL 专用服务器经 LabAPI 加载 SLDataAPI；SLDataAPI 在 8081 端口提供数据接口与控制接口（HTTP 或 WebSocket 二选一），在 8082 端口提供语音 WebSocket；两个端口同端口支持自签 TLS。机器人、Web 面板与 SLConsole App 等客户端按 verify_token 或 API Key 访问。</desc>
+<rect width="1200" height="420" rx="24" fill="#ECE9E0"/>
+<defs><radialGradient id="g" cx="0.1" cy="0.05" r="0.7"><stop offset="0" stop-color="#D97757" stop-opacity="0.10"/><stop offset="1" stop-color="#D97757" stop-opacity="0"/></radialGradient><marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto"><path d="M1 1 L7 4 L1 7" fill="none" stroke="#9B9890" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+<rect width="1200" height="420" rx="24" fill="url(#g)"/>
+<text x="48" y="82" font-family="Lora, 'DM Serif Display', Georgia, 'Noto Serif CJK SC', 'Source Han Serif SC', 'Songti SC', SimSun, serif" font-size="44" fill="#141413">SLDataAPI</text>
+<text x="48" y="116" font-family="Poppins, 'DM Sans', 'Segoe UI', 'Helvetica Neue', Arial, 'Noto Sans CJK SC', 'Source Han Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="17" fill="#6B6860">把一台 SCP:SL 服务器，变成机器人和面板能读、能管、能听的接口。</text>
+<text x="1152" y="80" text-anchor="end" font-family="Poppins, 'DM Sans', 'Segoe UI', 'Helvetica Neue', Arial, 'Noto Sans CJK SC', 'Source Han Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="15" letter-spacing="0.4" fill="#9B9890">2.6.1 Mores · LabAPI 插件</text>
+<rect x="48" y="152" width="212" height="200" rx="16" fill="#F5F3EC" stroke="#D8D5CC"/>
+<text x="72" y="194" font-family="Lora, 'DM Serif Display', Georgia, 'Noto Serif CJK SC', 'Source Han Serif SC', 'Songti SC', SimSun, serif" font-size="22" fill="#141413">SCP:SL 服务器</text>
+<text x="72" y="220" font-family="Poppins, 'DM Sans', 'Segoe UI', 'Helvetica Neue', Arial, 'Noto Sans CJK SC', 'Source Han Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="15" fill="#6B6860">专用服务器 + LabAPI</text>
+<circle cx="76" cy="269" r="3" fill="#9B9890"/>
+<text x="90" y="274" font-family="Poppins, 'DM Sans', 'Segoe UI', 'Helvetica Neue', Arial, 'Noto Sans CJK SC', 'Source Han Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="16" fill="#141413">玩家 · 回合 · 地图</text>
+<circle cx="76" cy="301" r="3" fill="#9B9890"/>
+<text x="90" y="306" font-family="Poppins, 'DM Sans', 'Segoe UI', 'Helvetica Neue', Arial, 'Noto Sans CJK SC', 'Source Han Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="16" fill="#141413">语音频道</text>
+<path d="M270 252 H 300" stroke="#9B9890" stroke-width="1.6" fill="none" marker-end="url(#ar)"/>
+<rect x="312" y="152" width="270" height="200" rx="16" fill="#141413"/>
+<text x="336" y="194" font-family="Lora, 'DM Serif Display', Georgia, 'Noto Serif CJK SC', 'Source Han Serif SC', 'Songti SC', SimSun, serif" font-size="22" fill="#FAF9F5">SLDataAPI</text>
+<text x="336" y="242" font-family="Poppins, 'DM Sans', 'Segoe UI', 'Helvetica Neue', Arial, 'Noto Sans CJK SC', 'Source Han Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="16" fill="#FAF9F5">数据快照</text>
+<text x="558" y="242" text-anchor="end" font-family="Poppins, 'DM Sans', 'Segoe UI', 'Helvetica Neue', Arial, 'Noto Sans CJK SC', 'Source Han Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="14" fill="#B0AEA5">每 8 秒</text>
+<line x1="336" y1="257" x2="558" y2="257" stroke="#B0AEA5" stroke-opacity="0.35"/>
+<text x="336" y="282" font-family="Poppins, 'DM Sans', 'Segoe UI', 'Helvetica Neue', Arial, 'Noto Sans CJK SC', 'Source Han Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="16" fill="#FAF9F5">控制与审计</text>
+<text x="558" y="282" text-anchor="end" font-family="Poppins, 'DM Sans', 'Segoe UI', 'Helvetica Neue', Arial, 'Noto Sans CJK SC', 'Source Han Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="14" fill="#B0AEA5">API Key</text>
+<line x1="336" y1="297" x2="558" y2="297" stroke="#B0AEA5" stroke-opacity="0.35"/>
+<text x="336" y="322" font-family="Poppins, 'DM Sans', 'Segoe UI', 'Helvetica Neue', Arial, 'Noto Sans CJK SC', 'Source Han Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="16" fill="#FAF9F5">语音转发 / 录音</text>
+<text x="558" y="322" text-anchor="end" font-family="Poppins, 'DM Sans', 'Segoe UI', 'Helvetica Neue', Arial, 'Noto Sans CJK SC', 'Source Han Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="14" fill="#B0AEA5">可选</text>
+<path d="M582 192 H 624" stroke="#9B9890" stroke-width="1.6" fill="none" marker-end="url(#ar)"/>
+<text x="640" y="186" font-family="'JetBrains Mono', Consolas, Menlo, 'Courier New', monospace" font-size="16" fill="#C96442">:8081</text>
+<text x="702" y="186" font-family="'JetBrains Mono', Consolas, Menlo, 'Courier New', monospace" font-size="16" fill="#141413">GET /get_sl_data</text>
+<text x="640" y="208" font-family="Poppins, 'DM Sans', 'Segoe UI', 'Helvetica Neue', Arial, 'Noto Sans CJK SC', 'Source Han Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="14" fill="#6B6860">verify_token</text>
+<path d="M582 254 H 624" stroke="#9B9890" stroke-width="1.6" fill="none" marker-end="url(#ar)"/>
+<text x="640" y="248" font-family="'JetBrains Mono', Consolas, Menlo, 'Courier New', monospace" font-size="16" fill="#C96442">:8081</text>
+<text x="702" y="248" font-family="'JetBrains Mono', Consolas, Menlo, 'Courier New', monospace" font-size="16" fill="#141413">/control/*</text>
+<text x="640" y="270" font-family="Poppins, 'DM Sans', 'Segoe UI', 'Helvetica Neue', Arial, 'Noto Sans CJK SC', 'Source Han Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="14" fill="#6B6860">HTTP 或 WS，二选一</text>
+<path d="M582 316 H 624" stroke="#9B9890" stroke-width="1.6" fill="none" marker-end="url(#ar)"/>
+<text x="640" y="310" font-family="'JetBrains Mono', Consolas, Menlo, 'Courier New', monospace" font-size="16" fill="#C96442">:8082</text>
+<text x="702" y="310" font-family="'JetBrains Mono', Consolas, Menlo, 'Courier New', monospace" font-size="16" fill="#141413">/ws 语音</text>
+<text x="640" y="332" font-family="Poppins, 'DM Sans', 'Segoe UI', 'Helvetica Neue', Arial, 'Noto Sans CJK SC', 'Source Han Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="14" fill="#6B6860">API Key</text>
+<path d="M630 166 H 624 V 338 H 630" stroke="#D97757" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+<text x="640" y="390" font-family="Poppins, 'DM Sans', 'Segoe UI', 'Helvetica Neue', Arial, 'Noto Sans CJK SC', 'Source Han Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="14" fill="#C96442">同端口自签 TLS（可选）· 客户端固定指纹</text>
+<path d="M912 252 H 958" stroke="#9B9890" stroke-width="1.6" fill="none" stroke-dasharray="2 5"/>
+<rect x="972" y="152" width="180" height="60" rx="12" fill="none" stroke="#D8D5CC"/>
+<text x="990" y="178" font-family="Poppins, 'DM Sans', 'Segoe UI', 'Helvetica Neue', Arial, 'Noto Sans CJK SC', 'Source Han Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="16" fill="#141413">机器人</text>
+<text x="990" y="199" font-family="Poppins, 'DM Sans', 'Segoe UI', 'Helvetica Neue', Arial, 'Noto Sans CJK SC', 'Source Han Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="13" fill="#6B6860">AstrBot 等</text>
+<rect x="972" y="222" width="180" height="60" rx="12" fill="none" stroke="#D8D5CC"/>
+<text x="990" y="248" font-family="Poppins, 'DM Sans', 'Segoe UI', 'Helvetica Neue', Arial, 'Noto Sans CJK SC', 'Source Han Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="16" fill="#141413">Web 面板</text>
+<text x="990" y="269" font-family="Poppins, 'DM Sans', 'Segoe UI', 'Helvetica Neue', Arial, 'Noto Sans CJK SC', 'Source Han Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="13" fill="#6B6860">FDC 等</text>
+<rect x="972" y="292" width="180" height="60" rx="12" fill="none" stroke="#D8D5CC"/>
+<text x="990" y="318" font-family="Poppins, 'DM Sans', 'Segoe UI', 'Helvetica Neue', Arial, 'Noto Sans CJK SC', 'Source Han Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="16" fill="#141413">SLConsole App</text>
+<text x="990" y="339" font-family="Poppins, 'DM Sans', 'Segoe UI', 'Helvetica Neue', Arial, 'Noto Sans CJK SC', 'Source Han Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="13" fill="#6B6860">监控 · 控制 · 语音</text>
+</svg>

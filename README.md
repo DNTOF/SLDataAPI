@@ -2,6 +2,13 @@
 
 SCP:SL 专用服务器的 **LabAPI 原生插件**。对外提供 HTTP 数据查询、远程控制、控制 WebSocket 事件流、语音转发与录音取证。
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/sldataapi-overview-dark.svg">
+  <img src="docs/assets/sldataapi-overview-light.svg" alt="SLDataAPI 架构示意：SCP:SL 服务器（LabAPI）→ SLDataAPI → :8081 数据口 / 控制面（HTTP 或 WS）、:8082 语音，同端口可选自签 TLS → 机器人、Web 面板、SLConsole App" width="100%">
+</picture>
+
+常见问题见 Wiki **[Q&A](https://github.com/DNTOF/SLDataAPI/wiki/Q%26A)**。
+
 
 ## 能力概览
 

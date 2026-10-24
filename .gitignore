@@ -9,3 +9,5 @@ mapdata/
 # 强名称签名密钥（本地私有，绝不可入库；CI 通过 GitHub Secret SNK_HEX 还原）
 key.snk
 .DS_Store
+
+release_assets/

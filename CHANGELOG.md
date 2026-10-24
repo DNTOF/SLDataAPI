@@ -4,13 +4,14 @@
 
 SLDataAPI **2.6.2-patch Holiday26**（相对 2.6.2 Holiday26）。版本号仍为 **2.6.2**，仅在 `InformationalVersion` / Release 标签增加 `-patch` 后缀。以 GitHub **正式版（Latest）**发布；原先的 `v2.6.2_Holiday26` 仍保留为上一正式版。本 patch 合入安全加固与 `/control/dummies` 实现，并对正式包恢复强名称签名。
 
-> 说明：程序集 `Version` / `AssemblyVersion` 仍为 2.6.2 / 2.6.2.0。更新检查按三位版本号比较，已运行 2.6.2 正式版的服务器**不会**因本 patch 自动提示更新，需手动替换 DLL。
+> 说明：程序集 `Version` / `AssemblyVersion` 仍为 2.6.2 / 2.6.2.0。更新检查在同三位版本号下识别 `-patch` 渠道：已运行 2.6.2 正式版（或 2.6.2-preview）的服务器会把 `v2.6.2-patch_Holiday26` 视为更新；已是 `2.6.2-patch` 则不再提示。本 Release 为 GitHub Latest，走 `/releases/latest`。
 
 ### 安全加固
 
 - `sldataapi apikey create|revoke|list` 默认仅限本地服务器控制台（与 `cert` 对齐）；RemoteAdmin 面板用户不能创建 / 吊销 / 列出 API Key。远程控制通道拒绝逻辑保持不变
 - 自动更新安装前在公钥令牌快筛之外，对下载 DLL 与当前插件文件调用 `StrongNameSignatureVerificationEx`（mscoree）强制验签；API 不可用或验签失败则拒绝自动安装（fail-closed）
 - 正式发布包重新使用本机 `key.snk` 强名称签名（公钥令牌 `3ec73bb20070fa9c`）；`key.snk` 不入库
+- 更新检查：同三位版本号下，远端 tag / 当前 `InformationalVersion` 含 `patch` 段时，正式版 → patch 视为更新（镜像 preview → 正式）；已是 patch 则同号不再提示
 
 ### 控制面
 

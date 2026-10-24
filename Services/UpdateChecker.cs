@@ -146,7 +146,9 @@ public static class UpdateChecker
         string? informational = typeof(UpdateChecker).Assembly
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
         bool currentIsPre = UpdateCheckLogic.IsPreReleaseInformationalVersion(informational);
-        var outcome = UpdateCheckLogic.EvaluateLatestRelease(body, currentVersion, out var remote, out string detail, currentIsPre);
+        bool currentIsPatch = UpdateCheckLogic.IsPatchInformationalVersion(informational);
+        var outcome = UpdateCheckLogic.EvaluateLatestRelease(body, currentVersion, out var remote, out string detail,
+            currentIsPre, currentIsPatch);
         switch (outcome)
         {
             case UpdateCheckOutcome.Failed:

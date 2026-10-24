@@ -196,6 +196,64 @@ public class UpdateCheckLogicTests
         Assert.Equal(expected, UpdateCheckLogic.IsPreReleaseInformationalVersion(info));
     }
 
+    [Theory]
+    [InlineData("v2.6.2-patch_Holiday26", true)]
+    [InlineData("v2.6.2_patch", true)]
+    [InlineData("2.6.2-patch1", true)]
+    [InlineData("v2.6.2_Holiday26", false)]
+    [InlineData("v2.6.2-preview_Holiday26", false)]
+    public void IsPatchTag_Detects(string tag, bool expected)
+    {
+        Assert.Equal(expected, UpdateCheckLogic.IsPatchTag(tag));
+        // patch 不是预发布：正式 patch tag 应可解析版本
+        if (expected && !tag.Contains("preview", StringComparison.OrdinalIgnoreCase))
+            Assert.True(UpdateCheckLogic.TryParseVersion(tag, out _));
+    }
+
+    [Theory]
+    [InlineData("2.6.2-patch Holiday26", true)]
+    [InlineData("2.6.2-patch", true)]
+    [InlineData("2.6.2 Holiday26", false)]
+    [InlineData("2.6.2-preview Holiday26", false)]
+    [InlineData("", false)]
+    [InlineData(null, false)]
+    public void IsPatchInformationalVersion_Detects(string? info, bool expected)
+    {
+        Assert.Equal(expected, UpdateCheckLogic.IsPatchInformationalVersion(info));
+    }
+
+    [Fact]
+    public void Evaluate_FormalBuild_SameVersionPatchTag_UpdateAvailable()
+    {
+        // 正式 2.6.2 Holiday26 看到 Latest patch → 必须提示更新（否则自动更新永不触发）
+        string patch = """{"tag_name":"v2.6.2-patch_Holiday26","prerelease":false,"draft":false}""";
+        Assert.False(UpdateCheckLogic.IsPreReleaseTag("v2.6.2-patch_Holiday26"));
+        Assert.True(UpdateCheckLogic.IsPatchTag("v2.6.2-patch_Holiday26"));
+        Assert.Equal(UpdateCheckOutcome.UpdateAvailable,
+            UpdateCheckLogic.EvaluateLatestRelease(patch, new Version(2, 6, 2), out var remote, out string detail,
+                currentIsPreRelease: false, currentIsPatch: false));
+        Assert.Equal(new Version(2, 6, 2), remote);
+        Assert.Equal("v2.6.2-patch_Holiday26", detail);
+
+        // 已是 2.6.2-patch → 同号 patch Latest 不再提示（避免循环）
+        Assert.Equal(UpdateCheckOutcome.UpToDate,
+            UpdateCheckLogic.EvaluateLatestRelease(patch, new Version(2, 6, 2), out _, out _,
+                currentIsPreRelease: false, currentIsPatch: true));
+        Assert.Equal(UpdateCheckOutcome.UpToDate,
+            UpdateCheckLogic.EvaluateLatestRelease(patch, new Version(2, 6, 2), out _, out _,
+                currentIsPreRelease: UpdateCheckLogic.IsPreReleaseInformationalVersion("2.6.2-patch Holiday26"),
+                currentIsPatch: UpdateCheckLogic.IsPatchInformationalVersion("2.6.2-patch Holiday26")));
+    }
+
+    [Fact]
+    public void Evaluate_PreviewBuild_SameVersionPatchTag_UpdateAvailable()
+    {
+        string patch = """{"tag_name":"v2.6.2-patch_Holiday26","prerelease":false,"draft":false}""";
+        Assert.Equal(UpdateCheckOutcome.UpdateAvailable,
+            UpdateCheckLogic.EvaluateLatestRelease(patch, new Version(2, 6, 2), out _, out _,
+                currentIsPreRelease: true, currentIsPatch: false));
+    }
+
     [Fact]
     public void Evaluate_Prerelease_Skipped()
     {

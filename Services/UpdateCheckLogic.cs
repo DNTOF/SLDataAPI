@@ -58,6 +58,11 @@ public static class UpdateCheckLogic
         @"^(?:beta|alpha|preview|pre|prerelease|rc|dev|nightly|canary|snapshot)\d*$",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
+    /// <summary>同三位版本号下的正式 patch 渠道标记（非预发布）：如 2.6.2-patch。</summary>
+    private static readonly Regex PatchSegmentRegex = new Regex(
+        @"^patch\d*$",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
     private static readonly Regex LastCheckJson = new Regex(
         @"""last_check_utc""\s*:\s*""([^""]+)""",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -212,8 +217,9 @@ public static class UpdateCheckLogic
 
     /// <summary>评估 GitHub /releases/latest JSON。detail 不含机密。</summary>
     /// <param name="currentIsPreRelease">当前运行的是预发布构建（如 2.6.2-preview）时为 true：同版本号的正式版（2.6.2）也视为更新。</param>
+    /// <param name="currentIsPatch">当前已是同号 patch 构建（如 2.6.2-patch）时为 true：同版本号的 patch Latest 不再提示。</param>
     public static UpdateCheckOutcome EvaluateLatestRelease(string? json, Version current, out Version? remote, out string detail,
-        bool currentIsPreRelease = false)
+        bool currentIsPreRelease = false, bool currentIsPatch = false)
     {
         remote = null;
         detail = "";
@@ -255,7 +261,12 @@ public static class UpdateCheckLogic
         }
 
         remote = parsed;
-        if (parsed < current || (parsed == current && !currentIsPreRelease))
+        bool remoteIsPatch = IsPatchTag(tag);
+        // 同三位版本号：preview→正式、正式→patch 视为更新；已是 patch 则同号 patch 不再提示。
+        bool sameVersionStillNewer =
+            parsed == current &&
+            ((currentIsPreRelease && !remoteIsPatch) || (remoteIsPatch && !currentIsPatch));
+        if (parsed < current || (parsed == current && !sameVersionStillNewer))
         {
             detail = tag;
             return UpdateCheckOutcome.UpToDate;
@@ -284,6 +295,30 @@ public static class UpdateCheckLogic
         foreach (string seg in informational!.Split(new[] { ' ', '-', '_', '.', '+' }, StringSplitOptions.RemoveEmptyEntries))
         {
             if (PreReleaseSegmentRegex.IsMatch(seg))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>tag 是否为同号正式 patch（如 v2.6.2-patch_Holiday26）；patch 不是预发布。</summary>
+    public static bool IsPatchTag(string tag)
+    {
+        if (string.IsNullOrEmpty(tag)) return false;
+        foreach (string seg in tag.Split('-', '_', '.'))
+        {
+            if (PatchSegmentRegex.IsMatch(seg))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>InformationalVersion（如 "2.6.2-patch Holiday26"）是否标记为 patch 渠道。</summary>
+    public static bool IsPatchInformationalVersion(string? informational)
+    {
+        if (string.IsNullOrWhiteSpace(informational)) return false;
+        foreach (string seg in informational!.Split(new[] { ' ', '-', '_', '.', '+' }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (PatchSegmentRegex.IsMatch(seg))
                 return true;
         }
         return false;

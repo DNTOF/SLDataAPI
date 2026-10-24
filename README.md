@@ -121,11 +121,11 @@ sldataapi apikey list
 sldataapi apikey revoke <id>
 ```
 
-- `sldataapi` / `slda` 经远程控制通道（HTTP 与 WS 的 `/control/console/command`）一律拒绝；本地控制台执行立即生效。
+- `apikey` 子命令**仅限服务器本地控制台（LocalAdmin）**：RemoteAdmin 与远程控制通道一律拒绝（与 `cert` 对齐）。`sldataapi` / `slda` 经远程控制通道（HTTP 与 WS 的 `/control/console/command`）亦一律拒绝。
 - `create` 成功后明文写入配置目录的 `apikey_once_<id>.txt`，命令只回文件路径，不回密钥；文件约 **5 分钟后自动删除**，请尽快存进密码管理器。
 - 丢失明文无法找回，只能 `revoke` 后重新 `create`。
 - `duty` 偏只读，默认不授予 `/control/audit/list`、广播、管理聊天；`admin` 按端点目录授权，控制台 / 插件 / 文件等需 `endpoints_override` 单独放开。
-- 若用权限插件收窄 RemoteAdmin，请同时拒绝 `sldataapi` / `slda`。
+- 权限插件收窄 RemoteAdmin 时仍建议同时拒绝 `sldataapi` / `slda`（其它子命令）。
 
 ### TLS（自签，同端口）
 
@@ -140,7 +140,7 @@ sldataapi cert show     # 查看模式 / 指纹 / 有效期
 sldataapi cert regen    # 重新生成并热替换（仅对新连接生效；已 pin 的客户端须重新确认指纹）
 ```
 
-- `cert` 子命令**仅限服务器本地控制台（LocalAdmin）**：RemoteAdmin 与远程控制通道一律拒绝（比 `apikey` 更严格）。`regen` 写入控制审计日志。
+- `cert` 子命令**仅限服务器本地控制台（LocalAdmin）**：RemoteAdmin 与远程控制通道一律拒绝（与 `apikey` 相同）。`regen` 写入控制审计日志。
 
 ---
 

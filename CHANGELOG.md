@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### 安全加固
+
+- `sldataapi apikey create|revoke|list` 默认仅限服务器本地控制台（与 `cert` 对齐）：RemoteAdmin 面板用户不可再铸造 / 吊销 / 列出 API Key；远程控制通道拒绝逻辑保持不变
+
+
 ## 2.6.2 Holiday26
 
 SLDataAPI **2.6.2 Holiday26**（相对 2.6.1 Mores）。以 GitHub **正式版**发布。节日相关接口曾于 2026-10-17 以 **2.6.2-preview Holiday26** 预发布（见下方条目）；本正式版包含其全部内容，并新增物品栏 / 糖果 / 设施状态端点、节日自动回退与事件流扩展。游戏公开分支已更新到 **14.2.8**（万圣节版本），本版本按 14.2.8 编译。2.6.1 Mores 与 2.6.2-preview 的更新检查都会提示本版本。

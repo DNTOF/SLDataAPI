@@ -334,11 +334,14 @@ public class UpdateCheckLogicTests
         Assert.Equal(AutoInstallSignatureDecision.RefuseVerifyUnavailable,
             UpdateCheckLogic.DecideAutoInstallSignature(null, official, StrongNameVerifyStatus.Unavailable));
 
-        // 已签名当前：令牌不一致 / 非正式令牌仍拒绝
-        Assert.Equal(AutoInstallSignatureDecision.RefuseTokenMismatch,
+        // 已签名当前：入站非正式令牌优先拒绝；当前非官方 + 入站官方则令牌不一致
+        Assert.Equal(AutoInstallSignatureDecision.RefuseNotOfficialToken,
             UpdateCheckLogic.DecideAutoInstallSignature(official, other, StrongNameVerifyStatus.Verified));
         Assert.Equal(AutoInstallSignatureDecision.RefuseNotOfficialToken,
             UpdateCheckLogic.DecideAutoInstallSignature(other, other, StrongNameVerifyStatus.Verified));
+        Assert.Equal(AutoInstallSignatureDecision.RefuseTokenMismatch,
+            UpdateCheckLogic.DecideAutoInstallSignature(other, official, StrongNameVerifyStatus.Verified,
+                StrongNameVerifyStatus.Verified));
     }
 
     [Fact]

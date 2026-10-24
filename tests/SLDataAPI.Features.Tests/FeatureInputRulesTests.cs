@@ -88,4 +88,37 @@ public class FeatureInputRulesTests
     {
         Assert.False(FeatureInputRules.TryParseColor(s, out _, out _, out _, out _, out _));
     }
+
+    [Theory]
+    [InlineData("spawn", "spawn", true)]
+    [InlineData("LIST", "list", true)]
+    [InlineData(" remove ", "remove", true)]
+    [InlineData("", "", false)]
+    [InlineData(null, "", false)]
+    [InlineData("follow", "follow", false)]
+    public void DummyActions(string? input, string normalized, bool ok)
+    {
+        Assert.Equal(ok, FeatureInputRules.IsDummyAction(input, out var n));
+        Assert.Equal(normalized, n);
+    }
+
+    [Theory]
+    [InlineData(null, "Dummy")]
+    [InlineData("", "Dummy")]
+    [InlineData("  ", "Dummy")]
+    [InlineData("Bot", "Bot")]
+    [InlineData("  Bot  ", "Bot")]
+    public void DummyNickname_DefaultsAndTrim(string? input, string expected)
+    {
+        Assert.Equal(expected, FeatureInputRules.NormalizeDummyNickname(input));
+    }
+
+    [Fact]
+    public void DummyNickname_TruncatesAndStripsControls()
+    {
+        string longName = new string('A', FeatureInputRules.MaxDummyNicknameLength + 10);
+        Assert.Equal(FeatureInputRules.MaxDummyNicknameLength, FeatureInputRules.NormalizeDummyNickname(longName).Length);
+        Assert.Equal("AB", FeatureInputRules.NormalizeDummyNickname("A" + ((char)0) + "B"));
+        Assert.Equal(5, FeatureInputRules.MaxDummies);
+    }
 }

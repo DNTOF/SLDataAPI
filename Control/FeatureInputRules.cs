@@ -3,6 +3,7 @@
 
 using System;
 using System.Globalization;
+using System.Text;
 
 namespace SLDataAPI.Control;
 
@@ -34,6 +35,34 @@ public static class FeatureInputRules
         normalized = (action ?? "list").Trim().ToLowerInvariant();
         if (normalized.Length == 0) normalized = "list";
         return Array.IndexOf(InventoryActions, normalized) >= 0;
+    }
+
+    /// <summary>同时存在的假人硬上限（占玩家位、影响回合结束）。</summary>
+    public const int MaxDummies = 5;
+    /// <summary>假人昵称最大长度（字符）。</summary>
+    public const int MaxDummyNicknameLength = 32;
+
+    public static readonly string[] DummyActions = { "spawn", "list", "remove" };
+
+    public static bool IsDummyAction(string? action, out string normalized)
+    {
+        normalized = (action ?? "").Trim().ToLowerInvariant();
+        return Array.IndexOf(DummyActions, normalized) >= 0;
+    }
+
+    /// <summary>规范化假人昵称：空 → "Dummy"；超长截断；去掉控制字符。</summary>
+    public static string NormalizeDummyNickname(string? nickname)
+    {
+        string s = (nickname ?? "").Trim();
+        if (s.Length == 0) return "Dummy";
+        var cleaned = new StringBuilder(s.Length);
+        foreach (char c in s)
+        {
+            if (char.IsControl(c)) continue;
+            cleaned.Append(c);
+            if (cleaned.Length >= MaxDummyNicknameLength) break;
+        }
+        return cleaned.Length == 0 ? "Dummy" : cleaned.ToString();
     }
 
     /// <summary>数量校验：&lt;=0 视为 1；超过上限返回 false（拒绝，不静默截断）。</summary>

@@ -242,4 +242,78 @@ public class UpdateCheckLogicTests
         Assert.False(UpdateCheckLogic.PublicKeyTokensMatch(official, null));
         Assert.False(UpdateCheckLogic.PublicKeyTokensMatch(official, Array.Empty<byte>()));
     }
+
+    [Fact]
+    public void MatchesExpectedPublicKeyToken_OfficialOnly()
+    {
+        byte[] official = { 0x3e, 0xc7, 0x3b, 0xb2, 0x00, 0x70, 0xfa, 0x9c };
+        byte[] other = { 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88 };
+        Assert.True(UpdateCheckLogic.MatchesExpectedPublicKeyToken(official));
+        Assert.False(UpdateCheckLogic.MatchesExpectedPublicKeyToken(other));
+        Assert.False(UpdateCheckLogic.MatchesExpectedPublicKeyToken(null));
+        Assert.False(UpdateCheckLogic.MatchesExpectedPublicKeyToken(Array.Empty<byte>()));
+        Assert.Null(UpdateCheckLogic.TryParsePublicKeyTokenHex("zz"));
+        Assert.Null(UpdateCheckLogic.TryParsePublicKeyTokenHex(""));
+        Assert.Equal(official, UpdateCheckLogic.TryParsePublicKeyTokenHex("3EC73BB20070FA9C"));
+    }
+
+    [Fact]
+    public void DecideAutoInstallSignature_TokenFastFail_BeforeVerify()
+    {
+        byte[] official = { 0x3e, 0xc7, 0x3b, 0xb2, 0x00, 0x70, 0xfa, 0x9c };
+        byte[] other = { 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88 };
+
+        Assert.Equal(AutoInstallSignatureDecision.RefuseUnsignedCurrent,
+            UpdateCheckLogic.DecideAutoInstallSignature(null, official, StrongNameVerifyStatus.Verified));
+        Assert.Equal(AutoInstallSignatureDecision.RefuseTokenMismatch,
+            UpdateCheckLogic.DecideAutoInstallSignature(official, other, StrongNameVerifyStatus.Verified));
+        Assert.Equal(AutoInstallSignatureDecision.RefuseNotOfficialToken,
+            UpdateCheckLogic.DecideAutoInstallSignature(other, other, StrongNameVerifyStatus.Verified));
+    }
+
+    [Fact]
+    public void DecideAutoInstallSignature_FailClosed_OnVerify()
+    {
+        byte[] official = { 0x3e, 0xc7, 0x3b, 0xb2, 0x00, 0x70, 0xfa, 0x9c };
+
+        Assert.Equal(AutoInstallSignatureDecision.RefuseVerifyUnavailable,
+            UpdateCheckLogic.DecideAutoInstallSignature(
+                official, official, StrongNameVerifyStatus.Unavailable));
+        Assert.Equal(AutoInstallSignatureDecision.RefuseVerifyUnavailable,
+            UpdateCheckLogic.DecideAutoInstallSignature(
+                official, official, StrongNameVerifyStatus.Verified, StrongNameVerifyStatus.Unavailable));
+        Assert.Equal(AutoInstallSignatureDecision.RefuseSignatureInvalid,
+            UpdateCheckLogic.DecideAutoInstallSignature(
+                official, official, StrongNameVerifyStatus.Invalid));
+        Assert.Equal(AutoInstallSignatureDecision.RefuseSignatureInvalid,
+            UpdateCheckLogic.DecideAutoInstallSignature(
+                official, official, StrongNameVerifyStatus.Verified, StrongNameVerifyStatus.Invalid));
+        Assert.Equal(AutoInstallSignatureDecision.Allow,
+            UpdateCheckLogic.DecideAutoInstallSignature(
+                official, official, StrongNameVerifyStatus.Verified, StrongNameVerifyStatus.Verified));
+        Assert.Equal(AutoInstallSignatureDecision.Allow,
+            UpdateCheckLogic.DecideAutoInstallSignature(
+                official, official, StrongNameVerifyStatus.Verified, currentFileVerify: null));
+    }
+
+    [Fact]
+    public void StrongNameVerifier_MissingFile_IsInvalid_OverrideWorks()
+    {
+        Assert.Equal(StrongNameVerifyStatus.Invalid, StrongNameVerifier.VerifyFile(""));
+        Assert.Equal(StrongNameVerifyStatus.Invalid,
+            StrongNameVerifier.VerifyFile("/no/such/dll-" + Guid.NewGuid().ToString("N")));
+
+        var prev = StrongNameVerifier.VerifyOverride;
+        try
+        {
+            StrongNameVerifier.VerifyOverride = _ => StrongNameVerifyStatus.Verified;
+            Assert.Equal(StrongNameVerifyStatus.Verified, StrongNameVerifier.VerifyFile("/anything"));
+            StrongNameVerifier.VerifyOverride = _ => StrongNameVerifyStatus.Unavailable;
+            Assert.Equal(StrongNameVerifyStatus.Unavailable, StrongNameVerifier.VerifyFile("/anything"));
+        }
+        finally
+        {
+            StrongNameVerifier.VerifyOverride = prev;
+        }
+    }
 }

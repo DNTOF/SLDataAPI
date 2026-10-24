@@ -4,7 +4,8 @@
 
 ### 安全加固
 
-- `sldataapi apikey create|revoke|list` 默认仅限服务器本地控制台（与 `cert` 对齐）：RemoteAdmin 面板用户不可再铸造 / 吊销 / 列出 API Key；远程控制通道拒绝逻辑保持不变
+- sldataapi apikey create|revoke|list 默认仅限本地服务器控制台（与 cert 对齐）；RemoteAdmin 面板用户不能创建 / 吊销 / 列出 API Key。远程控制通道拒绝逻辑保持不变
+- 自动更新安装前在公钥令牌快筛之外，对下载 DLL 与当前插件文件调用 StrongNameSignatureVerificationEx（mscoree）强制验签；API 不可用或验签失败则拒绝自动安装（fail-closed）
 
 
 ## 2.6.2 Holiday26

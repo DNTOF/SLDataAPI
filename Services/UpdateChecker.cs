@@ -246,7 +246,7 @@ public static class UpdateChecker
         string target = Path.Combine(pluginsDir, dllFile);
         string tmp = target + ".tmp";
 
-        // ---- 安全校验：合法程序集 + 名称一致 + 签名一致 ----
+        // ---- 安全校验：合法程序集 + 名称一致 + 令牌快筛 + StrongName 真验签 ----
         File.WriteAllBytes(tmp, data);
         AssemblyName newName;
         try
@@ -267,18 +267,16 @@ public static class UpdateChecker
             return;
         }
 
-        // 未签名构建不得自动安装；已签名则要求新文件公钥令牌一致（防篡改）
+        // 未签名构建不得自动安装；已签名则：令牌一致 + 正式发布令牌 + StrongName 真验签（fail-closed）
         byte[]? curToken = typeof(UpdateChecker).Assembly.GetName().GetPublicKeyToken();
         byte[]? newToken = newName.GetPublicKeyToken();
-        if (UpdateCheckLogic.ShouldRefuseAutoInstallBecauseUnsigned(curToken))
+        var incomingVerify = StrongNameVerifier.VerifyFile(tmp);
+        var currentVerify = StrongNameVerifier.VerifyFile(selfPath);
+        var decision = UpdateCheckLogic.DecideAutoInstallSignature(
+            curToken, newToken, incomingVerify, currentVerify);
+        if (decision != AutoInstallSignatureDecision.Allow)
         {
-            Log.Warn("[SLDataAPI] 当前程序集未强名称签名，拒绝自动安装（即使 AutoUpdateInstall=true）。");
-            SafeDelete(tmp);
-            return;
-        }
-        if (!UpdateCheckLogic.PublicKeyTokensMatch(curToken, newToken))
-        {
-            Log.Warn("[SLDataAPI] 下载程序集强名称签名与当前版本不一致（可能被篡改），拒绝自动替换。");
+            Log.Warn(SignatureRefuseMessage(decision));
             SafeDelete(tmp);
             return;
         }
@@ -299,6 +297,23 @@ public static class UpdateChecker
             Log.Warn($"[SLDataAPI] 自动替换失败（文件可能被占用）: {ex.Message}。已保留 {dllFile}.tmp，可手动替换。");
         }
     }
+
+    private static string SignatureRefuseMessage(AutoInstallSignatureDecision decision) =>
+        decision switch
+        {
+            AutoInstallSignatureDecision.RefuseUnsignedCurrent =>
+                "[SLDataAPI] 当前程序集未强名称签名，拒绝自动安装（即使 AutoUpdateInstall=true）。",
+            AutoInstallSignatureDecision.RefuseTokenMismatch =>
+                "[SLDataAPI] 下载程序集公钥令牌与当前版本不一致（可能被篡改），拒绝自动替换。",
+            AutoInstallSignatureDecision.RefuseNotOfficialToken =>
+                "[SLDataAPI] 下载程序集公钥令牌不是正式发布令牌，拒绝自动替换。",
+            AutoInstallSignatureDecision.RefuseSignatureInvalid =>
+                "[SLDataAPI] 强名称验签失败（下载文件或当前插件文件签名无效），拒绝自动替换。",
+            AutoInstallSignatureDecision.RefuseVerifyUnavailable =>
+                "[SLDataAPI] 强名称验签 API 不可用，拒绝自动安装（fail-closed）。",
+            _ =>
+                "[SLDataAPI] 签名校验未通过，拒绝自动替换。",
+        };
 
     private static void SafeDelete(string path)
     {

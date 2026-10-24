@@ -17,6 +17,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="..\..\Services\UpdateCheckLogic.cs" Link="UpdateCheckLogic.cs" />
+    <Compile Include="..\..\Services\StrongNameVerifier.cs" Link="StrongNameVerifier.cs" />
     <Compile Include="..\..\Config.cs" Link="Config.cs" />
   </ItemGroup>
 </Project>

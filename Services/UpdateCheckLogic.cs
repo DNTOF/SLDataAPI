@@ -20,6 +20,28 @@ public enum UpdateCheckOutcome
     Failed,
 }
 
+/// <summary>磁盘文件强名称验签结果（真验签，非公钥令牌元数据）。</summary>
+public enum StrongNameVerifyStatus
+{
+    /// <summary>签名有效且已强制验证。</summary>
+    Verified,
+    /// <summary>文件缺失、损坏或签名无效。</summary>
+    Invalid,
+    /// <summary>原生验签 API 不可用（非 Windows / mscoree 缺失等）。</summary>
+    Unavailable,
+}
+
+/// <summary>自动安装前签名闸门决策（令牌快筛 + 真验签）。</summary>
+public enum AutoInstallSignatureDecision
+{
+    Allow,
+    RefuseUnsignedCurrent,
+    RefuseTokenMismatch,
+    RefuseNotOfficialToken,
+    RefuseSignatureInvalid,
+    RefuseVerifyUnavailable,
+}
+
 /// <summary>
 /// 更新检查的纯逻辑：状态文件、是否到期、解析 GitHub latest JSON / 版本 tag。
 /// 无 Unity / LabAPI 依赖，可供单元测试直接链接。
@@ -135,6 +157,58 @@ public static class UpdateCheckLogic
         IsSignedPublicKeyToken(current) &&
         IsSignedPublicKeyToken(incoming) &&
         current!.SequenceEqual(incoming!);
+
+    /// <summary>令牌是否为正式发布公钥令牌（<see cref="ExpectedPublicKeyTokenHex"/>）。</summary>
+    public static bool MatchesExpectedPublicKeyToken(byte[]? token)
+    {
+        if (!IsSignedPublicKeyToken(token))
+            return false;
+        byte[]? expected = TryParsePublicKeyTokenHex(ExpectedPublicKeyTokenHex);
+        return expected != null && token!.SequenceEqual(expected);
+    }
+
+    /// <summary>解析 16 位小写/大写十六进制公钥令牌；非法则 null。</summary>
+    public static byte[]? TryParsePublicKeyTokenHex(string? hex)
+    {
+        if (string.IsNullOrWhiteSpace(hex) || hex.Length != 16)
+            return null;
+        var bytes = new byte[8];
+        for (int i = 0; i < 8; i++)
+        {
+            if (!byte.TryParse(hex.Substring(i * 2, 2), NumberStyles.HexNumber,
+                    CultureInfo.InvariantCulture, out bytes[i]))
+                return null;
+        }
+        return bytes;
+    }
+
+    /// <summary>
+    /// 自动安装签名闸门：先令牌（未签名 / 不一致 / 非正式令牌），再真验签。
+    /// <paramref name="currentFileVerify"/> 为对当前磁盘插件文件的验签；传 null 则跳过该项（仅测令牌时）。
+    /// fail-closed：Unavailable / Invalid 一律拒绝。
+    /// </summary>
+    public static AutoInstallSignatureDecision DecideAutoInstallSignature(
+        byte[]? currentToken,
+        byte[]? incomingToken,
+        StrongNameVerifyStatus incomingVerify,
+        StrongNameVerifyStatus? currentFileVerify = null)
+    {
+        if (ShouldRefuseAutoInstallBecauseUnsigned(currentToken))
+            return AutoInstallSignatureDecision.RefuseUnsignedCurrent;
+        if (!PublicKeyTokensMatch(currentToken, incomingToken))
+            return AutoInstallSignatureDecision.RefuseTokenMismatch;
+        if (!MatchesExpectedPublicKeyToken(incomingToken))
+            return AutoInstallSignatureDecision.RefuseNotOfficialToken;
+
+        if (incomingVerify == StrongNameVerifyStatus.Unavailable ||
+            currentFileVerify == StrongNameVerifyStatus.Unavailable)
+            return AutoInstallSignatureDecision.RefuseVerifyUnavailable;
+        if (incomingVerify != StrongNameVerifyStatus.Verified ||
+            (currentFileVerify.HasValue && currentFileVerify.Value != StrongNameVerifyStatus.Verified))
+            return AutoInstallSignatureDecision.RefuseSignatureInvalid;
+
+        return AutoInstallSignatureDecision.Allow;
+    }
 
     /// <summary>评估 GitHub /releases/latest JSON。detail 不含机密。</summary>
     /// <param name="currentIsPreRelease">当前运行的是预发布构建（如 2.6.2-preview）时为 true：同版本号的正式版（2.6.2）也视为更新。</param>

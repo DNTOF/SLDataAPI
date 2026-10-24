@@ -1,11 +1,14 @@
 SLDataAPI
 Copyright (C) 2026 DNT_OF
-SPDX-License-Identifier: GPL-3.0-only
+SPDX-License-Identifier: Apache-2.0
 源码 / Source: https://github.com/DNTOF/SLDataAPI
 
-本程序依据 GNU 通用公共许可证第 3 版（仅限第 3 版，GPL-3.0-only）发布，完整条款见仓库根目录 LICENSE。
-This program is licensed under the GNU General Public License version 3 only
-(GPL-3.0-only). See LICENSE for the full text.
+本程序依据 Apache 许可证 2.0 版（Apache-2.0）发布，完整条款见仓库根目录 LICENSE。
+允许在遵守 Apache-2.0 与本 NOTICE 的前提下闭源使用、修改与再分发；不要求衍生作品开源。
+This program is licensed under the Apache License, Version 2.0 (Apache-2.0).
+See LICENSE for the full text. Closed-source use, modification, and redistribution
+are permitted when you comply with Apache-2.0 and this NOTICE; derivative works
+are not required to be open-sourced.
 
 
 一、原创组件 / Original components
@@ -44,13 +47,24 @@ The voice design derives from the author's own earlier minimal prototype
   A per-speaker decoder keyed by netId is a common approach, also used by CedMod.
 
 
-三、复用要求 / Reuse requirements
+三、复用要求 / Reuse requirements（署名保护）
 
-复用或改写本项目代码（尤其语音流相关实现）时，须：
-When reusing or adapting code from this project (especially the voice streaming code), you must:
+复用、改写或以本项目为基础发布衍生作品（尤其语音流相关实现）时，须：
+When reusing, adapting, or publishing derivative works based on this project
+(especially the voice streaming code), you must:
+
   1. 保留源文件中的版权 / SPDX 头以及本 NOTICE 文件；
-     keep the copyright/SPDX headers in source files and this NOTICE file;
-  2. 衍生作品以 GPL-3.0-only 发布并提供源代码；
-     distribute derivative works under GPL-3.0-only, with source code;
-  3. 注明来自 DNTOF/SLDataAPI（https://github.com/DNTOF/SLDataAPI）。
-     credit DNTOF/SLDataAPI (https://github.com/DNTOF/SLDataAPI).
+     retain the copyright / SPDX headers in source files and this NOTICE file;
+
+  2. 注明来源于 DNTOF/SLDataAPI（https://github.com/DNTOF/SLDataAPI）；
+     credit the origin as DNTOF/SLDataAPI (https://github.com/DNTOF/SLDataAPI);
+
+  3. 禁止删除、篡改或替换版权与来源信息后重新发布（含「删名字 + 换皮当自己项目」）。
+     Do not strip, alter, or replace copyright / attribution notices and then
+     republish (including removing the author's name and presenting a lightly
+     modified fork as an independent original project).
+
+在满足上述署名要求与 Apache-2.0 的前提下，可将衍生作品闭源分发；
+不再要求以 GPL 开源，也不引入 GPLv3 / LGPL 的强制开源衍生作品条款。
+Subject to the attribution rules above and Apache-2.0, derivative works may be
+distributed closed-source. GPL/LGPL copyleft obligations are not imposed.

@@ -21,7 +21,9 @@ SLDataAPI **2.6.2-patch Holiday26**（相对 2.6.2 Holiday26）。版本号仍�
 
 ## Unreleased
 
-（无）
+### 许可证
+
+- 由 **GPL-3.0-only** 变更为 **Apache-2.0**（允许闭源使用；须保留版权 / SPDX 头、NOTICE，并注明来自 DNTOF/SLDataAPI；禁止删改署名后换皮发布）。语音转发 / 录音仍标注为本项目原创。详见 `LICENSE`、`NOTICE`、README「许可证」。
 
 ## 2.6.2 Holiday26
 

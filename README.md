@@ -203,6 +203,11 @@ Content-Type: application/json
 
 Copyright (C) 2026 DNT_OF
 
-以 [GPL-3.0-only](LICENSE) 授权，详见 [NOTICE](NOTICE)。
+以 [Apache-2.0](LICENSE) 授权，详见 [NOTICE](NOTICE)。
 
-复用或改写本项目代码（尤其语音流相关实现）时，须保留源文件版权头与 NOTICE、以 GPL-3.0-only 开源，并注明来自 [DNTOF/SLDataAPI](https://github.com/DNTOF/SLDataAPI)。
+本项目已由 **GPL-3.0-only** 变更为 **Apache-2.0**：允许在遵守 Apache-2.0 与 NOTICE 的前提下闭源使用与再分发，不再要求衍生作品强制开源。
+
+复用或改写本项目代码（尤其语音流相关实现）时，须：
+1. 保留源文件版权 / SPDX 头与本仓库 [NOTICE](NOTICE)；
+2. 注明来自 [DNTOF/SLDataAPI](https://github.com/DNTOF/SLDataAPI)；
+3. 禁止删除或篡改版权与来源信息后重新发布（含「删名字 + 换皮当自己项目」）。

@@ -11,7 +11,7 @@
     <InformationalVersion>2.6.2-patch Holiday26</InformationalVersion>
     <Authors>DNT_OF</Authors>
     <Copyright>Copyright (C) 2026 DNT_OF</Copyright>
-    <PackageLicenseExpression>GPL-3.0-only</PackageLicenseExpression>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
     <!-- CS8002：强签名程序集引用未签名程序集——游戏 DLL / 0Harmony 等运行时依赖本就无强名称，属预期 -->
     <NoWarn>CS0618;CS1591;CS8002</NoWarn>
 

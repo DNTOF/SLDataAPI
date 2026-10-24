@@ -1,5 +1,6 @@
-// SPDX-License-Identifier: GPL-3.0-only
-// Copyright (C) 2026 DNT_OF (https://github.com/DNTOF/SLDataAPI)
+// Copyright (C) 2026 DNT_OF
+// SPDX-License-Identifier: Apache-2.0
+// Original project: https://github.com/DNTOF/SLDataAPI
 
 using System;
 using System.Collections.Concurrent;

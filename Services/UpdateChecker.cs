@@ -167,12 +167,6 @@ public static class UpdateChecker
                     Log.Warn("[SLDataAPI] AutoUpdateInstall=false：仅提示，请前往 https://github.com/DNTOF/SLDataAPI/releases/latest 手动更新。");
                     return;
                 }
-                byte[]? runningToken = typeof(UpdateChecker).Assembly.GetName().GetPublicKeyToken();
-                if (UpdateCheckLogic.ShouldRefuseAutoInstallBecauseUnsigned(runningToken))
-                {
-                    Log.Warn("[SLDataAPI] 当前程序集未强名称签名，拒绝自动安装（即使 AutoUpdateInstall=true）。请使用已签名的正式构建，或关闭自动安装后手动更新。");
-                    return;
-                }
                 JObject obj = JObject.Parse(body);
                 await InstallAsync(remote!, obj).ConfigureAwait(false);
                 return;
@@ -269,11 +263,13 @@ public static class UpdateChecker
             return;
         }
 
-        // 未签名构建不得自动安装；已签名则：令牌一致 + 正式发布令牌 + StrongName 真验签（fail-closed）
+        // 入站：正式发布令牌 + StrongName 真验签；当前未签名允许引导升级，已签名则令牌一致并验当前文件
         byte[]? curToken = typeof(UpdateChecker).Assembly.GetName().GetPublicKeyToken();
         byte[]? newToken = newName.GetPublicKeyToken();
         var incomingVerify = StrongNameVerifier.VerifyFile(tmp);
-        var currentVerify = StrongNameVerifier.VerifyFile(selfPath);
+        StrongNameVerifyStatus? currentVerify = UpdateCheckLogic.IsSignedPublicKeyToken(curToken)
+            ? StrongNameVerifier.VerifyFile(selfPath)
+            : null;
         var decision = UpdateCheckLogic.DecideAutoInstallSignature(
             curToken, newToken, incomingVerify, currentVerify);
         if (decision != AutoInstallSignatureDecision.Allow)
@@ -304,7 +300,7 @@ public static class UpdateChecker
         decision switch
         {
             AutoInstallSignatureDecision.RefuseUnsignedCurrent =>
-                "[SLDataAPI] 当前程序集未强名称签名，拒绝自动安装（即使 AutoUpdateInstall=true）。",
+                "[SLDataAPI] 签名校验未通过：当前未签名且入站不符合正式已签名要求，拒绝自动替换。",
             AutoInstallSignatureDecision.RefuseTokenMismatch =>
                 "[SLDataAPI] 下载程序集公钥令牌与当前版本不一致（可能被篡改），拒绝自动替换。",
             AutoInstallSignatureDecision.RefuseNotOfficialToken =>

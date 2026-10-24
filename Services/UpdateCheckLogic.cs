@@ -153,7 +153,10 @@ public static class UpdateCheckLogic
     public static bool IsSignedPublicKeyToken(byte[]? token) =>
         token != null && token.Length > 0;
 
-    /// <summary>未签名构建不得自动安装（即使 AutoUpdateInstall=true）。</summary>
+    /// <summary>
+    /// 历史辅助：仅表示当前程序集是否未强签名。
+    /// 自动安装闸门已改为允许「未签名当前 → 正式已签名入站」引导升级；请用 <see cref="DecideAutoInstallSignature"/>。
+    /// </summary>
     public static bool ShouldRefuseAutoInstallBecauseUnsigned(byte[]? currentPublicKeyToken) =>
         !IsSignedPublicKeyToken(currentPublicKeyToken);
 
@@ -188,9 +191,9 @@ public static class UpdateCheckLogic
     }
 
     /// <summary>
-    /// 自动安装签名闸门：先令牌（未签名 / 不一致 / 非正式令牌），再真验签。
-    /// <paramref name="currentFileVerify"/> 为对当前磁盘插件文件的验签；传 null 则跳过该项（仅测令牌时）。
-    /// fail-closed：Unavailable / Invalid 一律拒绝。
+    /// 自动安装签名闸门：入站必须是正式发布令牌 + StrongName 真验签（fail-closed）。
+    /// 当前未签名时允许引导升级到已验签正式包（不校验当前文件签名、不要求令牌一致）。
+    /// 当前已签名时仍要求令牌一致，并对当前磁盘插件文件验签（<paramref name="currentFileVerify"/> 为 null 则跳过该项）。
     /// </summary>
     public static AutoInstallSignatureDecision DecideAutoInstallSignature(
         byte[]? currentToken,
@@ -198,18 +201,24 @@ public static class UpdateCheckLogic
         StrongNameVerifyStatus incomingVerify,
         StrongNameVerifyStatus? currentFileVerify = null)
     {
-        if (ShouldRefuseAutoInstallBecauseUnsigned(currentToken))
-            return AutoInstallSignatureDecision.RefuseUnsignedCurrent;
-        if (!PublicKeyTokensMatch(currentToken, incomingToken))
-            return AutoInstallSignatureDecision.RefuseTokenMismatch;
         if (!MatchesExpectedPublicKeyToken(incomingToken))
             return AutoInstallSignatureDecision.RefuseNotOfficialToken;
 
-        if (incomingVerify == StrongNameVerifyStatus.Unavailable ||
-            currentFileVerify == StrongNameVerifyStatus.Unavailable)
+        if (incomingVerify == StrongNameVerifyStatus.Unavailable)
             return AutoInstallSignatureDecision.RefuseVerifyUnavailable;
-        if (incomingVerify != StrongNameVerifyStatus.Verified ||
-            (currentFileVerify.HasValue && currentFileVerify.Value != StrongNameVerifyStatus.Verified))
+        if (incomingVerify != StrongNameVerifyStatus.Verified)
+            return AutoInstallSignatureDecision.RefuseSignatureInvalid;
+
+        // 未签名当前 → 正式已签名入站：引导升级，只验入站
+        if (!IsSignedPublicKeyToken(currentToken))
+            return AutoInstallSignatureDecision.Allow;
+
+        if (!PublicKeyTokensMatch(currentToken, incomingToken))
+            return AutoInstallSignatureDecision.RefuseTokenMismatch;
+
+        if (currentFileVerify == StrongNameVerifyStatus.Unavailable)
+            return AutoInstallSignatureDecision.RefuseVerifyUnavailable;
+        if (currentFileVerify.HasValue && currentFileVerify.Value != StrongNameVerifyStatus.Verified)
             return AutoInstallSignatureDecision.RefuseSignatureInvalid;
 
         return AutoInstallSignatureDecision.Allow;

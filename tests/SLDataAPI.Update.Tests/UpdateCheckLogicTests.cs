@@ -281,7 +281,7 @@ public class UpdateCheckLogicTests
     }
 
     [Fact]
-    public void UnsignedCurrentAssembly_RefusesAutoInstall()
+    public void UnsignedCurrentAssembly_HelperStillDetectsUnsigned()
     {
         Assert.True(UpdateCheckLogic.ShouldRefuseAutoInstallBecauseUnsigned(null));
         Assert.True(UpdateCheckLogic.ShouldRefuseAutoInstallBecauseUnsigned(Array.Empty<byte>()));
@@ -316,13 +316,25 @@ public class UpdateCheckLogicTests
     }
 
     [Fact]
-    public void DecideAutoInstallSignature_TokenFastFail_BeforeVerify()
+    public void DecideAutoInstallSignature_UnsignedCurrent_AllowsOfficialVerifiedIncoming()
     {
         byte[] official = { 0x3e, 0xc7, 0x3b, 0xb2, 0x00, 0x70, 0xfa, 0x9c };
         byte[] other = { 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88 };
 
-        Assert.Equal(AutoInstallSignatureDecision.RefuseUnsignedCurrent,
+        // 未签名当前 → 正式已验签入站：引导升级
+        Assert.Equal(AutoInstallSignatureDecision.Allow,
             UpdateCheckLogic.DecideAutoInstallSignature(null, official, StrongNameVerifyStatus.Verified));
+        Assert.Equal(AutoInstallSignatureDecision.Allow,
+            UpdateCheckLogic.DecideAutoInstallSignature(Array.Empty<byte>(), official, StrongNameVerifyStatus.Verified,
+                StrongNameVerifyStatus.Invalid)); // 当前文件验签在未签名路径下忽略
+        Assert.Equal(AutoInstallSignatureDecision.RefuseNotOfficialToken,
+            UpdateCheckLogic.DecideAutoInstallSignature(null, other, StrongNameVerifyStatus.Verified));
+        Assert.Equal(AutoInstallSignatureDecision.RefuseSignatureInvalid,
+            UpdateCheckLogic.DecideAutoInstallSignature(null, official, StrongNameVerifyStatus.Invalid));
+        Assert.Equal(AutoInstallSignatureDecision.RefuseVerifyUnavailable,
+            UpdateCheckLogic.DecideAutoInstallSignature(null, official, StrongNameVerifyStatus.Unavailable));
+
+        // 已签名当前：令牌不一致 / 非正式令牌仍拒绝
         Assert.Equal(AutoInstallSignatureDecision.RefuseTokenMismatch,
             UpdateCheckLogic.DecideAutoInstallSignature(official, other, StrongNameVerifyStatus.Verified));
         Assert.Equal(AutoInstallSignatureDecision.RefuseNotOfficialToken,

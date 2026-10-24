@@ -76,7 +76,7 @@ control_transport: http             # http | ws（硬互斥）
 # control_token 已废弃：写了也会被忽略并警告
 
 auto_update_check: true             # 启动 + 默认 72h 静默复查 GitHub Releases
-auto_update_install: true           # 仅稳定正式包；未强签名构建拒绝自动安装
+auto_update_install: true           # 仅稳定正式包；入站须正式强签名验签；未签名当前可引导升级
 # auto_update_check_interval_hours: 72
 
 voice_enabled: false

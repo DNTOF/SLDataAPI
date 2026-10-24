@@ -9,8 +9,10 @@ SLDataAPI **2.6.2-patch Holiday26**（相对 2.6.2 Holiday26）。版本号仍�
 ### 安全加固
 
 - `sldataapi apikey create|revoke|list` 默认仅限本地服务器控制台（与 `cert` 对齐）；RemoteAdmin 面板用户不能创建 / 吊销 / 列出 API Key。远程控制通道拒绝逻辑保持不变
-- 自动更新安装前在公钥令牌快筛之外，对下载 DLL 与当前插件文件调用 `StrongNameSignatureVerificationEx`（mscoree）强制验签；API 不可用或验签失败则拒绝自动安装（fail-closed）
+- 自动更新安装前在公钥令牌快筛之外，对下载 DLL 调用 `StrongNameSignatureVerificationEx`（mscoree）强制验签；API 不可用或验签失败则拒绝自动安装（fail-closed）
+- **未签名当前构建**可自动引导升级到已验签的正式包（入站须正式令牌 `3ec73bb20070fa9c` + 真验签）；已签名当前仍要求令牌一致并对当前文件验签
 - 正式发布包重新使用本机 `key.snk` 强名称签名（公钥令牌 `3ec73bb20070fa9c`）；`key.snk` 不入库
+- 本 tag（`v2.6.2-patch_Holiday26`）附件已按上述闸门重签覆盖；版本号与 tag 不变
 - 更新检查：同三位版本号下，远端 tag / 当前 `InformationalVersion` 含 `patch` 段时，正式版 → patch 视为更新（镜像 preview → 正式）；已是 patch 则同号不再提示
 
 ### 控制面

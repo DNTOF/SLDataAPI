@@ -16,6 +16,9 @@ public sealed class ApikeyCreateCommand : ICommand, IUsageProvider
 
     public bool Execute(ArraySegment<string> arguments, ICommandSender sender, out string response)
     {
+        if (ApikeyCommandGuard.Reject(sender, out response))
+            return false;
+
         if (arguments.Count < 2)
         {
             response = "用法: sldataapi apikey create <id> <duty|admin> [note]\n明文写入一次性 txt，命令只回路径；5 分钟后自动删除。";

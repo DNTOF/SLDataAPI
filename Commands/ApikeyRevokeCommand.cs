@@ -16,6 +16,9 @@ public sealed class ApikeyRevokeCommand : ICommand, IUsageProvider
 
     public bool Execute(ArraySegment<string> arguments, ICommandSender sender, out string response)
     {
+        if (ApikeyCommandGuard.Reject(sender, out response))
+            return false;
+
         if (arguments.Count < 1)
         {
             response = "用法: sldataapi apikey revoke <id>";

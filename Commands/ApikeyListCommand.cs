@@ -16,6 +16,9 @@ public sealed class ApikeyListCommand : ICommand
 
     public bool Execute(ArraySegment<string> arguments, ICommandSender sender, out string response)
     {
+        if (ApikeyCommandGuard.Reject(sender, out response))
+            return false;
+
         if (!ApiKeyService.TryList(out var list, out string error))
         {
             response = error;

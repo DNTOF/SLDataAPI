@@ -395,6 +395,9 @@ public static class EndpointAcl
                              string.Equals(act!.Trim(), "list", StringComparison.OrdinalIgnoreCase));
                 }
 
+                case "/control/dummies":
+                    return !BodyActionEquals(body, "list");
+
                 case "/control/map/facility":
                     return true;
 

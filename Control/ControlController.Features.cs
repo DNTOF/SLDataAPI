@@ -7,6 +7,9 @@ using System.Linq;
 using InventorySystem;
 using InventorySystem.Items;
 using InventorySystem.Items.Usables.Scp330;
+using Mirror;
+using NetworkManagerUtils.Dummies;
+using PlayerRoles;
 using SLDataAPI.Data;
 using SLDataAPI.Services;
 using UnityEngine;
@@ -304,6 +307,197 @@ public static partial class ControlController
             return (200, Json(true, "ok", data));
         }, out var err);
         return err != null ? (400, Json(false, err.Message)) : (status, json);
+    }
+
+
+    // ------------------------------------------------------------------
+    // /control/dummies —— spawn | list | remove（硬上限 MaxDummies；缺 DummyUtils → 501）
+    // ------------------------------------------------------------------
+    private static (int, string) DummiesAction(string body)
+    {
+        var req = Parse<DummiesRequest>(body);
+        if (req == null || !FeatureInputRules.IsDummyAction(req.action, out string action))
+            return (400, Json(false, "缺少或未知 action（支持 spawn/list/remove）",
+                new { code = "invalid_action", valid = FeatureInputRules.DummyActions }));
+
+        // 旧游戏版本可能没有 DummyUtils：先按类型名探测，避免 JIT 到引用缺失类型的方法时抛 TypeLoadException
+        if (ReflectionLookup.FindType("NetworkManagerUtils.Dummies.DummyUtils") == null)
+        {
+            return (501, Json(false, "当前游戏版本不提供假人 API（DummyUtils 不存在）", new
+            {
+                code = "feature_unavailable",
+                feature = "dummies",
+            }));
+        }
+
+        RoleTypeId? spawnRole = null;
+        if (action == "spawn" && !string.IsNullOrWhiteSpace(req.role))
+        {
+            if (!Enum.TryParse(req.role.Trim(), true, out RoleTypeId roleId) ||
+                !Enum.IsDefined(typeof(RoleTypeId), roleId))
+            {
+                return (400, Json(false, $"无效角色名: {req.role}", new { code = "invalid_role" }));
+            }
+            spawnRole = roleId;
+        }
+
+        if (action == "remove" && string.IsNullOrWhiteSpace(req.target))
+            return (400, Json(false, "remove 需要 target（假人 PlayerId / 昵称，或 all）", new { code = "missing_target" }));
+
+        string nickname = FeatureInputRules.NormalizeDummyNickname(req.nickname);
+        string target = (req.target ?? "").Trim();
+
+        var (status, json) = MainThreadExecutor.RunOnMainThread(() =>
+        {
+            switch (action)
+            {
+                case "list":
+                    return (200, Json(true, "ok", DescribeDummies()));
+
+                case "spawn":
+                {
+                    int count = Player.DummyList.Count();
+                    if (count >= FeatureInputRules.MaxDummies)
+                    {
+                        return (409, Json(false, $"假人数量已达上限 {FeatureInputRules.MaxDummies}", new
+                        {
+                            code = "dummy_limit",
+                            max = FeatureInputRules.MaxDummies,
+                            count,
+                            dummies = DescribeDummies(),
+                        }));
+                    }
+
+                    ReferenceHub? hub;
+                    try { hub = SpawnDummySafe(nickname); }
+                    catch (TypeLoadException ex)
+                    {
+                        return (501, Json(false, $"当前游戏版本不提供假人 API: {ex.Message}", new
+                        {
+                            code = "feature_unavailable",
+                            feature = "dummies",
+                        }));
+                    }
+                    catch (MissingMethodException ex)
+                    {
+                        return (501, Json(false, $"当前游戏版本不提供假人 API: {ex.Message}", new
+                        {
+                            code = "feature_unavailable",
+                            feature = "dummies",
+                        }));
+                    }
+
+                    if (hub == null)
+                        return (500, Json(false, "假人生成失败（SpawnDummy 返回 null）", new { code = "spawn_failed" }));
+
+                    var player = Player.Get(hub);
+                    if (player == null)
+                        return (500, Json(false, "假人已生成但无法包装为 Player", new { code = "spawn_failed" }));
+
+                    if (spawnRole.HasValue)
+                        player.SetRole(spawnRole.Value);
+
+                    return (200, Json(true, $"已生成假人 {player.Nickname}", new
+                    {
+                        dummy = DescribeDummy(player),
+                        count = Player.DummyList.Count(),
+                        max = FeatureInputRules.MaxDummies,
+                    }));
+                }
+
+                case "remove":
+                {
+                    if (target.Equals("all", StringComparison.OrdinalIgnoreCase))
+                    {
+                        int before = Player.DummyList.Count();
+                        try { DestroyAllDummiesSafe(); }
+                        catch (TypeLoadException ex)
+                        {
+                            return (501, Json(false, $"当前游戏版本不提供假人 API: {ex.Message}", new
+                            {
+                                code = "feature_unavailable",
+                                feature = "dummies",
+                            }));
+                        }
+                        catch (MissingMethodException ex)
+                        {
+                            return (501, Json(false, $"当前游戏版本不提供假人 API: {ex.Message}", new
+                            {
+                                code = "feature_unavailable",
+                                feature = "dummies",
+                            }));
+                        }
+                        return (200, Json(true, $"已清除全部假人（{before}）", new
+                        {
+                            removed = before,
+                            count = Player.DummyList.Count(),
+                            max = FeatureInputRules.MaxDummies,
+                        }));
+                    }
+
+                    var dummy = FindDummy(target);
+                    if (dummy == null)
+                        return (404, Json(false, $"找不到假人: {target}", new { code = "dummy_not_found" }));
+
+                    var snapshot = DescribeDummy(dummy);
+                    string goneName = dummy.Nickname;
+                    try
+                    {
+                        if (dummy.GameObject != null)
+                            NetworkServer.Destroy(dummy.GameObject);
+                    }
+                    catch (Exception ex)
+                    {
+                        return (500, Json(false, $"销毁假人失败: {ex.Message}", new { code = "destroy_failed" }));
+                    }
+
+                    return (200, Json(true, $"已移除假人 {goneName}", new
+                    {
+                        removed = snapshot,
+                        count = Player.DummyList.Count(),
+                        max = FeatureInputRules.MaxDummies,
+                    }));
+                }
+
+                default:
+                    return (400, Json(false, $"未知 action: {action}"));
+            }
+        }, out var err);
+        return err != null ? (400, Json(false, err.Message)) : (status, json);
+    }
+
+    /// <summary>隔离对 DummyUtils 的引用：仅在确认类型存在后调用，避免整段方法 JIT 时 TypeLoadException。</summary>
+    private static ReferenceHub? SpawnDummySafe(string nickname) => DummyUtils.SpawnDummy(nickname);
+
+    private static void DestroyAllDummiesSafe() => DummyUtils.DestroyAllDummies();
+
+    private static Player? FindDummy(string target)
+    {
+        if (string.IsNullOrWhiteSpace(target)) return null;
+        var list = Player.DummyList.ToList();
+        return PlayerLookup.Find(target, list,
+                   p => p.PlayerId, p => p.UserId, _ => null, p => p.Nickname, allowIp: false)
+               ?? list.FirstOrDefault(p => string.Equals(p.Nickname, target, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static object DescribeDummy(Player p) => new
+    {
+        nickname = p.Nickname,
+        player_id = p.PlayerId,
+        userid = p.UserId,
+        role = p.Role.ToString(),
+        is_dummy = true,
+    };
+
+    private static object DescribeDummies()
+    {
+        var items = Player.DummyList.Select(DescribeDummy).ToList();
+        return new
+        {
+            count = items.Count,
+            max = FeatureInputRules.MaxDummies,
+            dummies = items,
+        };
     }
 
     // ------------------------------------------------------------------

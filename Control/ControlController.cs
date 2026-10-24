@@ -79,7 +79,7 @@ public static partial class ControlController
                 "/control/round" => RoundAction(body),
                 "/control/round/warhead" => WarheadAction(body),
                 "/control/round/wave" => WaveAction(body),
-                "/control/dummies" => Stub501("dummies"),
+                "/control/dummies" => DummiesAction(body),
                 "/control/map/facility" => MapFacilityAction(body),
                 "/control/map/layout" => MapLayoutAction(),
                 "/control/map/export" => MapExportAction(),
@@ -164,6 +164,8 @@ public static partial class ControlController
                     return Parse<ReportRequest>(body)?.action == "list";
                 case "/control/player/inventory":
                     return FeatureInputRules.IsInventoryAction(Parse<InventoryRequest>(body)?.action, out var invAct) && invAct == "list";
+                case "/control/dummies":
+                    return FeatureInputRules.IsDummyAction(Parse<DummiesRequest>(body)?.action, out var dumAct) && dumAct == "list";
                 case "/control/admin/state":
                     var st = Parse<PlayerActionRequest>(body);
                     return st != null && st.godmode == null && st.bypass == null && st.health == null && st.intercom == null;

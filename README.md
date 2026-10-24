@@ -166,7 +166,17 @@ Content-Type: application/json
 
 完整端点表与 curl 示例：[HTTP-API](https://github.com/DNTOF/SLDataAPI/wiki/HTTP-API)。WS 协议与语音帧：[WS-Control-Protocol](https://github.com/DNTOF/SLDataAPI/wiki/WS-Control-Protocol) · [Voice-Forwarding](https://github.com/DNTOF/SLDataAPI/wiki/Voice-Forwarding)。
 
-仍为 501 占位：`/control/dummies`。
+`/control/dummies`（假人，admin）：
+
+```http
+POST /control/dummies
+Authorization: Bearer <admin_key>
+Content-Type: application/json
+
+{"action":"spawn","nickname":"Bot","role":"ClassD"}
+```
+
+`action`: `spawn` | `list` | `remove`。同时最多 5 个；`remove` 的 `target` 为假人 PlayerId / 昵称，或 `all`。
 
 ---
 

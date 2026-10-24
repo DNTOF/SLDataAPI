@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### 控制面
+
+- `/control/dummies` 由 501 占位改为实现：`spawn` / `list`（只读，不写审计）/ `remove`。同时硬上限 5；超限返回 409 `dummy_limit`；`remove` 缺 target 返回 400，目标不存在返回 404 `dummy_not_found`；目标可为 PlayerId / 昵称 / `all`。`spawn` 支持可选 `nickname`（默认 Dummy，最长 32）与 `role`（RoleTypeId）。游戏版本缺少 `DummyUtils` 时返回 501 `feature_unavailable`，不抛 500
+
 ## 2.6.2 Holiday26
 
 SLDataAPI **2.6.2 Holiday26**（相对 2.6.1 Mores）。以 GitHub **正式版**发布。节日相关接口曾于 2026-10-17 以 **2.6.2-preview Holiday26** 预发布（见下方条目）；本正式版包含其全部内容，并新增物品栏 / 糖果 / 设施状态端点、节日自动回退与事件流扩展。游戏公开分支已更新到 **14.2.8**（万圣节版本），本版本按 14.2.8 编译。2.6.1 Mores 与 2.6.2-preview 的更新检查都会提示本版本。

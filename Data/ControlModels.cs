@@ -333,3 +333,19 @@ public class ReportRequest
     /// <summary>action=handle 时：举报记录 id（list 返回中的 id 字段）。</summary>
     public string id { get; set; } = "";
 }
+
+/// <summary>POST /control/dummies —— 假人 spawn / list / remove。</summary>
+public class DummiesRequest
+{
+    /// <summary>spawn | list | remove。</summary>
+    public string action { get; set; } = "";
+
+    /// <summary>spawn 用：昵称，默认 Dummy，最长 32。</summary>
+    public string nickname { get; set; } = "";
+
+    /// <summary>spawn 用：可选 RoleTypeId 名（如 ClassD / Scientist）；省略则保持生成时默认角色。</summary>
+    public string role { get; set; } = "";
+
+    /// <summary>remove 用：假人 PlayerId / 昵称，或 "all" 清除全部。</summary>
+    public string target { get; set; } = "";
+}

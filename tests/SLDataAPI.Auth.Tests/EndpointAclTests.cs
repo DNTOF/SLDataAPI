@@ -189,11 +189,14 @@ public class TemplateMergeTests
         var admin = EndpointAcl.MergeEffective("admin", null, null);
         Assert.True(EndpointAcl.IsAllowed(admin, "/control/player/inventory", true));
         Assert.True(EndpointAcl.IsAllowed(admin, "/control/player/candy", true));
+        Assert.True(EndpointAcl.IsAllowed(admin, "/control/dummies", true));
 
         var duty = EndpointAcl.MergeEffective("duty", null, null);
         Assert.False(EndpointAcl.IsAllowed(duty, "/control/player/inventory", true));
         Assert.False(EndpointAcl.IsAllowed(duty, "/control/player/inventory", false));
         Assert.False(EndpointAcl.IsAllowed(duty, "/control/player/candy", true));
+        Assert.False(EndpointAcl.IsAllowed(duty, "/control/dummies", true));
+        Assert.False(EndpointAcl.IsAllowed(duty, "/control/dummies", false));
         // 设施状态快照属于 /control/map/ 只读，值班可读
         Assert.True(EndpointAcl.IsAllowed(duty, "/control/map/status", false));
     }
@@ -244,6 +247,10 @@ public class TemplateMergeTests
     [InlineData("/control/player/inventory", "{\"target\":\"2\",\"action\":\"add\",\"item\":\"Lantern\"}", true)]
     [InlineData("/control/player/inventory", "{\"target\":\"2\",\"action\":\"clear\"}", true)]
     [InlineData("/control/player/candy", "{\"target\":\"2\"}", true)]
+    [InlineData("/control/dummies", "{\"action\":\"list\"}", false)]
+    [InlineData("/control/dummies", "{\"action\":\"LIST\"}", false)]
+    [InlineData("/control/dummies", "{\"action\":\"spawn\",\"nickname\":\"Bot\"}", true)]
+    [InlineData("/control/dummies", "{\"action\":\"remove\",\"target\":\"all\"}", true)]
     [InlineData("/control/map/status", "", false)]
     public void NewEndpoints_ReadWriteClassification(string path, string body, bool write)
     {

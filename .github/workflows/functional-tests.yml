@@ -1,5 +1,6 @@
 # 仅运行独立逻辑测试，不构建或发布 SLDataAPI.dll。
 # 不下载游戏程序集、LabAPI、Unity，不使用签名密钥或真实 token。
+# 本仓库的 Actions 策略只允许 DNTOF 拥有的 action，因此这里不用 actions/*。
 name: 功能逻辑测试
 
 on:
@@ -30,17 +31,24 @@ jobs:
         suite: [Auth, Features, Update, WebDav]
     steps:
       - name: 检出源码
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          fetch-depth: 1
+        env:
+          REPOSITORY: ${{ github.repository }}
+          REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          git init -q
+          git remote add origin "https://github.com/${REPOSITORY}.git"
+          git fetch --depth 1 origin "${REF}"
+          git checkout --detach FETCH_HEAD
 
       - name: 安装 .NET 8 SDK
-        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
-        with:
-          dotnet-version: "8.0.x"
-          # 只安装指定的 8.0.x。NuGet 缓存需要 actions: write，此处不启用。
-          skip-lts-prepass: true
+        run: |
+          set -euo pipefail
+          curl -fsSL https://dot.net/v1/dotnet-install.sh -o "${RUNNER_TEMP}/dotnet-install.sh"
+          bash "${RUNNER_TEMP}/dotnet-install.sh" --channel 8.0 --install-dir "${RUNNER_TEMP}/dotnet"
+          echo "${RUNNER_TEMP}/dotnet" >> "${GITHUB_PATH}"
+          echo "DOTNET_ROOT=${RUNNER_TEMP}/dotnet" >> "${GITHUB_ENV}"
+          "${RUNNER_TEMP}/dotnet/dotnet" --list-sdks
 
       - name: 恢复测试依赖
         env:
@@ -54,9 +62,6 @@ jobs:
 
       - name: 保存测试报告
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: test-results-${{ matrix.suite }}
-          path: TestResults/${{ matrix.suite }}/*.trx
-          if-no-files-found: warn
-          retention-days: 14
+        env:
+          SUITE: ${{ matrix.suite }}
+        run: python3 .github/scripts/upload-trx.py

@@ -62,6 +62,6 @@ jobs:
 
       - name: 保存测试报告
         if: ${{ !cancelled() }}
-        env:
-          SUITE: ${{ matrix.suite }}
-        run: python3 .github/scripts/upload-trx.py
+        uses: ./.github/actions/upload-trx
+        with:
+          suite: ${{ matrix.suite }}

@@ -99,7 +99,11 @@ def main() -> None:
     token = os.environ.get("ACTIONS_RUNTIME_TOKEN", "")
     results = os.environ.get("ACTIONS_RESULTS_URL", "")
     if not token or not results:
-        fail("ACTIONS_RUNTIME_TOKEN or ACTIONS_RESULTS_URL is missing")
+        names = sorted(name for name in os.environ if name.startswith("ACTIONS_"))
+        fail(
+            "ACTIONS_RUNTIME_TOKEN or ACTIONS_RESULTS_URL is missing. "
+            f"ACTIONS_* names present: {', '.join(names) if names else '(none)'}"
+        )
     run_id, job_id = backend_ids(token)
     origin = results.split("/twirp/")[0].rstrip("/")
     if "://" not in origin:

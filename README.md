@@ -194,6 +194,25 @@ Content-Type: application/json
 
 ---
 
+## 逻辑回归测试
+
+`tests/` 下有四套独立的 net8.0 xUnit 项目：`SLDataAPI.Auth.Tests`、`SLDataAPI.Features.Tests`、`SLDataAPI.Update.Tests`、`SLDataAPI.WebDav.Tests`。它们直接编译对应的纯逻辑源文件，不引用主工程 `SLDataAPI.csproj`，因此不需要游戏程序集、LabAPI 或 Unity，也不会编译、签名或打包 `SLDataAPI.dll`。
+
+这些测试只做逻辑回归：鉴权与路径沙箱、节日 / 端点入参、更新检查与强名称判定、WebDAV 上传规则。不能代替进服集成，也不能说明完整插件在 SCP:SL 里可用。官方插件的编译与发布仍在本机完成。
+
+本机已安装 .NET 8 SDK 时：
+
+```bash
+dotnet test tests/SLDataAPI.Auth.Tests/SLDataAPI.Auth.Tests.csproj -c Release
+dotnet test tests/SLDataAPI.Features.Tests/SLDataAPI.Features.Tests.csproj -c Release
+dotnet test tests/SLDataAPI.Update.Tests/SLDataAPI.Update.Tests.csproj -c Release
+dotnet test tests/SLDataAPI.WebDav.Tests/SLDataAPI.WebDav.Tests.csproj -c Release
+```
+
+推送、Pull Request 和手动 `workflow_dispatch` 会走 `.github/workflows/functional-tests.yml`：在 GitHub 托管的 `ubuntu-24.04` 上分别跑这四套。任一失败会使该检查失败，其余套件仍会跑完，并保留 TRX 报告。
+
+---
+
 ## 支持
 
 - QQ 群：984840871

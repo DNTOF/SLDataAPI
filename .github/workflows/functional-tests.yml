@@ -1,0 +1,62 @@
+# 仅运行独立逻辑测试，不构建或发布 SLDataAPI.dll。
+# 不下载游戏程序集、LabAPI、Unity，不使用签名密钥或真实 token。
+name: 功能逻辑测试
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: functional-tests-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  DOTNET_NOLOGO: "1"
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: "1"
+
+jobs:
+  test:
+    name: ${{ matrix.suite }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [Auth, Features, Update, WebDav]
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: 安装 .NET 8 SDK
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: "8.0.x"
+          # 只安装指定的 8.0.x。NuGet 缓存需要 actions: write，此处不启用。
+          skip-lts-prepass: true
+
+      - name: 恢复测试依赖
+        env:
+          SUITE: ${{ matrix.suite }}
+        run: dotnet restore "tests/SLDataAPI.${SUITE}.Tests/SLDataAPI.${SUITE}.Tests.csproj"
+
+      - name: 运行逻辑测试
+        env:
+          SUITE: ${{ matrix.suite }}
+        run: dotnet test "tests/SLDataAPI.${SUITE}.Tests/SLDataAPI.${SUITE}.Tests.csproj" --configuration Release --no-restore --logger "trx;LogFileName=${SUITE}.trx" --results-directory "TestResults/${SUITE}"
+
+      - name: 保存测试报告
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: test-results-${{ matrix.suite }}
+          path: TestResults/${{ matrix.suite }}/*.trx
+          if-no-files-found: warn
+          retention-days: 14

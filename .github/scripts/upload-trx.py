@@ -118,16 +118,17 @@ def main() -> None:
     expires = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=14)).strftime("%Y-%m-%dT%H:%M:%SZ")
     name = f"test-results-{suite}"
     service = f"{origin}/twirp/github.actions.results.api.v1.ArtifactService"
+    # protobuf-ts sends proto field names. Wrapper fields are plain JSON strings.
     created = request_json(
         f"{service}/CreateArtifact",
         token,
         {
-            "workflowRunBackendId": run_id,
-            "workflowJobRunBackendId": job_id,
+            "workflow_run_backend_id": run_id,
+            "workflow_job_run_backend_id": job_id,
             "name": name,
             "version": 7,
-            "mimeType": {"value": "application/zip"},
-            "expiresAt": expires,
+            "mime_type": "application/zip",
+            "expires_at": expires,
         },
     )
     if created.get("ok") is False:
@@ -157,11 +158,11 @@ def main() -> None:
         f"{service}/FinalizeArtifact",
         token,
         {
-            "workflowRunBackendId": run_id,
-            "workflowJobRunBackendId": job_id,
+            "workflow_run_backend_id": run_id,
+            "workflow_job_run_backend_id": job_id,
             "name": name,
             "size": str(len(payload)),
-            "hash": {"value": f"sha256:{digest}"},
+            "hash": f"sha256:{digest}",
         },
     )
     if finalized.get("ok") is False:

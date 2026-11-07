@@ -1,0 +1,105 @@
+# 仅运行独立逻辑测试，不构建或发布 SLDataAPI.dll。
+# 不下载游戏程序集、LabAPI、Unity，不使用签名密钥或真实 token。
+# 本仓库的 Actions 策略只允许 DNTOF 拥有的 action，因此这里不用 actions/*。
+# 可下载的 TRX 制品要等所有者允许官方 artifact action 之后才能保留。
+name: 功能逻辑测试
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: functional-tests-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  DOTNET_NOLOGO: "1"
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: "1"
+
+jobs:
+  test:
+    name: ${{ matrix.suite }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [Auth, Features, Update, WebDav]
+    steps:
+      - name: 检出源码
+        env:
+          REPOSITORY: ${{ github.repository }}
+          REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          git init -q
+          git remote add origin "https://github.com/${REPOSITORY}.git"
+          git fetch --depth 1 origin "${REF}"
+          git checkout --detach FETCH_HEAD
+
+      - name: 安装 .NET 8 SDK
+        run: |
+          set -euo pipefail
+          curl -fsSL https://dot.net/v1/dotnet-install.sh -o "${RUNNER_TEMP}/dotnet-install.sh"
+          bash "${RUNNER_TEMP}/dotnet-install.sh" --channel 8.0 --install-dir "${RUNNER_TEMP}/dotnet"
+          echo "${RUNNER_TEMP}/dotnet" >> "${GITHUB_PATH}"
+          echo "DOTNET_ROOT=${RUNNER_TEMP}/dotnet" >> "${GITHUB_ENV}"
+          "${RUNNER_TEMP}/dotnet/dotnet" --list-sdks
+
+      - name: 恢复测试依赖
+        env:
+          SUITE: ${{ matrix.suite }}
+        run: dotnet restore "tests/SLDataAPI.${SUITE}.Tests/SLDataAPI.${SUITE}.Tests.csproj"
+
+      - name: 运行逻辑测试
+        env:
+          SUITE: ${{ matrix.suite }}
+        run: dotnet test "tests/SLDataAPI.${SUITE}.Tests/SLDataAPI.${SUITE}.Tests.csproj" --configuration Release --no-restore --logger "trx;LogFileName=${SUITE}.trx" --results-directory "TestResults/${SUITE}"
+
+      - name: 写入步骤摘要
+        if: ${{ !cancelled() }}
+        env:
+          SUITE: ${{ matrix.suite }}
+        run: |
+          set -euo pipefail
+          python3 - << 'PY'
+          import os
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          suite = os.environ["SUITE"]
+          reports = sorted(Path("TestResults", suite).glob("*.trx"))
+          lines = [f"### {suite}", ""]
+          if not reports:
+              lines.append("这次没有生成 TRX。结果以测试步骤的控制台输出为准。")
+          else:
+              root = ET.parse(reports[0]).getroot()
+              counters = next((el for el in root.iter() if el.tag.endswith("Counters")), None)
+              if counters is None:
+                  raise SystemExit(f"{reports[0]} has no Counters element")
+              passed = int(counters.attrib.get("passed", "0"))
+              failed = int(counters.attrib.get("failed", "0")) + int(counters.attrib.get("error", "0"))
+              skipped = int(counters.attrib.get("notExecuted", "0"))
+              total = int(counters.attrib.get("total", "0"))
+              lines.extend(
+                  [
+                      f"- Passed: {passed}",
+                      f"- Failed: {failed}",
+                      f"- Skipped: {skipped}",
+                      f"- Total: {total}",
+                  ]
+              )
+          lines.extend(
+              [
+                  "",
+                  "可下载的 TRX 制品目前不可用。仓库只允许 DNTOF 拥有的 action；在所有者允许官方 artifact action 之前，结果只留在作业日志和本摘要中。",
+              ]
+          )
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
+              handle.write("\n".join(lines) + "\n")
+          PY

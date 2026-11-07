@@ -209,7 +209,9 @@ dotnet test tests/SLDataAPI.Update.Tests/SLDataAPI.Update.Tests.csproj -c Releas
 dotnet test tests/SLDataAPI.WebDav.Tests/SLDataAPI.WebDav.Tests.csproj -c Release
 ```
 
-推送、Pull Request 和手动 `workflow_dispatch` 会走 `.github/workflows/functional-tests.yml`：在 GitHub 托管的 `ubuntu-24.04` 上分别跑这四套。任一失败会使该检查失败，其余套件仍会跑完，并保留 TRX 报告。仓库的 Actions 策略只允许 DNTOF 拥有的 action，所以这条工作流用 git 检出、官方 `dotnet-install.sh` 安装 .NET 8，不调用其他组织的 action。
+推送、Pull Request 和手动 `workflow_dispatch` 会走 `.github/workflows/functional-tests.yml`：在 GitHub 托管的 `ubuntu-24.04` 上分别跑这四套。任一失败会使该检查失败，其余套件仍会跑完。控制台日志和作业摘要里有每套的通过 / 失败 / 跳过数量。
+
+仓库的 Actions 策略只允许 DNTOF 拥有的 action，所以这条工作流用 git 检出、官方 `dotnet-install.sh` 安装 .NET 8，不调用其他组织的 action。可下载的 TRX 制品目前不可用，要等所有者允许官方的 artifact action 之后才能保留。
 
 ---
 

@@ -1,0 +1,221 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="680" viewBox="0 0 1280 680" role="img" aria-labelledby="title desc">
+<title id="title">SLDataAPI 架构总览</title>
+<desc id="desc">SCP:SL 专用服务器经 LabAPI 加载 SLDataAPI。SLDataAPI 提供数据快照、远程控制、实时事件流、语音转发、录音取证与审计日志，通过 8081 端口（HTTP / WebSocket）和 8082 端口（语音 WebSocket）对外服务，两个端口均可同端口启用自签 TLS。SLConsole、FoundationConsole、AstrBot 机器人与自定义脚本等客户端凭 verify_token 或 API Key 接入。</desc>
+<defs>
+<style>
+.sans{font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans CJK SC', 'WenQuanYi Micro Hei', Roboto, Helvetica, Arial, sans-serif}
+.mono{font-family:'JetBrains Mono', 'SFMono-Regular', 'Cascadia Code', Consolas, Menlo, 'Noto Sans Mono CJK SC', 'WenQuanYi Micro Hei Mono', monospace}
+.h1{font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans CJK SC', 'WenQuanYi Micro Hei', Roboto, Helvetica, Arial, sans-serif;font-size:62px;font-weight:800;letter-spacing:-1.5px}
+.sub{font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans CJK SC', 'WenQuanYi Micro Hei', Roboto, Helvetica, Arial, sans-serif;font-size:19px;fill:#93A0BA}
+.lbl{font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans CJK SC', 'WenQuanYi Micro Hei', Roboto, Helvetica, Arial, sans-serif;font-size:11px;font-weight:700;letter-spacing:2.2px;fill:#5D6A86}
+.ct{font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans CJK SC', 'WenQuanYi Micro Hei', Roboto, Helvetica, Arial, sans-serif;font-size:17px;font-weight:700;fill:#E8ECF5}
+.cs{font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans CJK SC', 'WenQuanYi Micro Hei', Roboto, Helvetica, Arial, sans-serif;font-size:12px;fill:#93A0BA}
+.row{font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans CJK SC', 'WenQuanYi Micro Hei', Roboto, Helvetica, Arial, sans-serif;font-size:14px;font-weight:600;fill:#E8ECF5}
+.tt{font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans CJK SC', 'WenQuanYi Micro Hei', Roboto, Helvetica, Arial, sans-serif;font-size:15px;font-weight:700;fill:#E8ECF5}
+.ts{font-family:'JetBrains Mono', 'SFMono-Regular', 'Cascadia Code', Consolas, Menlo, 'Noto Sans Mono CJK SC', 'WenQuanYi Micro Hei Mono', monospace;font-size:11.5px;fill:#93A0BA}
+.port{font-family:'JetBrains Mono', 'SFMono-Regular', 'Cascadia Code', Consolas, Menlo, 'Noto Sans Mono CJK SC', 'WenQuanYi Micro Hei Mono', monospace;font-size:20px;font-weight:700}
+.code{font-family:'JetBrains Mono', 'SFMono-Regular', 'Cascadia Code', Consolas, Menlo, 'Noto Sans Mono CJK SC', 'WenQuanYi Micro Hei Mono', monospace;font-size:12.5px}
+.flow{stroke-dasharray:3 7;animation:flow 1.4s linear infinite}
+.pulse{animation:pulse 2.4s ease-in-out infinite}
+@keyframes flow{to{stroke-dashoffset:-20}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+@media (prefers-reduced-motion:reduce){.flow,.pulse{animation:none}}
+</style>
+<linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+  <stop offset="0" stop-color="#070B17"/><stop offset="1" stop-color="#0D1426"/>
+</linearGradient>
+<radialGradient id="glowA" cx="0.5" cy="0.5" r="0.5">
+  <stop offset="0" stop-color="#8B6CFF" stop-opacity="0.30"/><stop offset="1" stop-color="#8B6CFF" stop-opacity="0"/>
+</radialGradient>
+<radialGradient id="glowB" cx="0.5" cy="0.5" r="0.5">
+  <stop offset="0" stop-color="#22D3EE" stop-opacity="0.30"/><stop offset="1" stop-color="#22D3EE" stop-opacity="0"/>
+</radialGradient>
+<linearGradient id="titleGrad" x1="0" y1="0" x2="1" y2="0">
+  <stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#A9B4FF"/>
+</linearGradient>
+<linearGradient id="coreStroke" x1="0" y1="0" x2="1" y2="1">
+  <stop offset="0" stop-color="#8B6CFF"/><stop offset="0.55" stop-color="#22D3EE"/><stop offset="1" stop-color="#F472B6"/>
+</linearGradient>
+<linearGradient id="logo" x1="0" y1="0" x2="1" y2="1">
+  <stop offset="0" stop-color="#8B6CFF"/><stop offset="1" stop-color="#22D3EE"/>
+</linearGradient>
+<linearGradient id="srcLogo" x1="0" y1="0" x2="1" y2="1">
+  <stop offset="0" stop-color="#E5484D"/><stop offset="1" stop-color="#F59E0B"/>
+</linearGradient>
+<pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+  <path d="M32 0 H0 V32" fill="none" stroke="#94A3B8" stroke-opacity="0.07" stroke-width="1"/>
+</pattern>
+<filter id="blur" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="22"/></filter>
+<filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
+  <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#0B1020" flood-opacity="0.35"/>
+</filter>
+<marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+  <path d="M1 1 L8 5 L1 9" fill="none" stroke="#5D6A86" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+</marker>
+<clipPath id="frame"><rect width="1280" height="680" rx="24"/></clipPath>
+</defs>
+<g clip-path="url(#frame)">
+<rect width="1280" height="680" fill="url(#bg)"/>
+<rect width="1280" height="680" fill="url(#grid)"/>
+<ellipse cx="200" cy="40" rx="420" ry="260" fill="url(#glowA)"/>
+<ellipse cx="610" cy="420" rx="360" ry="260" fill="url(#glowA)"/>
+<ellipse cx="1120" cy="620" rx="380" ry="240" fill="url(#glowB)"/>
+</g>
+<rect x="0.5" y="0.5" width="1279" height="679" rx="24" fill="none" stroke="#22304F"/>
+<rect x="56" y="46" width="250" height="28" rx="10" fill="#8B6CFF" fill-opacity="0.14"/>
+<rect x="56.5" y="46.5" width="249" height="27" rx="13.5" fill="none" stroke="#8B6CFF" stroke-opacity="0.35"/>
+<circle cx="74" cy="60" r="4" fill="#34D399" class="pulse"/>
+<text x="86" y="65" class="sans" fill="#8B6CFF" font-size="13" font-weight="600">LabAPI 原生插件 · v2.6.2</text>
+<text x="52" y="138" class="h1" fill="url(#titleGrad)">SLDataAPI</text>
+<text x="56" y="176" class="sub">把 SCP:SL 服务器变成可编程的平台</text>
+<text x="56" y="202" class="sub" font-size="15" fill-opacity="0.85">读数据 · 下指令 · 收事件 · 听语音</text>
+<g filter="url(#shadow)"><rect x="724" y="44" width="500" height="168" rx="14" fill="#0A1022" stroke="#1E2A47"/></g>
+<circle cx="746" cy="64" r="5.5" fill="#FF5F57"/>
+<circle cx="764" cy="64" r="5.5" fill="#FEBC2E"/>
+<circle cx="782" cy="64" r="5.5" fill="#28C840"/>
+<text x="974.0" y="69" class="mono" text-anchor="middle" fill="#6B7894" font-size="12">GET /get_sl_data</text>
+<path d="M724 84 H1224" stroke="#1E2A47"/>
+<text x="746" y="114" class="code" xml:space="preserve"><tspan fill="#64748B">$ </tspan><tspan fill="#E2E8F0">curl </tspan><tspan fill="#C4B5FD">-H </tspan><tspan fill="#A7F3D0">"Authorization: Bearer ••••" </tspan><tspan fill="#E2E8F0">:8081/get_sl_data</tspan></text>
+<text x="746" y="138" class="code" xml:space="preserve"><tspan fill="#E2E8F0">{ </tspan><tspan fill="#7DD3FC">"success"</tspan><tspan fill="#E2E8F0">: </tspan><tspan fill="#FBBF24">true</tspan><tspan fill="#E2E8F0">, </tspan><tspan fill="#7DD3FC">"players_count"</tspan><tspan fill="#E2E8F0">: </tspan><tspan fill="#FBBF24">24</tspan><tspan fill="#E2E8F0">, </tspan><tspan fill="#7DD3FC">"max_players"</tspan><tspan fill="#E2E8F0">: </tspan><tspan fill="#FBBF24">30</tspan><tspan fill="#E2E8F0">,</tspan></text>
+<text x="746" y="162" class="code" xml:space="preserve"><tspan fill="#E2E8F0">  </tspan><tspan fill="#7DD3FC">"current_phase"</tspan><tspan fill="#E2E8F0">: </tspan><tspan fill="#A7F3D0">"进行中"</tspan><tspan fill="#E2E8F0">, </tspan><tspan fill="#7DD3FC">"game_version"</tspan><tspan fill="#E2E8F0">: </tspan><tspan fill="#A7F3D0">"14.2.8"</tspan><tspan fill="#E2E8F0">,</tspan></text>
+<text x="746" y="186" class="code" xml:space="preserve"><tspan fill="#E2E8F0">  </tspan><tspan fill="#7DD3FC">"active_holiday"</tspan><tspan fill="#E2E8F0">: </tspan><tspan fill="#A7F3D0">"Halloween"</tspan><tspan fill="#E2E8F0">, </tspan><tspan fill="#7DD3FC">"players"</tspan><tspan fill="#E2E8F0">: </tspan><tspan fill="#64748B">[ … ]</tspan><tspan fill="#E2E8F0"> }</tspan></text>
+<rect x="746.0" y="190" width="8" height="14" fill="#22D3EE" class="pulse" opacity="0.9"/>
+<text x="56" y="264" class="lbl">游戏服务器</text>
+<text x="364" y="264" class="lbl">SLDataAPI 核心</text>
+<text x="858" y="264" class="lbl">端口</text>
+<text x="1010" y="264" class="lbl">客户端</text>
+<g filter="url(#shadow)"><rect x="56" y="278" width="248" height="340" rx="18" fill="#0F172B" stroke="#22304F"/></g>
+<rect x="76" y="298" width="40" height="40" rx="11" fill="url(#srcLogo)"/>
+<text x="96" y="324" class="sans" text-anchor="middle" fill="#FFFFFF" font-size="15" font-weight="800">SL</text>
+<text x="128" y="316" class="ct">SCP:SL 服务器</text>
+<text x="128" y="334" class="cs">Dedicated Server + LabAPI</text>
+<rect x="72" y="362" width="216" height="38" rx="10" fill="#141D35" stroke="#22304F"/>
+<rect x="80" y="369" width="24" height="24" rx="10" fill="#8B6CFF" fill-opacity="0.16"/>
+<circle cx="92" cy="378" r="3.5" stroke="#8B6CFF" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M85.5 388 a6.5 6 0 0 1 13 0" stroke="#8B6CFF" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="116" y="386" class="row">玩家与物品栏</text>
+<rect x="72" y="410" width="216" height="38" rx="10" fill="#141D35" stroke="#22304F"/>
+<rect x="80" y="417" width="24" height="24" rx="10" fill="#FBBF24" fill-opacity="0.16"/>
+<path d="M87 437 V422 H98 L95 426 L98 430 H87" stroke="#FBBF24" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="116" y="434" class="row">回合与核弹</text>
+<rect x="72" y="458" width="216" height="38" rx="10" fill="#141D35" stroke="#22304F"/>
+<rect x="80" y="465" width="24" height="24" rx="10" fill="#22D3EE" fill-opacity="0.16"/>
+<path d="M84 472 L89 470 L95 472 L100 470 V482 L95 484 L89 482 L84 484 Z M89 470 V482 M95 472 V484" stroke="#22D3EE" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="116" y="482" class="row">地图与设施</text>
+<rect x="72" y="506" width="216" height="38" rx="10" fill="#141D35" stroke="#22304F"/>
+<rect x="80" y="513" width="24" height="24" rx="10" fill="#F472B6" fill-opacity="0.16"/>
+<rect x="89" y="517" width="6" height="10" rx="3" stroke="#F472B6" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M86 524 a6 6 0 0 0 12 0 M92 530 V533" stroke="#F472B6" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="116" y="530" class="row">语音频道</text>
+<rect x="72" y="554" width="216" height="38" rx="10" fill="#141D35" stroke="#22304F"/>
+<rect x="80" y="561" width="24" height="24" rx="10" fill="#34D399" fill-opacity="0.16"/>
+<path d="M93 565 L87 574 H92 L91 581 L97 572 H92 Z" stroke="#34D399" stroke-width="1.6" fill="#34D399" fill-opacity="0.25" stroke-linejoin="round"/>
+<text x="116" y="578" class="row">游戏事件</text>
+<rect x="394" y="308" width="410" height="280" rx="30" fill="#8B6CFF" opacity="0.30" filter="url(#blur)"/>
+<rect x="364" y="278" width="470" height="340" rx="20" fill="#0F172B"/>
+<rect x="364.75" y="278.75" width="468.5" height="338.5" rx="19.5" fill="none" stroke="url(#coreStroke)" stroke-width="1.5"/>
+<polygon points="404.0,298.0 421.3,308.0 421.3,328.0 404.0,338.0 386.7,328.0 386.7,308.0" fill="url(#logo)"/>
+<path d="M397 323 L403 317 L407 321 L412 313" stroke="#FFFFFF" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="436" y="316" class="ct" font-size="19">SLDataAPI</text>
+<text x="436" y="335" class="cs">运行于服务器进程内 · 主线程安全调度</text>
+<rect x="726" y="304" width="88" height="24" rx="10" fill="#34D399" fill-opacity="0.16"/>
+<circle cx="740" cy="316" r="3.5" fill="#34D399" class="pulse"/>
+<text x="750" y="320" class="sans" fill="#34D399" font-size="12" font-weight="700">运行中</text>
+<rect x="384" y="358" width="134" height="100" rx="12" fill="#141D35" stroke="#22304F"/>
+<rect x="384" y="374" width="2.5" height="22" rx="1.25" fill="#8B6CFF"/>
+<rect x="398" y="372" width="30" height="30" rx="10" fill="#8B6CFF" fill-opacity="0.16"/>
+<path d="M407 393 V388 M413 393 V381 M419 393 V385" stroke="#8B6CFF" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="398" y="428" class="tt">数据快照</text>
+<text x="398" y="446" class="ts">/get_sl_data</text>
+<rect x="530" y="358" width="134" height="100" rx="12" fill="#141D35" stroke="#22304F"/>
+<rect x="530" y="374" width="2.5" height="22" rx="1.25" fill="#22D3EE"/>
+<rect x="544" y="372" width="30" height="30" rx="10" fill="#22D3EE" fill-opacity="0.16"/>
+<path d="M552 382 L557 387 L552 392 M559 393 H566" stroke="#22D3EE" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="544" y="428" class="tt">远程控制</text>
+<text x="544" y="446" class="ts">40+ 端点</text>
+<rect x="676" y="358" width="134" height="100" rx="12" fill="#141D35" stroke="#22304F"/>
+<rect x="676" y="374" width="2.5" height="22" rx="1.25" fill="#FBBF24"/>
+<rect x="690" y="372" width="30" height="30" rx="10" fill="#FBBF24" fill-opacity="0.16"/>
+<path d="M706 379 L700 388 H705 L704 395 L710 386 H705 Z" stroke="#FBBF24" stroke-width="1.6" fill="#FBBF24" fill-opacity="0.25" stroke-linejoin="round"/>
+<text x="690" y="428" class="tt">事件流</text>
+<text x="690" y="446" class="ts">19 种事件</text>
+<rect x="384" y="470" width="134" height="100" rx="12" fill="#141D35" stroke="#22304F"/>
+<rect x="384" y="486" width="2.5" height="22" rx="1.25" fill="#F472B6"/>
+<rect x="398" y="484" width="30" height="30" rx="10" fill="#F472B6" fill-opacity="0.16"/>
+<path d="M405 497.0 V501.0 M409 494.5 V503.5 M413 492.0 V506.0 M417 494.5 V503.5 M421 496.5 V501.5" stroke="#F472B6" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="398" y="540" class="tt">语音转发</text>
+<text x="398" y="558" class="ts">48 kHz PCM</text>
+<rect x="530" y="470" width="134" height="100" rx="12" fill="#141D35" stroke="#22304F"/>
+<rect x="530" y="486" width="2.5" height="22" rx="1.25" fill="#34D399"/>
+<rect x="544" y="484" width="30" height="30" rx="10" fill="#34D399" fill-opacity="0.16"/>
+<circle cx="559" cy="499" r="7" stroke="#34D399" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/><circle cx="559" cy="499" r="3" fill="#34D399"/>
+<text x="544" y="540" class="tt">录音取证</text>
+<text x="544" y="558" class="ts">WAV + TSV</text>
+<rect x="676" y="470" width="134" height="100" rx="12" fill="#141D35" stroke="#22304F"/>
+<rect x="676" y="486" width="2.5" height="22" rx="1.25" fill="#60A5FA"/>
+<rect x="690" y="484" width="30" height="30" rx="10" fill="#60A5FA" fill-opacity="0.16"/>
+<path d="M699 491 H708 L711 494 V507 H699 Z M702 497 H708 M702 501 H708 M702 504 H706" stroke="#60A5FA" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="690" y="540" class="tt">审计日志</text>
+<text x="690" y="558" class="ts">control_log</text>
+<rect x="384" y="576" width="430" height="28" rx="8" fill="#141D35" stroke="#22304F"/>
+<rect x="396" y="588" width="12" height="9" rx="2" stroke="#8B6CFF" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M398.5 588 V585 a3.5 3.5 0 0 1 7 0 V588" stroke="#8B6CFF" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="418" y="594.5" class="cs" fill="#E8ECF5" fill-opacity="0.8">API Key 分级授权 · 指纹存储 · 弱口令 fail-closed · 操作审计</text>
+<path d="M288 381 C328 381 322 388 362 388" stroke="#8B6CFF" stroke-opacity="0.75" stroke-width="1.6" fill="none" class="flow"/>
+<circle cx="362" cy="388" r="3" fill="#8B6CFF"/>
+<path d="M288 429 C328 429 322 418 362 418" stroke="#FBBF24" stroke-opacity="0.75" stroke-width="1.6" fill="none" class="flow"/>
+<circle cx="362" cy="418" r="3" fill="#FBBF24"/>
+<path d="M288 477 C328 477 322 448 362 448" stroke="#22D3EE" stroke-opacity="0.75" stroke-width="1.6" fill="none" class="flow"/>
+<circle cx="362" cy="448" r="3" fill="#22D3EE"/>
+<path d="M288 525 C328 525 322 478 362 478" stroke="#F472B6" stroke-opacity="0.75" stroke-width="1.6" fill="none" class="flow"/>
+<circle cx="362" cy="478" r="3" fill="#F472B6"/>
+<path d="M288 573 C328 573 322 508 362 508" stroke="#34D399" stroke-opacity="0.75" stroke-width="1.6" fill="none" class="flow"/>
+<circle cx="362" cy="508" r="3" fill="#34D399"/>
+<g filter="url(#shadow)"><rect x="858" y="318" width="124" height="96" rx="14" fill="#0F172B" stroke="#22D3EE" stroke-opacity="0.55"/></g>
+<text x="874" y="350" class="port" fill="#22D3EE">:8081</text>
+<text x="874" y="372" class="sans" fill="#E8ECF5" font-size="13" font-weight="600">HTTP · WS</text>
+<text x="874" y="394" class="cs" font-size="11.5">数据 · 控制 · 事件</text>
+<path d="M834 366.0 H854" stroke="#22D3EE" stroke-width="1.8" fill="none" class="flow"/>
+<circle cx="834" cy="366.0" r="3.5" fill="#22D3EE"/>
+<g filter="url(#shadow)"><rect x="858" y="446" width="124" height="96" rx="14" fill="#0F172B" stroke="#F472B6" stroke-opacity="0.55"/></g>
+<text x="874" y="478" class="port" fill="#F472B6">:8082</text>
+<text x="874" y="500" class="sans" fill="#E8ECF5" font-size="13" font-weight="600">Voice WS</text>
+<text x="874" y="522" class="cs" font-size="11.5">语音转发</text>
+<path d="M834 494.0 H854" stroke="#F472B6" stroke-width="1.8" fill="none" class="flow"/>
+<circle cx="834" cy="494.0" r="3.5" fill="#F472B6"/>
+<rect x="858" y="562" width="124" height="56" rx="12" fill="#8B6CFF" fill-opacity="0.16" stroke="#8B6CFF" stroke-opacity="0.4" stroke-dasharray="4 4"/>
+<rect x="874" y="580" width="12" height="9" rx="2" stroke="#8B6CFF" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M876.5 580 V577 a3.5 3.5 0 0 1 7 0 V580" stroke="#8B6CFF" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="894" y="587" class="sans" fill="#8B6CFF" font-size="13" font-weight="700">同端口 TLS</text>
+<text x="874" y="606" class="cs" font-size="11.5">自签 · 指纹固定</text>
+<path d="M920.0 542 V562" stroke="#8B6CFF" stroke-opacity="0.5" stroke-dasharray="3 4" fill="none"/>
+<g filter="url(#shadow)"><rect x="1010" y="278" width="214" height="73" rx="14" fill="#0F172B" stroke="#22304F"/></g>
+<rect x="1024" y="298" width="34" height="34" rx="10" fill="#34D399" fill-opacity="0.16"/>
+<rect x="1036" y="307" width="10" height="16" rx="2.5" stroke="#34D399" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M1039.5 320 H1042.5" stroke="#34D399" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="1070" y="311" class="tt" font-size="14">SLConsole</text>
+<text x="1070" y="330" class="cs">Android 原生客户端</text>
+<path d="M982 366.0 C1000 366.0 992 314.5 1008 314.5" stroke="#22D3EE" stroke-opacity="0.6" stroke-width="1.4" fill="none" class="flow"/>
+<path d="M982 494.0 C1000 494.0 992 314.5 1008 314.5" stroke="#F472B6" stroke-opacity="0.45" stroke-width="1.4" fill="none" class="flow"/>
+<circle cx="1010" cy="314.5" r="3" fill="#5D6A86"/>
+<g filter="url(#shadow)"><rect x="1010" y="367" width="214" height="73" rx="14" fill="#0F172B" stroke="#22304F"/></g>
+<rect x="1024" y="387" width="34" height="34" rx="10" fill="#60A5FA" fill-opacity="0.16"/>
+<rect x="1033" y="398" width="16" height="12" rx="2.5" stroke="#60A5FA" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M1033 402 H1049" stroke="#60A5FA" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="1070" y="400" class="tt" font-size="14">FoundationConsole</text>
+<text x="1070" y="419" class="cs">自部署 Web 管理平台</text>
+<path d="M982 366.0 C1000 366.0 992 403.5 1008 403.5" stroke="#22D3EE" stroke-opacity="0.6" stroke-width="1.4" fill="none" class="flow"/>
+<path d="M982 494.0 C1000 494.0 992 403.5 1008 403.5" stroke="#F472B6" stroke-opacity="0.45" stroke-width="1.4" fill="none" class="flow"/>
+<circle cx="1010" cy="403.5" r="3" fill="#5D6A86"/>
+<g filter="url(#shadow)"><rect x="1010" y="456" width="214" height="73" rx="14" fill="#0F172B" stroke="#22304F"/></g>
+<rect x="1024" y="476" width="34" height="34" rx="10" fill="#FBBF24" fill-opacity="0.16"/>
+<rect x="1034" y="489" width="14" height="10" rx="3" stroke="#FBBF24" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M1041 489 V486" stroke="#FBBF24" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/><circle cx="1041" cy="485" r="1.3" fill="#FBBF24"/><circle cx="1038" cy="494" r="1.2" fill="#FBBF24"/><circle cx="1044" cy="494" r="1.2" fill="#FBBF24"/>
+<text x="1070" y="489" class="tt" font-size="14">AstrBot</text>
+<text x="1070" y="508" class="cs">QQ 机器人查询</text>
+<path d="M982 366.0 C1000 366.0 992 492.5 1008 492.5" stroke="#22D3EE" stroke-opacity="0.6" stroke-width="1.4" fill="none" class="flow"/>
+<circle cx="1010" cy="492.5" r="3" fill="#5D6A86"/>
+<g filter="url(#shadow)"><rect x="1010" y="545" width="214" height="73" rx="14" fill="#0F172B" stroke="#22304F"/></g>
+<rect x="1024" y="565" width="34" height="34" rx="10" fill="#F472B6" fill-opacity="0.16"/>
+<path d="M1037 576 L1032 582 L1037 588 M1045 576 L1050 582 L1045 588" stroke="#F472B6" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="1070" y="578" class="tt" font-size="14">你的集成</text>
+<text x="1070" y="597" class="cs">curl · Python · Node</text>
+<path d="M982 366.0 C1000 366.0 992 581.5 1008 581.5" stroke="#22D3EE" stroke-opacity="0.6" stroke-width="1.4" fill="none" class="flow"/>
+<path d="M982 494.0 C1000 494.0 992 581.5 1008 581.5" stroke="#F472B6" stroke-opacity="0.45" stroke-width="1.4" fill="none" class="flow"/>
+<circle cx="1010" cy="581.5" r="3" fill="#5D6A86"/>
+<text x="56" y="650" class="sans" fill="#5D6A86" font-size="12.5" xml:space="preserve">SCP:SL 14.2.8   ·   LabAPI   ·   .NET Framework 4.8   ·   Apache-2.0   ·   github.com/DNTOF/SLDataAPI</text>
+<text x="1224" y="650" class="mono" text-anchor="end" fill="#5D6A86" font-size="12" xml:space="preserve">HTTP  ·  WebSocket  ·  TLS  ·  48 kHz Voice</text>
+</svg>

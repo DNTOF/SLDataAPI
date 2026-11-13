@@ -1,75 +1,151 @@
+<div align="center">
+
+# SLDataAPI
+
+**把你的 SCP:SL 服务器变成一个可编程的平台**
+
+LabAPI 原生插件 · 数据查询 · 远程控制 · 实时事件流 · 语音转发与录音取证
+
+[![Release](https://img.shields.io/github/v/release/DNTOF/SLDataAPI?style=flat-square&label=release&color=2ea44f)](https://github.com/DNTOF/SLDataAPI/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/DNTOF/SLDataAPI/total?style=flat-square&color=blue)](https://github.com/DNTOF/SLDataAPI/releases)
+[![Tests](https://img.shields.io/github/actions/workflow/status/DNTOF/SLDataAPI/functional-tests.yml?branch=main&style=flat-square&label=tests)](https://github.com/DNTOF/SLDataAPI/actions/workflows/functional-tests.yml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-orange?style=flat-square)](LICENSE)
+<br>
+[![SCP:SL](https://img.shields.io/badge/SCP%3ASL-14.2.8-c0392b?style=flat-square)](https://scpslgame.com/)
+[![LabAPI](https://img.shields.io/badge/LabAPI-native-8e44ad?style=flat-square)](https://github.com/northwood-studios/LabAPI)
+[![.NET Framework](https://img.shields.io/badge/.NET%20Framework-4.8-512bd4?style=flat-square)](https://dotnet.microsoft.com/)
+![QQ 群](https://img.shields.io/badge/QQ%20群-984840871-12b7f5?style=flat-square)
+
+[快速开始](#-快速开始) · [功能一览](#-功能一览) · [配置](#-配置) · [鉴权与安全](#-鉴权与安全) · [接口](#-接口速览) · [Wiki](https://github.com/DNTOF/SLDataAPI/wiki) · [Q&A](https://github.com/DNTOF/SLDataAPI/wiki/Q%26A)
+
+</div>
+
+<br>
+
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/sldataapi-overview-dark.svg">
-  <img src="docs/assets/sldataapi-overview-light.svg" alt="SLDataAPI 架构示意：SCP:SL 服务器（LabAPI）→ SLDataAPI → :8081 数据口 / 控制面（HTTP 或 WS）、:8082 语音，同端口可选自签 TLS → 机器人、Web 面板、SLConsole App" width="100%">
+  <img src="docs/assets/sldataapi-overview-light.svg" alt="SLDataAPI 架构总览：SCP:SL 服务器（LabAPI）→ SLDataAPI 核心（数据快照、远程控制、事件流、语音转发、录音取证、审计日志）→ :8081 HTTP / WS、:8082 语音 WS，同端口可选自签 TLS → SLConsole、Foundation Console、AstrBot 与自定义集成" width="100%">
 </picture>
 
-SCP:SL 专用服务器的 **LabAPI 原生插件**。对外提供 HTTP 数据查询、远程控制、控制 WebSocket 事件流、语音转发与录音取证。
+<br>
 
-常见问题见 Wiki **[Q&A](https://github.com/DNTOF/SLDataAPI/wiki/Q%26A)**。
+<div align="center">
 
+| **40+** | **19** | **48 kHz** | **1** | **180+** |
+|:---:|:---:|:---:|:---:|:---:|
+| 控制端点 | 实时事件类型 | 全频道语音转发 | 端口同时承载 HTTP / WS / TLS | 自动化回归用例 |
 
-## 能力概览
+</div>
 
-| 能力 | 说明 |
+## ✨ 为什么选择 SLDataAPI
+
+<table>
+<tr>
+<td width="33%" valign="top">
+
+### 📊 数据一手掌握
+一个请求拿到人数、回合、核弹、玩家 SteamID 与坐标、游戏版本、当前节日，机器人和面板直接用。
+
+</td>
+<td width="33%" valign="top">
+
+### 🎮 远程全面掌控
+玩家、物品栏、回合、地图、CASSIE、封禁、控制台、文件……40+ 端点覆盖日常运维，HTTP 或 WebSocket 任选。
+
+</td>
+<td width="33%" valign="top">
+
+### ⚡ 事件实时推送
+回合、进出、死亡、逃脱、核弹、重生波次、SCP 收容……19 种游戏事件经 WebSocket 实时推送。
+
+</td>
+</tr>
+<tr>
+<td width="33%" valign="top">
+
+### 🎙️ 语音转发与取证
+全频道 48 kHz PCM 实时转发；分轨 WAV + 时间轴 TSV 按局归档，可自动上传到 WebDAV。
+
+</td>
+<td width="33%" valign="top">
+
+### 🔐 安全默认开启
+API Key 分级授权、仅存指纹；弱口令 fail-closed；同端口自签 TLS + 指纹固定；侵入性操作全程审计。
+
+</td>
+<td width="33%" valign="top">
+
+### 🧩 开放可扩展
+其它插件可注册为「适配插件」，通过 SLDataAPI 对外暴露状态与操作，无需自建 HTTP 服务。
+
+</td>
+</tr>
+</table>
+
+## 📦 功能一览
+
+| 模块 | 能力 |
 |------|------|
-| 数据查询 | `GET /get_sl_data`：人数、回合、核弹、玩家（SteamID/坐标）、游戏版本与当前节日（`game_version` / `active_holiday`）、DNT_OF 插件状态；`GET /plugins/adapted` + `adapted_plugins` 适配插件发现 |
-| 控制接口 | `/control/*`：玩家 / 物品栏 / 管理 / 回合 / 地图（含设施状态快照、灯光颜色）/ CASSIE / 全服广播 / 管理聊天 / 控制台 / 插件 / 文件 / 日志 / 举报等；HTTP 或 WS 二选一。`/control/player/data` 含生命 / 护盾 / 体力 / 物品 / 弹药 / 当前效果与 TemporaryBypass 开门权限 |
-| 节日 | 万圣节糖果 / 棉花糖人 / 节日物品：按游戏当前节日自动可用，未开启时返回结构化 `409 holiday_inactive`，无需改代码 |
-| 事件流 | 控制 WS 订阅：回合、进出、死亡、角色变化、逃脱、封禁 / 踢出、重生波次、核弹、去污、发电机、SCP 收容播报、举报等 |
-| 语音转发 | 独立端口 WS，全频道 48kHz PCM（SPY） |
-| 语音录音 | 分轨 WAV + 时间轴 TSV，按局保留；可选 WebDAV（仅 https）自动上传定稿 zip |
-| 举报 | Esc 服务器设置面板 + `/control/reports`（默认关） |
-| 审计 | 侵入性控制操作写入 `control_log.json`（默认开） |
+| **数据查询** | `GET /get_sl_data`：人数、回合、核弹、玩家（SteamID / 坐标）、`game_version` / `active_holiday`、DNT_OF 插件状态；`GET /plugins/adapted` 发现适配插件 |
+| **控制面** | `/control/*`：玩家 / 物品栏 / 管理 / 回合 / 地图（设施状态快照、灯光颜色、布局导出）/ CASSIE / 全服广播 / 管理聊天 / 控制台 / 插件 / 文件 / 日志 / 举报 / 假人；`/control/player/data` 含生命、护盾、体力、物品、弹药、当前效果与 TemporaryBypass 开门权限 |
+| **事件流** | 控制 WS 订阅：回合开始 / 结束、进出、死亡、角色变化、逃脱、封禁 / 踢出、重生波次、核弹、去污、发电机、SCP 收容播报、举报等 |
+| **节日玩法** | 万圣节糖果 / 棉花糖人 / 节日物品：跟随游戏当前节日自动启用，未开启时返回结构化 `409 holiday_inactive`，无需改代码 |
+| **语音转发** | 独立端口 WebSocket，全频道 48 kHz PCM（SPY） |
+| **语音录音** | 分轨 WAV + 时间轴 TSV，按局保留；可选 WebDAV（仅 https）自动上传定稿 zip |
+| **举报** | Esc 服务器设置面板 + `/control/reports`（默认关） |
+| **审计** | 侵入性控制操作写入 `control_log.json`（默认开） |
+| **自动更新** | 启动时 + 每 72 小时静默检查 GitHub Releases；仅安装经强名称验签的正式包 |
 
-## 运行依赖
+## 🚀 快速开始
 
-插件运行时需要两个程序集：
+### 1. 准备依赖
 
-| 依赖 | 版本 | 缺失现象 |
-|------|------|----------|
-| `0Harmony.dll` | 2.3.x（建议与 LabAPI 自带一致） | 插件加载失败 / 事件补丁不生效 |
-| `Newtonsoft.Json.dll` | 13.0.x（程序集版本 13.0.0.0） | 插件加载失败 / 启动即崩 |
+插件运行时需要两个程序集，放入所有端口共享的全局依赖目录：
 
-**放置位置**（所有端口共享的全局依赖目录）：
-
-```
+```text
 %AppData%/SCP Secret Laboratory/LabAPI/dependencies/global/0Harmony.dll
 %AppData%/SCP Secret Laboratory/LabAPI/dependencies/global/Newtonsoft.Json.dll
 ```
 
-**获取渠道：**
+| 依赖 | 版本 | 获取 | 缺失现象 |
+|------|------|------|----------|
+| `0Harmony.dll` | 2.3.x（建议与 LabAPI 自带一致） | [Harmony Releases](https://github.com/pardeike/Harmony/releases)（选 **net472**） | 插件加载失败 / 事件补丁不生效 |
+| `Newtonsoft.Json.dll` | 13.0.x（程序集版本 13.0.0.0） | [NuGet](https://www.nuget.org/packages/Newtonsoft.Json) | 插件加载失败 / 启动即崩 |
 
-- `0Harmony.dll`：Harmony 官方仓库 https://github.com/pardeike/Harmony/releases （选择 **net472** 版本，文件名为 `0Harmony.dll`）
-- `Newtonsoft.Json.dll`：NuGet https://www.nuget.org/packages/Newtonsoft.Json （13.0.x）
+### 2. 安装插件
 
-放入后重启服务器生效。
+1. 从 [**最新 Release**](https://github.com/DNTOF/SLDataAPI/releases/latest) 下载 `SLDataAPI.dll`（或自行构建，见 [Building](https://github.com/DNTOF/SLDataAPI/wiki/Building)）
+2. 放入 `%AppData%/SCP Secret Laboratory/LabAPI/plugins/global/`
+3. 启动服务器，自动生成配置文件
 
----
+### 3. 完成初始化
 
-## 安装 / 升级
+1. **把 `verify_token` 改成强随机值**，然后重启
+2. 需要控制面时，在本地控制台执行 `sldataapi apikey create <id> admin`（或 `duty`）
+3. 防火墙按需放行 `http_port`（启用语音时还有 `voice_port`）
 
-1. 从 [最新 Release](https://github.com/DNTOF/SLDataAPI/releases/latest) 下载 `SLDataAPI.dll`（或自行 `dotnet build -c Release`，见 [Building](https://github.com/DNTOF/SLDataAPI/wiki/Building)）
-2. 确认上方两个依赖已就位
-3. 升级前备份 `config.yml` 与 `apikey.config`
-4. 将 `SLDataAPI.dll` 放入 `%AppData%/SCP Secret Laboratory/LabAPI/plugins/global/`
-5. 启动服务器生成配置，**把 `verify_token` 改成强随机值**后重启
-6. 需要控制面时：本地控制台执行 `sldataapi apikey create <id> admin`（或 `duty`）
-7. 防火墙按需放行 `http_port`（及启用时的 `voice_port`）
+### 4. 发出第一个请求
 
-从旧版 `control_token` 鉴权升级：控制端改用 API Key、路径改为 RA 对齐分组，对照表见 Wiki [HTTP-API](https://github.com/DNTOF/SLDataAPI/wiki/HTTP-API)。
+```bash
+curl -H "Authorization: Bearer <verify_token>" http://<host>:8081/get_sl_data
+```
 
----
+> [!TIP]
+> **升级前**请备份 `config.yml` 与 `apikey.config`。从旧版 `control_token` 鉴权升级时，控制端需改用 API Key，路径改为 RA 对齐分组，对照表见 Wiki [HTTP-API](https://github.com/DNTOF/SLDataAPI/wiki/HTTP-API)。
 
-## 配置（摘要）
+## 🔧 配置
 
 路径：`LabAPI/configs/<端口或 global>/SLDataAPI/config.yml`（键名 **snake_case**）。
+
+<details>
+<summary><b>展开查看常用配置项</b></summary>
 
 ```yaml
 debug: false
 verify_token: "your_secret_token"   # 必须改成强随机值；默认/弱口令会 fail-closed 关闭数据口
 http_port: 8081
 push_interval_seconds: 8
-tls_mode: optional                  # off | optional | required：同端口自签 TLS（见下文「TLS」）
+tls_mode: optional                  # off | optional | required：同端口自签 TLS
 
 control_enabled: false              # 关则所有 /control/* → 404
 control_transport: http             # http | ws（硬互斥）
@@ -93,27 +169,25 @@ control_log_enabled: true
 # apikey_copy_to_clipboard: false   # Windows 创建 Key 后是否复制剪贴板（默认关）
 ```
 
-完整字段、YAML 坑、token 写法见 Wiki [Configuration](https://github.com/DNTOF/SLDataAPI/wiki/Configuration)。
+</details>
 
----
+完整字段、YAML 常见坑、token 写法见 Wiki [Configuration](https://github.com/DNTOF/SLDataAPI/wiki/Configuration)。
 
-## 鉴权
+## 🔐 鉴权与安全
 
-| 通道 | 凭据 | 配置位置 |
+| 通道 | 凭据 | 存放位置 |
 |------|------|----------|
 | `GET /get_sl_data`、`GET /plugins/adapted` | `verify_token`（`Authorization: Bearer` / `X-SLDataAPI-Token`；`?token=` 兼容但已弃用） | `config.yml` |
 | `/control/*`、控制 WS、语音口 | **API Key** | `apikey.config`（同配置目录，仅存指纹） |
 
-控制面请求头（二选一）：
+控制面请求头（二选一）。`X-Control-Token`、控制面 URL 中的 `?token=` / `?key=` 均**不再接受**。
 
 ```http
 Authorization: Bearer <api_key>
 X-SLDataAPI-Key: <api_key>
 ```
 
-不再接受：`X-Control-Token`、控制面 URL `?token=` / `?key=`。
-
-### 管理 API Key（仅本地控制台）
+### API Key 管理
 
 ```text
 sldataapi apikey create <id> <duty|admin> [note]
@@ -121,30 +195,32 @@ sldataapi apikey list
 sldataapi apikey revoke <id>
 ```
 
-- `apikey` 子命令**仅限服务器本地控制台（LocalAdmin）**：RemoteAdmin 与远程控制通道一律拒绝（与 `cert` 对齐）。`sldataapi` / `slda` 经远程控制通道（HTTP 与 WS 的 `/control/console/command`）亦一律拒绝。
-- `create` 成功后明文写入配置目录的 `apikey_once_<id>.txt`，命令只回文件路径，不回密钥；文件约 **5 分钟后自动删除**，请尽快存进密码管理器。
-- 丢失明文无法找回，只能 `revoke` 后重新 `create`。
-- `duty` 偏只读，默认不授予 `/control/audit/list`、广播、管理聊天；`admin` 按端点目录授权，控制台 / 插件 / 文件等需 `endpoints_override` 单独放开。
-- 权限插件收窄 RemoteAdmin 时仍建议同时拒绝 `sldataapi` / `slda`（其它子命令）。
+- **仅限本地控制台（LocalAdmin）**：RemoteAdmin 与远程控制通道一律拒绝（与 `cert` 一致）；`sldataapi` / `slda` 经 `/control/console/command`（HTTP 与 WS）同样拒绝。
+- **一次性交付**：`create` 成功后明文写入配置目录的 `apikey_once_<id>.txt`，命令只返回文件路径，不回显密钥；文件约 **5 分钟后自动删除**，请尽快存入密码管理器。
+- **不可找回**：丢失明文只能 `revoke` 后重新 `create`。
+- **分级授权**：`duty` 偏只读，默认不授予 `/control/audit/list`、广播、管理聊天；`admin` 按端点目录授权，控制台 / 插件 / 文件等需通过 `endpoints_override` 单独放开。
+- 权限插件收窄 RemoteAdmin 时，仍建议同时拒绝 `sldataapi` / `slda` 的其它子命令。
 
-### TLS（自签，同端口）
+### 同端口自签 TLS
 
-- `tls_mode: optional`（默认）时，HTTP/WS 主端口与语音端口**同端口**同时接受 TLS 与明文：首字节为 TLS 握手（`0x16`）走 TLS 1.2，否则按明文处理；`https://` / `wss://` 与 `http://` / `ws://` 用同一个端口。
-- 首次启动在配置目录生成 `sld_tls.pfx` 与随机口令文件 `sld_tls.pwd`（RSA-2048 / SHA-256 / 约 10 年，`CN=SLDataAPI`；Windows 上文件权限暂未收紧，请自行限制配置目录访问）。启动日志打印 `TLS: <mode>, SHA-256 <指纹>`；客户端应固定（pin）该指纹，而不是信任 CA。
-- 控制 WS 与语音 WS 的 `hello` 增加 `tls`（本连接是否加密）与 `cert_fingerprint`（`tls_mode: off` 时为 `null`）。
-- `tls_mode: required`：明文 HTTP、明文控制 WS / 语音 WS 一律 `426`，`{"success":false,"message":"…","data":{"code":"tls_required"}}`。
-- `tls_mode: off`：不生成/加载证书，行为与旧版一致。
+| `tls_mode` | 行为 |
+|------------|------|
+| `optional`（默认） | 主端口与语音端口**同端口**同时接受 TLS 与明文：首字节为 TLS 握手（`0x16`）走 TLS 1.2，否则按明文处理 |
+| `required` | 明文 HTTP、明文控制 WS / 语音 WS 一律返回 `426`，`data.code = "tls_required"` |
+| `off` | 不生成 / 加载证书，行为与旧版一致 |
+
+- 首次启动在配置目录生成 `sld_tls.pfx` 与随机口令文件 `sld_tls.pwd`（RSA-2048 / SHA-256 / 约 10 年，`CN=SLDataAPI`）。Windows 上文件权限暂未收紧，请自行限制配置目录访问。
+- 启动日志打印 `TLS: <mode>, SHA-256 <指纹>`，客户端应**固定（pin）该指纹**，而不是信任 CA。
+- 控制 WS 与语音 WS 的 `hello` 消息带有 `tls`（本连接是否加密）与 `cert_fingerprint`（`tls_mode: off` 时为 `null`）。
 
 ```text
 sldataapi cert show     # 查看模式 / 指纹 / 有效期
 sldataapi cert regen    # 重新生成并热替换（仅对新连接生效；已 pin 的客户端须重新确认指纹）
 ```
 
-- `cert` 子命令**仅限服务器本地控制台（LocalAdmin）**：RemoteAdmin 与远程控制通道一律拒绝（与 `apikey` 相同）。`regen` 写入控制审计日志。
+`cert` 子命令同样**仅限本地控制台**，`regen` 会写入控制审计日志。
 
----
-
-## 接口入口
+## 🔌 接口速览
 
 | 类型 | 地址 |
 |------|------|
@@ -152,9 +228,10 @@ sldataapi cert regen    # 重新生成并热替换（仅对新连接生效；已
 | 控制 HTTP | `POST http://<host>:8081/control/...` + API Key 头 |
 | 控制 WS | `ws://<host>:8081/control` + 握手 API Key 头（`control_transport: ws`） |
 | 语音 | `ws://<host>:8082/ws` · `GET :8082/status` + API Key |
-| TLS | 以上均可同端口改用 `https://` / `wss://`（`tls_mode` 非 `off` 时；自签证书，按指纹固定） |
+| TLS | 以上均可同端口改用 `https://` / `wss://`（`tls_mode` 非 `off`；自签证书，按指纹固定） |
 
-全服广播示例：
+<details>
+<summary><b>示例：全服广播</b></summary>
 
 ```http
 POST /control/broadcast
@@ -164,9 +241,10 @@ Content-Type: application/json
 {"message":"服务器将于 5 分钟后重启","duration_seconds":10}
 ```
 
-完整端点表与 curl 示例：[HTTP-API](https://github.com/DNTOF/SLDataAPI/wiki/HTTP-API)。WS 协议与语音帧：[WS-Control-Protocol](https://github.com/DNTOF/SLDataAPI/wiki/WS-Control-Protocol) · [Voice-Forwarding](https://github.com/DNTOF/SLDataAPI/wiki/Voice-Forwarding)。
+</details>
 
-`/control/dummies`（假人，admin）：
+<details>
+<summary><b>示例：假人管理 <code>/control/dummies</code>（admin）</b></summary>
 
 ```http
 POST /control/dummies
@@ -176,31 +254,69 @@ Content-Type: application/json
 {"action":"spawn","nickname":"Bot","role":"ClassD"}
 ```
 
-`action`: `spawn` | `list` | `remove`。同时最多 5 个；`remove` 的 `target` 为假人 PlayerId / 昵称，或 `all`。
+`action` 可选 `spawn` | `list` | `remove`；同时最多 5 个；`remove` 的 `target` 为假人 PlayerId / 昵称，或 `all`。
 
----
+</details>
 
-## AstrBot
+📚 完整文档：[HTTP-API](https://github.com/DNTOF/SLDataAPI/wiki/HTTP-API)（端点表与 curl 示例）· [WS-Control-Protocol](https://github.com/DNTOF/SLDataAPI/wiki/WS-Control-Protocol) · [Voice-Forwarding](https://github.com/DNTOF/SLDataAPI/wiki/Voice-Forwarding)
 
-插件：[astrbot_plugin_sl_query](https://github.com/DNTOF/astrbot_plugin_sl_query)。`/bindlab <IP> <verify_token>` 后 `/sl` 显示 `[LAB]` 标记。
+## 🌐 生态
 
----
+### 官方客户端
 
-## 开发
+<table>
+<tr>
+<td width="50%" valign="top">
 
-[Development-Guide](https://github.com/DNTOF/SLDataAPI/wiki/Development-Guide) · [Architecture](https://github.com/DNTOF/SLDataAPI/wiki/Architecture) · [Building](https://github.com/DNTOF/SLDataAPI/wiki/Building)
+#### 📱 [SLConsole](https://github.com/DNTOF/SLConsole)
 
-开发 skill 与冒烟脚本：[最新 Release](https://github.com/DNTOF/SLDataAPI/releases/latest) 附件 `SLDataAPI-DevKit-v<版本>_<代号>.zip`。
+Android 原生管理 + 监控客户端（Kotlin · Jetpack Compose），直连 SLDataAPI，无需中间平台，凭据经 AndroidKeyStore 加密只存本机。
 
----
+- 概览监控、玩家管理、远程控制台
+- 种子重建地图，玩家实时定位，灯光 / 门 / 电梯控制
+- 实时事件流与 48 kHz 语音监听
+- 封禁、日志、审计、插件、文件、举报管理
+- 多服务器一键切换
 
-## 逻辑回归测试
+</td>
+<td width="50%" valign="top">
 
-`tests/` 下有四套独立的 net8.0 xUnit 项目：`SLDataAPI.Auth.Tests`、`SLDataAPI.Features.Tests`、`SLDataAPI.Update.Tests`、`SLDataAPI.WebDav.Tests`。它们直接编译对应的纯逻辑源文件，不引用主工程 `SLDataAPI.csproj`，因此不需要游戏程序集、LabAPI 或 Unity，也不会编译、签名或打包 `SLDataAPI.dll`。
+#### 🖥️ [Foundation Console](https://github.com/DNT-118/FoundationConsole)
 
-这些测试只做逻辑回归：鉴权与路径沙箱、节日 / 端点入参、更新检查与强名称判定、WebDAV 上传规则。不能代替进服集成，也不能说明完整插件在 SCP:SL 里可用。官方插件的编译与发布仍在本机完成。
+服主团队自部署的 Web 管理平台（React 19 · Node.js），浏览器不持有游戏服凭据，全部由平台后端代理。
 
-本机已安装 .NET 8 SDK 时：
+- 多服务器统一管理，单条 WebSocket 多路复用状态与控制
+- `admin` / `user` / `guest` 三级角色，后端强制鉴权
+- 注册登录、2FA、服务端会话
+- 凭据 AES-256-GCM 加密存储，无外部数据库、无遥测
+- 状态与语音 WebSocket 代理
+
+</td>
+</tr>
+</table>
+
+### 集成与扩展
+
+| 项目 | 说明 |
+|------|------|
+| [astrbot_plugin_sl_query](https://github.com/DNTOF/astrbot_plugin_sl_query) | AstrBot 插件：`/bindlab <IP> <verify_token>` 后，`/sl` 显示 `[LAB]` 标记 |
+| [AdaptedPluginSample](examples/AdaptedPluginSample) | 适配插件示例：把你自己的插件状态与操作挂到 SLDataAPI 上 |
+
+## 🛠️ 开发
+
+- 文档：[Development-Guide](https://github.com/DNTOF/SLDataAPI/wiki/Development-Guide) · [Architecture](https://github.com/DNTOF/SLDataAPI/wiki/Architecture) · [Building](https://github.com/DNTOF/SLDataAPI/wiki/Building)
+- 开发 skill 与冒烟脚本：[最新 Release](https://github.com/DNTOF/SLDataAPI/releases/latest) 附件 `SLDataAPI-DevKit-v<版本>_<代号>.zip`
+
+### 逻辑回归测试
+
+`tests/` 下有四套独立的 net8.0 xUnit 项目，直接编译对应的纯逻辑源文件，**不引用**主工程 `SLDataAPI.csproj`，因此不需要游戏程序集、LabAPI 或 Unity，也不会编译、签名或打包 `SLDataAPI.dll`。
+
+| 套件 | 覆盖范围 |
+|------|----------|
+| `SLDataAPI.Auth.Tests` | 鉴权、API Key 交付、端点 ACL、路径沙箱、TLS 策略、WS 调用闸门 |
+| `SLDataAPI.Features.Tests` | 节日闸门、端点入参规则、玩家查找、反射查找 |
+| `SLDataAPI.Update.Tests` | 更新检查与强名称判定 |
+| `SLDataAPI.WebDav.Tests` | WebDAV 上传规则 |
 
 ```bash
 dotnet test tests/SLDataAPI.Auth.Tests/SLDataAPI.Auth.Tests.csproj -c Release
@@ -209,26 +325,40 @@ dotnet test tests/SLDataAPI.Update.Tests/SLDataAPI.Update.Tests.csproj -c Releas
 dotnet test tests/SLDataAPI.WebDav.Tests/SLDataAPI.WebDav.Tests.csproj -c Release
 ```
 
-推送、Pull Request 和手动 `workflow_dispatch` 会走 `.github/workflows/functional-tests.yml`：在 GitHub 托管的 `ubuntu-24.04` 上分别跑这四套。任一失败会使该检查失败，其余套件仍会跑完。控制台日志和作业摘要里有每套的通过 / 失败 / 跳过数量。
+> [!NOTE]
+> 这些测试只做逻辑回归，不能代替进服集成，也不能说明完整插件在 SCP:SL 里可用。官方插件的编译与发布仍在本机完成。
 
-仓库的 Actions 策略只允许 DNTOF 拥有的 action，所以这条工作流用 git 检出、官方 `dotnet-install.sh` 安装 .NET 8，不调用其他组织的 action。可下载的 TRX 制品目前不可用，要等所有者允许官方的 artifact action 之后才能保留。
+<details>
+<summary><b>CI 说明</b></summary>
 
----
+推送、Pull Request 和手动 `workflow_dispatch` 会触发 `.github/workflows/functional-tests.yml`：在 GitHub 托管的 `ubuntu-24.04` 上分别运行四套测试。任一失败会使该检查失败，其余套件仍会跑完；控制台日志和作业摘要中有每套的通过 / 失败 / 跳过数量。
 
-## 支持
+仓库的 Actions 策略只允许 DNTOF 拥有的 action，所以工作流用 git 检出、官方 `dotnet-install.sh` 安装 .NET 8，不调用其他组织的 action。可下载的 TRX 制品目前不可用，要等所有者允许官方的 artifact action 之后才能保留。
 
-- QQ 群：984840871
-- Issues：https://github.com/DNTOF/SLDataAPI/issues
+</details>
 
-## 许可证
+## 💬 支持
 
-Copyright (C) 2026 DNT_OF
+- 💭 QQ 群：**984840871**
+- 🐛 问题反馈：[GitHub Issues](https://github.com/DNTOF/SLDataAPI/issues)
+- ❓ 常见问题：[Wiki Q&A](https://github.com/DNTOF/SLDataAPI/wiki/Q%26A)
+- ❤️ 赞助：[爱发电](https://afdian.com/a/DNT_OF)
 
-以 [Apache-2.0](LICENSE) 授权，详见 [NOTICE](NOTICE)。
+## 📄 许可证
 
-本项目已由 **GPL-3.0-only** 变更为 **Apache-2.0**：允许在遵守 Apache-2.0 与 NOTICE 的前提下闭源使用与再分发，不再要求衍生作品强制开源。
+Copyright (C) 2026 DNT_OF · 以 [Apache-2.0](LICENSE) 授权，详见 [NOTICE](NOTICE)。
+
+本项目已由 **GPL-3.0-only** 变更为 **Apache-2.0**：在遵守 Apache-2.0 与 NOTICE 的前提下允许闭源使用与再分发，不再要求衍生作品强制开源。
 
 复用或改写本项目代码（尤其语音流相关实现）时，须：
+
 1. 保留源文件版权 / SPDX 头与本仓库 [NOTICE](NOTICE)；
 2. 注明来自 [DNTOF/SLDataAPI](https://github.com/DNTOF/SLDataAPI)；
 3. 禁止删除或篡改版权与来源信息后重新发布（含「删名字 + 换皮当自己项目」）。
+
+<div align="center">
+<br>
+
+**如果 SLDataAPI 对你有帮助，欢迎点一个 ⭐ Star！**
+
+</div>

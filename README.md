@@ -22,13 +22,6 @@ LabAPI 原生插件 · 数据查询 · 远程控制 · 实时事件流 · 语音
 
 <br>
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/sldataapi-overview-dark.svg">
-  <img src="docs/assets/sldataapi-overview-light.svg" alt="SLDataAPI 架构示意：SCP:SL 服务器（LabAPI）→ SLDataAPI → :8081 数据口 / 控制面（HTTP 或 WS）、:8082 语音，同端口可选自签 TLS → 机器人、Web 面板、SLConsole App" width="100%">
-</picture>
-
-<br>
-
 <div align="center">
 
 | **40+** | **19** | **48 kHz** | **1** | **180+** |

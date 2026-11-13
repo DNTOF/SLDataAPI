@@ -22,6 +22,13 @@ LabAPI 原生插件 · 数据查询 · 远程控制 · 实时事件流 · 语音
 
 <br>
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/sldataapi-overview-dark.svg">
+  <img src="docs/assets/sldataapi-overview-light.svg" alt="SLDataAPI 架构总览：SCP:SL 服务器（LabAPI）→ SLDataAPI 核心（数据快照、远程控制、事件流、语音转发、录音取证、审计日志）→ :8081 HTTP / WS、:8082 语音 WS，同端口可选自签 TLS → SLConsole、Foundation Console、AstrBot 与自定义集成" width="100%">
+</picture>
+
+<br>
+
 <div align="center">
 
 | **40+** | **19** | **48 kHz** | **1** | **180+** |
@@ -254,6 +261,41 @@ Content-Type: application/json
 📚 完整文档：[HTTP-API](https://github.com/DNTOF/SLDataAPI/wiki/HTTP-API)（端点表与 curl 示例）· [WS-Control-Protocol](https://github.com/DNTOF/SLDataAPI/wiki/WS-Control-Protocol) · [Voice-Forwarding](https://github.com/DNTOF/SLDataAPI/wiki/Voice-Forwarding)
 
 ## 🌐 生态
+
+### 官方客户端
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+#### 📱 [SLConsole](https://github.com/DNTOF/SLConsole)
+
+Android 原生管理 + 监控客户端（Kotlin · Jetpack Compose），直连 SLDataAPI，无需中间平台，凭据经 AndroidKeyStore 加密只存本机。
+
+- 概览监控、玩家管理、远程控制台
+- 种子重建地图，玩家实时定位，灯光 / 门 / 电梯控制
+- 实时事件流与 48 kHz 语音监听
+- 封禁、日志、审计、插件、文件、举报管理
+- 多服务器一键切换
+
+</td>
+<td width="50%" valign="top">
+
+#### 🖥️ [Foundation Console](https://github.com/DNT-118/FoundationConsole)
+
+服主团队自部署的 Web 管理平台（React 19 · Node.js），浏览器不持有游戏服凭据，全部由平台后端代理。
+
+- 多服务器统一管理，单条 WebSocket 多路复用状态与控制
+- `admin` / `user` / `guest` 三级角色，后端强制鉴权
+- 注册登录、2FA、服务端会话
+- 凭据 AES-256-GCM 加密存储，无外部数据库、无遥测
+- 状态与语音 WebSocket 代理
+
+</td>
+</tr>
+</table>
+
+### 集成与扩展
 
 | 项目 | 说明 |
 |------|------|

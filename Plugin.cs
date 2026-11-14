@@ -36,6 +36,13 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
     {
         Instance = this;
 
+        // 接口输出语言：必须在任何 HTTP / WS 服务启动前生效。
+        // zh-CN（默认）保持所有既有中文字段逐字不变；非法值回退 zh-CN 并告警。
+        if (!Localization.SetLanguage(Config.Language))
+        {
+            Log.Warn($"[SLDataAPI] 配置 language 值非法: \"{Config.Language}\"（仅支持 zh-CN / en），本次按 zh-CN 处理。");
+        }
+
         LabApi.Events.Handlers.ServerEvents.WaitingForPlayers += OnWaitingForPlayers;
         LabApi.Events.Handlers.ServerEvents.RoundStarted    += OnRoundStarted;
         LabApi.Events.Handlers.ServerEvents.RoundEnded      += OnRoundEnded;
@@ -104,7 +111,7 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
             $"control={(Config.ControlEnabled ? $"{Config.ControlTransport} 模式，API Key 鉴权" : "关闭")}，" +
             $"voice={(Config.VoiceEnabled ? $"启用(端口 {Config.VoicePort})" : "关闭")}，" +
             $"录音={(Config.VoiceRecordEnabled ? $"开(保留 {Config.VoiceRecordMaxRounds} 局)" : "关")}，" +
-            $"webdav={(Config.WebdavUploadEnabled ? "开" : "关")}。");
+            $"webdav={(Config.WebdavUploadEnabled ? "开" : "关")}，language={Localization.Language}。");
 
         // 插件配置目录（configs/<port>/SLDataAPI/）：TLS 证书、举报、API Key、审计日志共用
         string reportConfigDir = "";

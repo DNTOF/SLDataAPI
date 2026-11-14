@@ -84,14 +84,17 @@ public static class WsControlService
 
         if (method != "GET" || !IsWebSocketUpgrade(headers))
         {
-            WriteHttpJson(stream, 400, "该路径的 WebSocket 需要 GET 升级请求（Upgrade: websocket）；一次性调用请直接 POST /control/*");
+            WriteHttpJson(stream, 400, Localization.T("该路径的 WebSocket 需要 GET 升级请求（Upgrade: websocket）；一次性调用请直接 POST /control/*",
+                "This WebSocket path requires a GET upgrade request (Upgrade: websocket); for one-shot calls, POST /control/* directly"),
+                errorCode: Localization.CodeBadRequest);
             return true;
         }
 
         if (!config.ControlEnabled)
         {
             // 与 HTTP /control/* 的门控行为一致：未启用时一律 404
-            WriteHttpJson(stream, 404, "控制接口未启用");
+            WriteHttpJson(stream, 404, Localization.T("控制接口未启用", "Control API is disabled"),
+                errorCode: Localization.CodeNotFound);
             return true;
         }
 
@@ -100,17 +103,18 @@ public static class WsControlService
         // data.code 是给上游平台的机器可读协商信号。
         if (!string.Equals(config.ControlTransport, "ws", StringComparison.OrdinalIgnoreCase))
         {
-            WriteHttpJson(stream, 404, "控制接口为 HTTP 模式（control_transport: http），WebSocket 未启用",
-                new { code = "transport_mismatch", use = "http" });
+            WriteHttpJson(stream, 404, Localization.T("控制接口为 HTTP 模式（control_transport: http），WebSocket 未启用",
+                    "Control API is in HTTP mode (control_transport: http); WebSocket is disabled"),
+                new { code = "transport_mismatch", use = "http" }, errorCode: "transport_mismatch");
             return true;
         }
 
         // v2.6.0 推出，代号 PEAK：握手必须带 Authorization: Bearer 或 X-SLDataAPI-Key（不再接受 ?key= / ?token= / X-Control-Token）
         string? key = ApiKeyService.ExtractKeyFromHeaders(headers);
-        if (!ApiKeyService.TryAuthenticate(remoteIp, key, out var principal, out string authErr) || principal == null)
+        if (!ApiKeyService.TryAuthenticate(remoteIp, key, out var principal, out string authErr, out string authCode) || principal == null)
         {
             Log.Warn($"[SLDataAPI][WsControl] 鉴权失败 from {remoteIp}: {authErr}");
-            WriteHttpJson(stream, 401, authErr);
+            WriteHttpJson(stream, 401, authErr, errorCode: authCode);
             return true;
         }
 
@@ -119,13 +123,15 @@ public static class WsControlService
         {
             if (Sessions.Count >= MaxClients)
             {
-                WriteHttpJson(stream, 503, $"控制 WebSocket 连接数已满（上限 {MaxClients}）");
+                WriteHttpJson(stream, 503, Localization.F("控制 WebSocket 连接数已满（上限 {0}）",
+                    "Control WebSocket connection limit reached (max {0})", MaxClients), errorCode: Localization.CodeServiceUnavailable);
                 return true;
             }
         }
         if (!headers.TryGetValue("Sec-WebSocket-Key", out string? wsKey) || string.IsNullOrEmpty(wsKey))
         {
-            WriteHttpJson(stream, 400, "缺少 Sec-WebSocket-Key");
+            WriteHttpJson(stream, 400, Localization.T("缺少 Sec-WebSocket-Key", "Missing Sec-WebSocket-Key"),
+                errorCode: Localization.CodeBadRequest);
             return true;
         }
 
@@ -238,11 +244,17 @@ public static class WsControlService
         return upgrade && connection;
     }
 
-    private static void WriteHttpJson(Stream stream, int code, string message, object? data = null)
+    private static void WriteHttpJson(Stream stream, int code, string message, object? data = null, string? errorCode = null)
     {
         try
         {
-            string json = JsonConvert.SerializeObject(new ControlResponse { success = false, message = message, data = data });
+            string json = JsonConvert.SerializeObject(new ControlResponse
+            {
+                success = false,
+                message = message,
+                data = data,
+                code = errorCode ?? Localization.ErrorCodeFor(code, message),
+            });
             byte[] body = Encoding.UTF8.GetBytes(json);
             string reason = code switch
             {
@@ -302,6 +314,7 @@ public static class WsControlService
                 ["event"] = eventType,
                 ["utc"] = DateTime.UtcNow.ToString("o"),
                 ["data"] = data,
+                ["lang"] = Localization.Language,
             };
             SendJson(o);
         }
@@ -321,6 +334,7 @@ public static class WsControlService
                 ["cert_fingerprint"] = TlsCertificateService.Mode == TlsMode.Off || TlsCertificateService.Fingerprint == null
                     ? JValue.CreateNull()
                     : new JValue(TlsCertificateService.Fingerprint),
+                ["lang"] = Localization.Language,
             });
 
             var fragments = new List<byte>(1024);
@@ -356,8 +370,8 @@ public static class WsControlService
                     for (int i = 0; i < 8; i++) len = (len << 8) | ext[i];
                 }
 
-                if (rsv) { CloseWith(1002, "不支持扩展位"); break; }
-                if (len > MaxMessageBytes) { CloseWith(1009, "消息过大"); break; }
+                if (rsv) { CloseWith(1002, Localization.T("不支持扩展位", "Unsupported reserved bits")); break; }
+                if (len > MaxMessageBytes) { CloseWith(1009, Localization.T("消息过大", "Message too large")); break; }
 
                 var mask = new byte[4];
                 if (masked && ReadExact(mask, 4) < 4) break;
@@ -372,7 +386,7 @@ public static class WsControlService
                 if (opcode == 0xA) { LastActivity = DateTime.UtcNow; continue; }
 
                 // 数据帧：仅支持文本
-                if (opcode == 0x2) { CloseWith(1003, "仅支持文本帧"); break; }
+                if (opcode == 0x2) { CloseWith(1003, Localization.T("仅支持文本帧", "Text frames only")); break; }
                 if (opcode == 0x1)
                 {
                     fragments.Clear();
@@ -381,16 +395,16 @@ public static class WsControlService
                 }
                 else if (opcode == 0x0)
                 {
-                    if (messageOpcode < 0) { CloseWith(1002, "意外的续帧"); break; }
+                    if (messageOpcode < 0) { CloseWith(1002, Localization.T("意外的续帧", "Unexpected continuation frame")); break; }
                 }
-                else { CloseWith(1002, "未知 opcode"); break; }
+                else { CloseWith(1002, Localization.T("未知 opcode", "Unknown opcode")); break; }
 
                 fragments.AddRange(payload);
-                if (fragments.Count > MaxMessageBytes) { CloseWith(1009, "消息过大"); break; }
+                if (fragments.Count > MaxMessageBytes) { CloseWith(1009, Localization.T("消息过大", "Message too large")); break; }
                 // 分片滴流防护：组装中的消息超时（攻击者可夹 ping 帧保活绕过空闲超时）
                 if (messageOpcode >= 0 && (DateTime.UtcNow - messageStarted).TotalSeconds > MaxMessageAssemblySeconds)
                 {
-                    CloseWith(1008, "消息组装超时");
+                    CloseWith(1008, Localization.T("消息组装超时", "Message assembly timed out"));
                     break;
                 }
                 if (!fin) continue;
@@ -426,7 +440,7 @@ public static class WsControlService
             try { msg = JObject.Parse(text); }
             catch
             {
-                SendJson(new JObject { ["type"] = "error", ["message"] = "消息不是合法 JSON" });
+                SendError(Localization.T("消息不是合法 JSON", "Message is not valid JSON"), Localization.CodeBadRequest);
                 return;
             }
 
@@ -434,22 +448,22 @@ public static class WsControlService
             switch (type)
             {
                 case "ping":
-                    SendJson(new JObject { ["type"] = "pong" });
+                    SendJson(new JObject { ["type"] = "pong", ["lang"] = Localization.Language });
                     return;
 
                 case "subscribe_events":
                     if (!_principal.Allows("ws:subscribe_events", wantWrite: false))
                     {
-                        SendJson(new JObject { ["type"] = "error", ["message"] = "API Key 未授权 ws:subscribe_events" });
+                        SendError(Localization.T("API Key 未授权 ws:subscribe_events", "API key is not authorized for ws:subscribe_events"), Localization.CodeForbidden);
                         return;
                     }
                     EventsSubscribed = true;
-                    SendJson(new JObject { ["type"] = "events_subscribed" });
+                    SendJson(new JObject { ["type"] = "events_subscribed", ["lang"] = Localization.Language });
                     return;
 
                 case "unsubscribe_events":
                     EventsSubscribed = false;
-                    SendJson(new JObject { ["type"] = "events_unsubscribed" });
+                    SendJson(new JObject { ["type"] = "events_unsubscribed", ["lang"] = Localization.Language });
                     return;
 
                 case "call":
@@ -457,7 +471,9 @@ public static class WsControlService
                     return;
 
                 default:
-                    SendJson(new JObject { ["type"] = "error", ["message"] = $"未知消息类型: {type}（支持 ping / subscribe_events / call）" });
+                    SendError(Localization.F("未知消息类型: {0}（支持 ping / subscribe_events / call）",
+                            "Unknown message type: {0} (supported: ping / subscribe_events / call)", type),
+                        Localization.CodeInvalidArgument);
                     return;
             }
         }
@@ -469,13 +485,18 @@ public static class WsControlService
 
             if (string.IsNullOrWhiteSpace(path) || !path.StartsWith("/control/", StringComparison.Ordinal))
             {
-                SendResult(reqId, ok: false, status: 400, message: "path 必须是 /control/* 端点");
+                SendResult(reqId, ok: false, status: 400,
+                    message: Localization.T("path 必须是 /control/* 端点", "path must be a /control/* endpoint"),
+                    code: Localization.CodeInvalidArgument);
                 return;
             }
 
             if (!WsCallGate.TryEnter(ref _pendingCalls, MaxConcurrentCallsPerConnection))
             {
-                SendResult(reqId, ok: false, status: 429, message: $"并发调用过多（单连接上限 {MaxConcurrentCallsPerConnection}）");
+                SendResult(reqId, ok: false, status: 429,
+                    message: Localization.F("并发调用过多（单连接上限 {0}）",
+                        "Too many concurrent calls (per-connection limit {0})", MaxConcurrentCallsPerConnection),
+                    code: Localization.CodeTooManyRequests);
                 return;
             }
 
@@ -485,7 +506,8 @@ public static class WsControlService
             if (!_principal.Allows(path, wantWrite))
             {
                 WsCallGate.Exit(ref _pendingCalls);
-                SendResult(reqId, ok: false, status: 403, message: "API Key 有效但未授权该端点");
+                SendResult(reqId, ok: false, status: 403, message: Localization.Forbidden,
+                    code: Localization.CodeForbidden);
                 return;
             }
 
@@ -502,12 +524,14 @@ public static class WsControlService
                     // 只有 JObject 才能安全索引 message（JValue/标量索引会抛 "Cannot access child value"）
                     string? failMessage = status == 200 ? null
                         : (data is JObject jobj ? jobj["message"]?.ToString() : null);
-                    SendResult(reqId, status == 200, status, failMessage, data);
+                    string? failCode = status == 200 ? null : (data as JObject)?["code"]?.ToString();
+                    SendResult(reqId, status == 200, status, failMessage, data, failCode);
                 }
                 catch (Exception ex)
                 {
                     Log.Error($"[SLDataAPI][WsControl] call 异常 path={path}: {ex}");
-                    SendResult(reqId, ok: false, status: 500, message: "内部错误");
+                    SendResult(reqId, ok: false, status: 500, message: Localization.InternalError,
+                        code: Localization.CodeInternalError);
                 }
                 finally
                 {
@@ -516,7 +540,8 @@ public static class WsControlService
             });
         }
 
-        private void SendResult(string reqId, bool ok, int status, string? message = null, JToken? data = null)
+        private void SendResult(string reqId, bool ok, int status, string? message = null, JToken? data = null,
+            string? code = null)
         {
             var o = new JObject
             {
@@ -527,8 +552,19 @@ public static class WsControlService
             };
             if (message != null) o["message"] = message;
             if (data != null) o["data"] = data;
+            if (!string.IsNullOrEmpty(code)) o["code"] = code;
+            o["lang"] = Localization.Language;
             SendJson(o);
         }
+
+        private void SendError(string message, string code) =>
+            SendJson(new JObject
+            {
+                ["type"] = "error",
+                ["message"] = message,
+                ["code"] = code,
+                ["lang"] = Localization.Language,
+            });
 
         private void SendJson(JObject o) =>
             TrySendFrame(0x1, Encoding.UTF8.GetBytes(o.ToString(Formatting.None)));

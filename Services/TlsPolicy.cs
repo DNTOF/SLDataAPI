@@ -35,8 +35,9 @@ public static class TlsPolicy
     /// <summary>给上游客户端的机器可读码（426 响应 data.code）。</summary>
     public const string TlsRequiredCode = "tls_required";
 
-    public const string TlsRequiredMessage =
-        "该端口要求 TLS（tls_mode: required）：请改用 https:// / wss:// 并校验证书指纹";
+    public static string TlsRequiredMessage =>
+        Localization.T("该端口要求 TLS（tls_mode: required）：请改用 https:// / wss:// 并校验证书指纹",
+            "This port requires TLS (tls_mode: required): use https:// / wss:// and verify the certificate fingerprint");
 
     /// <summary>
     /// 解析 <c>tls_mode</c>：off / optional / required（大小写、首尾空白不敏感）。
@@ -105,7 +106,8 @@ public static class TlsPolicy
     public static string BuildTlsRequiredJson(string? message = null)
     {
         return "{\"success\":false,\"message\":\"" + JsonEscape(message ?? TlsRequiredMessage) +
-               "\",\"data\":{\"code\":\"" + TlsRequiredCode + "\"}}";
+               "\",\"data\":{\"code\":\"" + TlsRequiredCode + "\"}" +
+               ",\"code\":\"" + TlsRequiredCode + "\",\"lang\":\"" + JsonEscape(Localization.Language) + "\"}";
     }
 
     private static string JsonEscape(string s)

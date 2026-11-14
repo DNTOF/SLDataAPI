@@ -8,6 +8,7 @@ using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
+using SLDataAPI.Services;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
 
@@ -136,21 +137,32 @@ public static class ApiKeyService
     }
 
     /// <summary>校验明文 Key → 主体。失败 401；权限另检 403。</summary>
-    public static bool TryAuthenticate(string ip, string? plaintextKey, out ApiKeyPrincipal? principal, out string error)
+    public static bool TryAuthenticate(string ip, string? plaintextKey, out ApiKeyPrincipal? principal, out string error) =>
+        TryAuthenticate(ip, plaintextKey, out principal, out error, out _);
+
+    /// <summary>校验明文 Key → 主体，同时返回稳定错误码（不随 language 变化）。</summary>
+    public static bool TryAuthenticate(string ip, string? plaintextKey, out ApiKeyPrincipal? principal,
+        out string error, out string errorCode)
     {
         principal = null;
         error = "";
+        errorCode = "";
 
         if (Control.ControlAuth.IsControlLocked(ip, out var remaining))
         {
-            error = $"该来源已因多次鉴权失败被临时锁定，请 {Math.Ceiling(remaining.TotalSeconds)} 秒后重试";
+            error = Localization.F("该来源已因多次鉴权失败被临时锁定，请 {0} 秒后重试",
+                "This source is temporarily locked after repeated authentication failures; retry in {0} seconds",
+                Math.Ceiling(remaining.TotalSeconds));
+            errorCode = Localization.CodeAuthLocked;
             return false;
         }
 
         if (string.IsNullOrWhiteSpace(plaintextKey))
         {
             Control.ControlAuth.RegisterControlFailure(ip);
-            error = "缺少 API Key（请使用 Authorization: Bearer 或 X-SLDataAPI-Key）";
+            error = Localization.T("缺少 API Key（请使用 Authorization: Bearer 或 X-SLDataAPI-Key）",
+                "Missing API key (use Authorization: Bearer or X-SLDataAPI-Key)");
+            errorCode = Localization.CodeUnauthorized;
             return false;
         }
 
@@ -168,7 +180,8 @@ public static class ApiKeyService
         if (hit == null)
         {
             Control.ControlAuth.RegisterControlFailure(ip);
-            error = "API Key 无效";
+            error = Localization.T("API Key 无效", "Invalid API key");
+            errorCode = Localization.CodeUnauthorized;
             return false;
         }
 

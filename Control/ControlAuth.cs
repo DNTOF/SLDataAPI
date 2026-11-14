@@ -6,6 +6,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading;
+using SLDataAPI.Services;
 
 namespace SLDataAPI.Control;
 
@@ -215,20 +216,22 @@ public static class ControlAuth
 
         if (IsLocked(ip, table, out var remaining))
         {
-            error = $"该来源已因多次鉴权失败被临时锁定，请 {Math.Ceiling(remaining.TotalSeconds)} 秒后重试";
+            error = Localization.F("该来源已因多次鉴权失败被临时锁定，请 {0} 秒后重试",
+                "This source is temporarily locked after repeated authentication failures; retry in {0} seconds",
+                Math.Ceiling(remaining.TotalSeconds));
             return false;
         }
 
         if (string.IsNullOrEmpty(configuredToken))
         {
-            error = "服务端未配置访问令牌";
+            error = Localization.T("服务端未配置访问令牌", "Access token is not configured on the server");
             return false;
         }
 
         if (!SecureEquals(providedToken ?? string.Empty, configuredToken))
         {
             RegisterFailure(ip, table);
-            error = "token 错误或缺失";
+            error = Localization.T("token 错误或缺失", "Token is incorrect or missing");
             return false;
         }
 

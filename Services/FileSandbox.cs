@@ -24,28 +24,31 @@ public static class FileSandbox
     public static string Resolve(string root, string? relPath, bool rejectReparsePoints = true)
     {
         if (string.IsNullOrWhiteSpace(root))
-            throw new InvalidOperationException("文件端点未启用（服务器未配置 FileRoot）");
+            throw new InvalidOperationException(Localization.FileRootNotConfigured);
 
         string fullRoot;
         try { fullRoot = Path.GetFullPath(root.Trim()); }
-        catch (Exception ex) { throw new InvalidOperationException($"FileRoot 非法: {ex.Message}"); }
+        catch (Exception ex) { throw new InvalidOperationException(Localization.F("FileRoot 非法: {0}", "Invalid FileRoot: {0}", ex.Message)); }
 
         if (!Directory.Exists(fullRoot))
-            throw new InvalidOperationException($"FileRoot 目录不存在（{Path.GetFileName(fullRoot.TrimEnd(Path.DirectorySeparatorChar))}）");
+            throw new InvalidOperationException(Localization.F("FileRoot 目录不存在（{0}）",
+                "FileRoot directory does not exist ({0})",
+                Path.GetFileName(fullRoot.TrimEnd(Path.DirectorySeparatorChar))));
 
         // X-09：拒绝含冒号的相对路径（Windows 盘符外的 ":" 即 NTFS 备用数据流）
         if ((relPath ?? "").IndexOf(':') >= 0)
-            throw new ArgumentException("路径含非法字符 ':'");
+            throw new ArgumentException(Localization.T("路径含非法字符 ':'", "Path contains an invalid character ':'"));
 
         // 统一分隔符后去掉首尾斜杠，避免 ".." 或绝对路径被 Combine 拼接出界
         string rel = (relPath ?? "").Replace('\\', '/').Trim('/');
         string full;
         try { full = Path.GetFullPath(Path.Combine(fullRoot, rel)); }
-        catch (Exception ex) { throw new ArgumentException($"路径非法: {ex.Message}"); }
+        catch (Exception ex) { throw new ArgumentException(Localization.F("路径非法: {0}", "Invalid path: {0}", ex.Message)); }
 
         string rootTrim = fullRoot.TrimEnd(Path.DirectorySeparatorChar);
         if (!IsInside(rootTrim, full))
-            throw new ArgumentException("路径越界：不允许访问 FileRoot 之外的目录");
+            throw new ArgumentException(Localization.T("路径越界：不允许访问 FileRoot 之外的目录",
+                "Path escapes the sandbox: access outside FileRoot is not allowed"));
 
         if (rejectReparsePoints)
             EnsureNoReparsePoints(rootTrim, full);
@@ -91,11 +94,11 @@ public static class FileSandbox
             }
             catch (Exception ex)
             {
-                throw new InvalidOperationException($"路径不可访问: {ex.Message}");
+                throw new InvalidOperationException(Localization.F("路径不可访问: {0}", "Path is not accessible: {0}", ex.Message));
             }
 
             if ((attrs & FileAttributes.ReparsePoint) != 0)
-                throw new InvalidOperationException("路径经过符号链接或目录联接（junction），已拒绝（防止越出 FileRoot）");
+                throw new InvalidOperationException(Localization.SymlinkForbidden);
         }
     }
 }

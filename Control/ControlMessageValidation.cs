@@ -3,6 +3,7 @@
 // Original project: https://github.com/DNTOF/SLDataAPI
 
 using System;
+using SLDataAPI.Services;
 
 namespace SLDataAPI.Control;
 
@@ -24,13 +25,15 @@ public static class ControlMessageValidation
     {
         if (string.IsNullOrWhiteSpace(message))
         {
-            error = "缺少 message 字段";
+            error = Localization.T("缺少 message 字段", "Missing message field");
             return false;
         }
 
         if (message!.Length > MaxMessageLength)
         {
-            error = $"message 过长（{message.Length} 字符，上限 {MaxMessageLength}）";
+            error = Localization.F("message 过长（{0} 字符，上限 {1}）",
+                "message is too long ({0} characters; limit {1})",
+                message.Length, MaxMessageLength);
             return false;
         }
 

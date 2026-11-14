@@ -4,6 +4,7 @@
 
 using System;
 using System.Collections.Generic;
+using SLDataAPI.Services;
 
 namespace SLDataAPI.Auth;
 
@@ -28,10 +29,13 @@ public static class RemoteCommandGuard
     /// <summary>给上游平台的机器可读拒绝码。</summary>
     public const string RemoteDenyCode = "sldataapi_cli_forbidden";
 
-    /// <summary>控制面拒绝文案（HTTP 403 / WS result 的 message）。</summary>
-    public const string RemoteDenyMessage =
-        "拒绝执行：SLDataAPI 管理命令（sldataapi / slda）不允许通过远程控制通道执行。" +
-        "API Key 的创建与吊销只能在服务器本地控制台（LocalAdmin / RemoteAdmin / 游戏内控制台）操作。";
+    /// <summary>控制面拒绝文案（HTTP 403 / WS result 的 message），随 language 本地化。</summary>
+    public static string RemoteDenyMessage =>
+        Localization.T(
+            "拒绝执行：SLDataAPI 管理命令（sldataapi / slda）不允许通过远程控制通道执行。" +
+            "API Key 的创建与吊销只能在服务器本地控制台（LocalAdmin / RemoteAdmin / 游戏内控制台）操作。",
+            "Denied: SLDataAPI management commands (sldataapi / slda) cannot be executed through the remote control channel. " +
+            "API key creation and revocation are only available from the local server console (LocalAdmin / RemoteAdmin / in-game console).");
 
     /// <summary>
     /// 命令是否会调起 SLDataAPI 管理 CLI。逐个空白分隔的 token 判定（不只看首 token，

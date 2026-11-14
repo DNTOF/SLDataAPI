@@ -111,7 +111,9 @@ public static class HolidayGate
 
         if (!featurePresent)
             return new HolidayGateResult(false, StatusFeatureUnavailable, CodeFeatureUnavailable, feature, active, required,
-                $"当前游戏版本不提供该功能（{feature}：所需类型或成员不存在）", simulated);
+                Localization.F("当前游戏版本不提供该功能（{0}：所需类型或成员不存在）",
+                    "This game version does not provide the feature ({0}: required type or member is missing)",
+                    feature), simulated);
 
         bool matches = required.Count == 0 ||
                        required.Any(r => string.Equals(r, active, StringComparison.OrdinalIgnoreCase));
@@ -122,9 +124,14 @@ public static class HolidayGate
         if (available)
             return new HolidayGateResult(true, 200, "", feature, active, required, "ok", simulated);
 
-        string need = required.Count == 0 ? "特定节日" : string.Join(" / ", required);
+        string need = required.Count == 0
+            ? Localization.T("特定节日", "a specific holiday")
+            : string.Join(" / ", required);
         return new HolidayGateResult(false, StatusHolidayInactive, CodeHolidayInactive, feature, active, required,
-            $"节日功能未开启：{feature} 需要 {need}，当前节日 {active}" + (simulated ? "（测试覆盖）" : ""), simulated);
+            Localization.F("节日功能未开启：{0} 需要 {1}，当前节日 {2}",
+                "Holiday feature is not active: {0} requires {1}; current holiday is {2}",
+                feature, need, active)
+            + (simulated ? Localization.T("（测试覆盖）", " (test override)") : ""), simulated);
     }
 
     /// <summary>空 / null / 空白 → "None"；其余原样去空白。</summary>

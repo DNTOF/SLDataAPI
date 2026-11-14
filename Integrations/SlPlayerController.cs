@@ -9,6 +9,7 @@ using System.Linq;
 using System.Reflection;
 using LabApi.Loader;
 using Newtonsoft.Json;
+using SLDataAPI.Services;
 
 namespace SLDataAPI.Integrations;
 
@@ -37,10 +38,11 @@ public static class SlPlayerController
     {
         object? plugin = FindPlugin();
         if (plugin == null)
-            throw new InvalidOperationException("SLPlayer 插件未加载");
+            throw new InvalidOperationException(Localization.T("SLPlayer 插件未加载", "SLPlayer plugin is not loaded"));
         object? controller = plugin.GetType().GetProperty("Controller")?.GetValue(plugin);
         if (controller == null)
-            throw new InvalidOperationException("SLPlayer 控制器未就绪（插件可能仍在初始化）");
+            throw new InvalidOperationException(Localization.T("SLPlayer 控制器未就绪（插件可能仍在初始化）",
+                "SLPlayer controller is not ready (the plugin may still be initializing)"));
         return controller;
     }
 
@@ -49,7 +51,8 @@ public static class SlPlayerController
     {
         MethodInfo? mi = target.GetType().GetMethod(method, BindingFlags.Public | BindingFlags.Instance, null, argTypes, null);
         if (mi == null)
-            throw new InvalidOperationException($"SLPlayer 缺少方法 {method}（版本不兼容？）");
+            throw new InvalidOperationException(Localization.F("SLPlayer 缺少方法 {0}（版本不兼容？）",
+                "SLPlayer is missing method {0} (incompatible version?)", method));
         return mi.Invoke(target, args);
     }
 
@@ -58,7 +61,8 @@ public static class SlPlayerController
     {
         PropertyInfo? pi = target.GetType().GetProperty(name, BindingFlags.Public | BindingFlags.Instance);
         if (pi == null)
-            throw new InvalidOperationException($"SLPlayer 缺少属性 {name}（版本不兼容？）");
+            throw new InvalidOperationException(Localization.F("SLPlayer 缺少属性 {0}（版本不兼容？）",
+                "SLPlayer is missing property {0} (incompatible version?)", name));
         return pi.GetValue(target);
     }
 
@@ -134,32 +138,33 @@ public static class SlPlayerController
     public static string Play(object controller, int index)
     {
         object? result = Call(controller, "PlayIndex", new[] { typeof(int) }, new object[] { index });
-        return result as string ?? "已触发播放";
+        return result as string ?? Localization.T("已触发播放", "Playback started");
     }
 
     public static string PlayNext(object controller)
     {
         object? result = Call(controller, "PlayNext", Type.EmptyTypes, Array.Empty<object>());
-        return result as string ?? "已切换下一首";
+        return result as string ?? Localization.T("已切换下一首", "Skipped to next track");
     }
 
     public static string Stop(object controller)
     {
         Call(controller, "Stop", Type.EmptyTypes, Array.Empty<object>());
-        return "音乐已停止播放";
+        return Localization.T("音乐已停止播放", "Music stopped");
     }
 
     public static string SetVolume(object controller, int volumePercent)
     {
         object? result = Call(controller, "SetVolume", new[] { typeof(float) }, new object[] { volumePercent / 100f });
-        return result as string ?? $"音量已设置为 {volumePercent}%";
+        return result as string ?? Localization.F("音量已设置为 {0}%", "Volume set to {0}%", volumePercent);
     }
 
     public static string SetShuffle(object controller, string mode)
     {
         PropertyInfo? pi = controller.GetType().GetProperty("IsShuffle", BindingFlags.Public | BindingFlags.Instance);
         if (pi == null)
-            throw new InvalidOperationException("SLPlayer 缺少 IsShuffle 属性（版本不兼容？）");
+            throw new InvalidOperationException(Localization.T("SLPlayer 缺少 IsShuffle 属性（版本不兼容？）",
+                "SLPlayer is missing the IsShuffle property (incompatible version?)"));
 
         bool cur = pi.GetValue(controller) is true;
         bool next = mode switch
@@ -169,13 +174,16 @@ public static class SlPlayerController
             _ => !cur
         };
         pi.SetValue(controller, next);
-        return next ? "已切换为随机模式" : "已切换为顺序模式";
+        return next
+            ? Localization.T("已切换为随机模式", "Shuffle enabled")
+            : Localization.T("已切换为顺序模式", "Shuffle disabled");
     }
 
     public static string Reload(object controller)
     {
         object? result = Call(controller, "ScanFiles", Type.EmptyTypes, Array.Empty<object>());
         int count = result is int n ? n : 0;
-        return $"扫描完成，共加载 {count} 首本地歌曲";
+        return Localization.F("扫描完成，共加载 {0} 首本地歌曲",
+            "Scan complete; {0} local songs loaded", count);
     }
 }

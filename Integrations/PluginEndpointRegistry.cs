@@ -10,6 +10,7 @@ using System.Text.RegularExpressions;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using SLDataAPI.Data;
+using SLDataAPI.Services;
 
 namespace SLDataAPI.Integrations;
 
@@ -484,7 +485,13 @@ public static class PluginEndpointRegistry
     }
 
     private static string Err(string message) =>
-        JsonConvert.SerializeObject(new { success = false, message });
+        JsonConvert.SerializeObject(new
+        {
+            success = false,
+            message,
+            code = Localization.ErrorCodeFor(400, message),
+            lang = Localization.Language,
+        });
 
     private sealed class Registration
     {

@@ -58,9 +58,7 @@ public static class MainThreadExecutor
         if (!completed)
         {
             cancelled = true; // N-02：标记迟到 action 跳过，避免"报超时但实际执行"导致的重试双重执行
-            error = new TimeoutException(
-                "主线程执行超时（服务器可能卡顿、正在切图或已停止响应）" +
-                "——若主线程在超时后恢复且操作已经开始，仍可能执行一次，请勿盲目重试非幂等操作");
+            error = new TimeoutException(Localization.TimeoutMainThread);
             return false;
         }
 
@@ -106,9 +104,7 @@ public static class MainThreadExecutor
         if (!completed)
         {
             cancelled = true; // N-02
-            error = new TimeoutException(
-                "主线程执行超时（服务器可能卡顿、正在切图或已停止响应）" +
-                "——若主线程在超时后恢复且操作已经开始，仍可能执行一次，请勿盲目重试非幂等操作");
+            error = new TimeoutException(Localization.TimeoutMainThread);
             return default!;
         }
 

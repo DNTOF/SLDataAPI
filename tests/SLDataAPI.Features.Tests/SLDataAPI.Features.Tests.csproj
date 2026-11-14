@@ -8,6 +8,7 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
@@ -20,5 +21,8 @@
     <Compile Include="..\..\Services\ReflectionLookup.cs" Link="ReflectionLookup.cs" />
     <Compile Include="..\..\Control\FeatureInputRules.cs" Link="FeatureInputRules.cs" />
     <Compile Include="..\..\Control\PlayerLookup.cs" Link="PlayerLookup.cs" />
+    <Compile Include="..\..\Services\Localization.cs" Link="Localization.cs" />
+    <Compile Include="..\..\Services\ErrorCodeEnvelope.cs" Link="ErrorCodeEnvelope.cs" />
+    <Compile Include="..\..\Config.cs" Link="Config.cs" />
   </ItemGroup>
 </Project>

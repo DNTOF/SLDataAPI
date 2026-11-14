@@ -36,26 +36,32 @@ public static partial class ControlController
     {
         var req = Parse<InventoryRequest>(body);
         if (req == null || string.IsNullOrWhiteSpace(req.target))
-            return (400, Json(false, "缺少 target 字段"));
+            return (400, Json(false, Localization.T("缺少 target 字段", "Missing target field"), code: Localization.CodeInvalidArgument));
         if (!FeatureInputRules.IsInventoryAction(req.action, out string action))
-            return (400, Json(false, $"未知 action: {req.action}（支持 list/add/remove/clear）"));
+            return (400, Json(false, Localization.F("未知 action: {0}（支持 list/add/remove/clear）",
+                "Unknown action: {0} (supported: list/add/remove/clear)", req.action), code: Localization.CodeInvalidArgument));
 
         ItemType itemType = ItemType.None;
         int amount = 1;
         if (action is "add" or "remove")
         {
             if (!TryParseItemType(req.item, out itemType))
-                return (400, Json(false, $"无效物品名: {req.item}", new { code = "invalid_item" }));
+                return (400, Json(false, Localization.F("无效物品名: {0}", "Invalid item name: {0}", req.item),
+                    new { code = "invalid_item" }, code: "invalid_item"));
             if (IsAmmoType(itemType))
-                return (400, Json(false, "弹药不是物品栏物品，暂不支持通过本端点增减", new { code = "ammo_not_supported" }));
+                return (400, Json(false, Localization.T("弹药不是物品栏物品，暂不支持通过本端点增减",
+                        "Ammunition is not an inventory item and cannot be added or removed through this endpoint"),
+                    new { code = "ammo_not_supported" }, code: "ammo_not_supported"));
             int max = action == "add" ? FeatureInputRules.MaxItemAdd : FeatureInputRules.MaxItemRemove;
             if (!FeatureInputRules.TryValidateAmount(req.amount, max, out amount))
-                return (400, Json(false, $"amount 超出上限 {max}", new { code = "amount_exceeds_limit", max }));
+                return (400, Json(false, Localization.F("amount 超出上限 {0}", "amount exceeds the limit of {0}", max),
+                    new { code = "amount_exceeds_limit", max }, code: "amount_exceeds_limit"));
         }
 
         var (status, json) = MainThreadExecutor.RunOnMainThread(() =>
         {
-            var p = FindPlayer(req.target) ?? throw new InvalidOperationException($"找不到玩家: {req.target}");
+            var p = FindPlayer(req.target) ?? throw new InvalidOperationException(
+                Localization.F("找不到玩家: {0}", "Player not found: {0}", req.target));
             switch (action)
             {
                 case "list":
@@ -78,13 +84,16 @@ public static partial class ControlController
                     if (added.Count == 0)
                     {
                         bool full = p.IsInventoryFull;
-                        return (409, Json(false, full ? "物品栏已满" : "物品发放失败（游戏拒绝添加）", new
+                        return (409, Json(false, full
+                            ? Localization.T("物品栏已满", "Inventory is full")
+                            : Localization.T("物品发放失败（游戏拒绝添加）", "Item grant failed (the game rejected the add)"), new
                         {
                             code = full ? "inventory_full" : "add_failed",
                             inventory = DescribeInventory(p),
                         }));
                     }
-                    return (200, Json(true, $"已发放 {added.Count}/{amount} 个 {itemType}", new
+                    return (200, Json(true, Localization.F("已发放 {0}/{1} 个 {2}",
+                        "Granted {0}/{1} × {2}", added.Count, amount, itemType), new
                     {
                         requested = amount,
                         added,
@@ -97,7 +106,8 @@ public static partial class ControlController
                     int before = p.Items.Count(x => x != null && x.Type == itemType);
                     if (before > 0) p.RemoveItem(itemType, amount);
                     int after = p.Items.Count(x => x != null && x.Type == itemType);
-                    return (200, Json(true, $"已移除 {before - after} 个 {itemType}", new
+                    return (200, Json(true, Localization.F("已移除 {0} 个 {1}",
+                        "Removed {0} × {1}", before - after, itemType), new
                     {
                         requested = amount,
                         removed = before - after,
@@ -110,7 +120,7 @@ public static partial class ControlController
                     int items = p.Items.Count();
                     int ammoKinds = p.Ammo.Count(kv => kv.Value > 0);
                     p.ClearInventory(clearAmmo: req.clear_ammo, clearItems: true);
-                    return (200, Json(true, "物品栏已清空", new
+                    return (200, Json(true, Localization.T("物品栏已清空", "Inventory cleared"), new
                     {
                         cleared_items = items,
                         cleared_ammo_types = req.clear_ammo ? ammoKinds : 0,
@@ -119,7 +129,8 @@ public static partial class ControlController
                 }
 
                 default:
-                    return (400, Json(false, $"未知 action: {action}"));
+                    return (400, Json(false, Localization.F("未知 action: {0}", "Unknown action: {0}", action),
+                        code: Localization.CodeInvalidArgument));
             }
         }, out var err);
         return err != null ? (400, Json(false, err.Message)) : (status, json);
@@ -170,10 +181,12 @@ public static partial class ControlController
     {
         var req = Parse<CandyRequest>(body);
         if (req == null || string.IsNullOrWhiteSpace(req.target))
-            return (400, Json(false, "缺少 target 字段"));
+            return (400, Json(false, Localization.T("缺少 target 字段", "Missing target field"), code: Localization.CodeInvalidArgument));
         if (!FeatureInputRules.TryValidateAmount(req.amount, FeatureInputRules.MaxCandyGive, out int amount))
-            return (400, Json(false, $"amount 超出上限 {FeatureInputRules.MaxCandyGive}",
-                new { code = "amount_exceeds_limit", max = FeatureInputRules.MaxCandyGive }));
+            return (400, Json(false, Localization.F("amount 超出上限 {0}",
+                    "amount exceeds the limit of {0}", FeatureInputRules.MaxCandyGive),
+                new { code = "amount_exceeds_limit", max = FeatureInputRules.MaxCandyGive },
+                code: "amount_exceeds_limit"));
 
         string candyName = (req.candy ?? "").Trim();
         bool random = candyName.Length == 0 || candyName.Equals("random", StringComparison.OrdinalIgnoreCase);
@@ -181,7 +194,7 @@ public static partial class ControlController
         if (!random && (!Enum.TryParse(candyName, true, out kind) || kind == CandyKindID.None ||
                         !Enum.IsDefined(typeof(CandyKindID), kind)))
         {
-            return (400, Json(false, $"无效糖果名: {req.candy}", new
+            return (400, Json(false, Localization.F("无效糖果名: {0}", "Invalid candy name: {0}", req.candy), new
             {
                 code = "invalid_candy",
                 valid = Enum.GetNames(typeof(CandyKindID)).Where(n => n != "None").ToArray(),
@@ -190,7 +203,8 @@ public static partial class ControlController
 
         var (status, json) = MainThreadExecutor.RunOnMainThread(() =>
         {
-            var p = FindPlayer(req.target) ?? throw new InvalidOperationException($"找不到玩家: {req.target}");
+            var p = FindPlayer(req.target) ?? throw new InvalidOperationException(
+                Localization.F("找不到玩家: {0}", "Player not found: {0}", req.target));
 
             if (!random)
             {
@@ -224,14 +238,16 @@ public static partial class ControlController
                 active_holiday = HolidayFeatures.ActiveHoliday(),
             };
             if (given.Count == 0)
-                return (409, Json(false, "糖果发放失败（物品栏或糖果袋已满）", new
+                return (409, Json(false, Localization.T("糖果发放失败（物品栏或糖果袋已满）",
+                        "Candy grant failed (inventory or candy bag is full)"), new
                 {
                     code = "candy_bag_full",
                     result.bag,
                     result.candy_pool,
                     result.active_holiday,
                 }));
-            return (200, Json(true, $"已发放 {given.Count}/{amount} 颗糖果", result));
+            return (200, Json(true, Localization.F("已发放 {0}/{1} 颗糖果",
+                        "Granted {0}/{1} candy item(s)", given.Count, amount), result));
         }, out var err);
         return err != null ? (400, Json(false, err.Message)) : (status, json);
     }
@@ -318,13 +334,16 @@ public static partial class ControlController
     {
         var req = Parse<DummiesRequest>(body);
         if (req == null || !FeatureInputRules.IsDummyAction(req.action, out string action))
-            return (400, Json(false, "缺少或未知 action（支持 spawn/list/remove）",
-                new { code = "invalid_action", valid = FeatureInputRules.DummyActions }));
+            return (400, Json(false, Localization.T("缺少或未知 action（支持 spawn/list/remove）",
+                    "Missing or unknown action (supported: spawn/list/remove)"),
+                new { code = "invalid_action", valid = FeatureInputRules.DummyActions },
+                code: "invalid_action"));
 
         // 旧游戏版本可能没有 DummyUtils：先按类型名探测，避免 JIT 到引用缺失类型的方法时抛 TypeLoadException
         if (ReflectionLookup.FindType("NetworkManagerUtils.Dummies.DummyUtils") == null)
         {
-            return (501, Json(false, "当前游戏版本不提供假人 API（DummyUtils 不存在）", new
+            return (501, Json(false, Localization.T("当前游戏版本不提供假人 API（DummyUtils 不存在）",
+                    "This game version does not provide the dummy API (DummyUtils is missing)"), new
             {
                 code = "feature_unavailable",
                 feature = "dummies",
@@ -337,13 +356,16 @@ public static partial class ControlController
             if (!Enum.TryParse(req.role.Trim(), true, out RoleTypeId roleId) ||
                 !Enum.IsDefined(typeof(RoleTypeId), roleId))
             {
-                return (400, Json(false, $"无效角色名: {req.role}", new { code = "invalid_role" }));
+                return (400, Json(false, Localization.F("无效角色名: {0}", "Invalid role name: {0}", req.role),
+                    new { code = "invalid_role" }, code: "invalid_role"));
             }
             spawnRole = roleId;
         }
 
         if (action == "remove" && string.IsNullOrWhiteSpace(req.target))
-            return (400, Json(false, "remove 需要 target（假人 PlayerId / 昵称，或 all）", new { code = "missing_target" }));
+            return (400, Json(false, Localization.T("remove 需要 target（假人 PlayerId / 昵称，或 all）",
+                    "remove requires target (dummy PlayerId / nickname, or all)"),
+                    new { code = "missing_target" }, code: "missing_target"));
 
         string nickname = FeatureInputRules.NormalizeDummyNickname(req.nickname);
         string target = (req.target ?? "").Trim();
@@ -360,7 +382,8 @@ public static partial class ControlController
                     int count = Player.DummyList.Count();
                     if (count >= FeatureInputRules.MaxDummies)
                     {
-                        return (409, Json(false, $"假人数量已达上限 {FeatureInputRules.MaxDummies}", new
+                        return (409, Json(false, Localization.F("假人数量已达上限 {0}",
+                            "Dummy limit reached ({0})", FeatureInputRules.MaxDummies), new
                         {
                             code = "dummy_limit",
                             max = FeatureInputRules.MaxDummies,
@@ -373,7 +396,8 @@ public static partial class ControlController
                     try { hub = SpawnDummySafe(nickname); }
                     catch (TypeLoadException ex)
                     {
-                        return (501, Json(false, $"当前游戏版本不提供假人 API: {ex.Message}", new
+                        return (501, Json(false, Localization.F("当前游戏版本不提供假人 API: {0}",
+                            "This game version does not provide the dummy API: {0}", ex.Message), new
                         {
                             code = "feature_unavailable",
                             feature = "dummies",
@@ -381,7 +405,8 @@ public static partial class ControlController
                     }
                     catch (MissingMethodException ex)
                     {
-                        return (501, Json(false, $"当前游戏版本不提供假人 API: {ex.Message}", new
+                        return (501, Json(false, Localization.F("当前游戏版本不提供假人 API: {0}",
+                            "This game version does not provide the dummy API: {0}", ex.Message), new
                         {
                             code = "feature_unavailable",
                             feature = "dummies",
@@ -389,16 +414,20 @@ public static partial class ControlController
                     }
 
                     if (hub == null)
-                        return (500, Json(false, "假人生成失败（SpawnDummy 返回 null）", new { code = "spawn_failed" }));
+                        return (500, Json(false, Localization.T("假人生成失败（SpawnDummy 返回 null）",
+                        "Dummy spawn failed (SpawnDummy returned null)"), new { code = "spawn_failed" },
+                        code: "spawn_failed"));
 
                     var player = Player.Get(hub);
                     if (player == null)
-                        return (500, Json(false, "假人已生成但无法包装为 Player", new { code = "spawn_failed" }));
+                        return (500, Json(false, Localization.T("假人已生成但无法包装为 Player",
+                        "Dummy was spawned but could not be wrapped as a Player"),
+                        new { code = "spawn_failed" }, code: "spawn_failed"));
 
                     if (spawnRole.HasValue)
                         player.SetRole(spawnRole.Value);
 
-                    return (200, Json(true, $"已生成假人 {player.Nickname}", new
+                    return (200, Json(true, Localization.F("已生成假人 {0}", "Spawned dummy {0}", player.Nickname), new
                     {
                         dummy = DescribeDummy(player),
                         count = Player.DummyList.Count(),
@@ -414,7 +443,8 @@ public static partial class ControlController
                         try { DestroyAllDummiesSafe(); }
                         catch (TypeLoadException ex)
                         {
-                            return (501, Json(false, $"当前游戏版本不提供假人 API: {ex.Message}", new
+                            return (501, Json(false, Localization.F("当前游戏版本不提供假人 API: {0}",
+                            "This game version does not provide the dummy API: {0}", ex.Message), new
                             {
                                 code = "feature_unavailable",
                                 feature = "dummies",
@@ -422,13 +452,15 @@ public static partial class ControlController
                         }
                         catch (MissingMethodException ex)
                         {
-                            return (501, Json(false, $"当前游戏版本不提供假人 API: {ex.Message}", new
+                            return (501, Json(false, Localization.F("当前游戏版本不提供假人 API: {0}",
+                            "This game version does not provide the dummy API: {0}", ex.Message), new
                             {
                                 code = "feature_unavailable",
                                 feature = "dummies",
                             }));
                         }
-                        return (200, Json(true, $"已清除全部假人（{before}）", new
+                        return (200, Json(true, Localization.F("已清除全部假人（{0}）",
+                            "Removed all dummies ({0})", before), new
                         {
                             removed = before,
                             count = Player.DummyList.Count(),
@@ -438,7 +470,8 @@ public static partial class ControlController
 
                     var dummy = FindDummy(target);
                     if (dummy == null)
-                        return (404, Json(false, $"找不到假人: {target}", new { code = "dummy_not_found" }));
+                        return (404, Json(false, Localization.F("找不到假人: {0}", "Dummy not found: {0}", target),
+                        new { code = "dummy_not_found" }, code: "dummy_not_found"));
 
                     var snapshot = DescribeDummy(dummy);
                     string goneName = dummy.Nickname;
@@ -449,10 +482,11 @@ public static partial class ControlController
                     }
                     catch (Exception ex)
                     {
-                        return (500, Json(false, $"销毁假人失败: {ex.Message}", new { code = "destroy_failed" }));
+                        return (500, Json(false, Localization.F("销毁假人失败: {0}", "Failed to destroy dummy: {0}", ex.Message),
+                        new { code = "destroy_failed" }, code: "destroy_failed"));
                     }
 
-                    return (200, Json(true, $"已移除假人 {goneName}", new
+                    return (200, Json(true, Localization.F("已移除假人 {0}", "Removed dummy {0}", goneName), new
                     {
                         removed = snapshot,
                         count = Player.DummyList.Count(),
@@ -461,7 +495,8 @@ public static partial class ControlController
                 }
 
                 default:
-                    return (400, Json(false, $"未知 action: {action}"));
+                    return (400, Json(false, Localization.F("未知 action: {0}", "Unknown action: {0}", action),
+                        code: Localization.CodeInvalidArgument));
             }
         }, out var err);
         return err != null ? (400, Json(false, err.Message)) : (status, json);

@@ -75,15 +75,17 @@ public static class DataCollector
         // 避免高频轮询时每次请求都做一次主线程派发
         if (resp.round_started)
         {
-            var (nukeStatus, nukeCountdown) = MainThreadExecutor.RunOnMainThread(
-                () => (GetNukeStatus(), GetNukeCountdown()), out var err);
+            var (nukeStatus, nukeCode, nukeCountdown) = MainThreadExecutor.RunOnMainThread(
+                () => (GetNukeStatus(), GetWarheadCode(), GetNukeCountdown()), out var err);
             if (err == null)
             {
                 resp.nuke_status = nukeStatus;
+                resp.warhead_code = nukeCode;
                 resp.nuke_countdown = nukeCountdown;
             }
         }
 
+        resp.lang = Localization.Language;
         return Newtonsoft.Json.JsonConvert.SerializeObject(resp);
     }
 
@@ -111,6 +113,9 @@ public static class DataCollector
         players = src.players,
         dntof_plugins = src.dntof_plugins,
         adapted_plugins = src.adapted_plugins,
+        phase_code = src.phase_code,
+        warhead_code = src.warhead_code,
+        lang = src.lang,
     };
 
     private static void UpdateData()
@@ -135,11 +140,16 @@ public static class DataCollector
             fresh.max_players = Server.MaxPlayers;
             fresh.round_started = Round.IsRoundStarted;
             fresh.round_duration = Round.IsRoundStarted ? (int)Round.Duration.TotalSeconds : 0;
-            fresh.current_phase = Round.IsRoundStarted ? "进行中" : "等待开始";
+            bool roundEnded = !Round.IsRoundStarted && Round.IsRoundEnded;
+            fresh.current_phase = Localization.PhaseText(Round.IsRoundStarted, roundEnded);
+            fresh.phase_code = Localization.PhaseCode(Round.IsRoundStarted, roundEnded);
 
             // ★ 修复：Warhead 在地图加载前是 null，用 try-catch 单独保护
             fresh.nuke_status = GetNukeStatus();
+            fresh.warhead_code = GetWarheadCode();
             fresh.nuke_countdown = GetNukeCountdown();
+
+            fresh.lang = Localization.Language;
 
             // ★ 修复：排除 Dummy/NPC/主机 玩家（手动添加的 dummy 会混入 Player.List 导致数据污染）
             var realPlayers = players.Where(p => p != null && !p.IsNpc && !p.IsHost).ToList();
@@ -172,11 +182,13 @@ public static class DataCollector
                 {
                     nickname = Sanitize(p.Nickname),
                     steam_id = p.UserId ?? "",
-                    role = GetRoleCN(p.Role),
-                    team = GetTeamCN(p.Team),
+                    role = GetRoleText(p.Role),
+                    team = GetTeamText(p.Team),
                     x = p.Position.x,
                     y = p.Position.y,
-                    z = p.Position.z
+                    z = p.Position.z,
+                    role_code = p.Role.ToString(),
+                    team_code = p.Team.ToString()
                 })
                 .ToList();
 
@@ -212,64 +224,51 @@ public static class DataCollector
         }
     }
 
-    // ★ 修复：地图加载前 Warhead 对象未初始化，整个方法加保护
-    private static string GetNukeStatus()
+    /// <summary>核弹状态（地图加载前 Warhead 对象未初始化，读取失败按未激活处理）。</summary>
+    private static (bool Detonated, bool Detonating, bool Armed, int Countdown) GetWarheadState()
     {
         try
         {
-            if (Warhead.IsDetonated) return "已爆炸";
-            if (Warhead.IsDetonationInProgress) return $"倒计时:{(int)Warhead.DetonationTime}秒";
+            if (Warhead.IsDetonated) return (true, false, false, 0);
+            if (Warhead.IsDetonationInProgress)
+                return (false, true, true, (int)Warhead.DetonationTime);
+            // LeverStatus 为 bool 时表示拉杆已拉起（armed）；读取失败按未激活处理。
+            bool armed = Warhead.LeverStatus is bool b && b;
+            return (false, false, armed, 0);
         }
-        catch { }
-        return "未激活";
+        catch
+        {
+            // 地图加载前 / Warhead 未初始化：按未激活处理
+        }
+        return (false, false, false, 0);
+    }
+
+    private static string GetNukeStatus()
+    {
+        var s = GetWarheadState();
+        return Localization.WarheadText(s.Detonated, s.Detonating, s.Countdown, s.Armed);
+    }
+
+    private static string GetWarheadCode()
+    {
+        var s = GetWarheadState();
+        return Localization.WarheadCode(s.Detonated, s.Detonating, s.Armed);
     }
 
     private static int GetNukeCountdown()
     {
-        try { return Warhead.IsDetonationInProgress ? (int)Warhead.DetonationTime : 0; }
-        catch { return 0; }
+        var s = GetWarheadState();
+        return s.Detonating ? s.Countdown : 0;
     }
 
     private static string Sanitize(string name) =>
         (name ?? "").Replace("\n", "").Replace("\r", "").Trim();
 
-    private static string GetRoleCN(RoleTypeId role) => role switch
-    {
-        RoleTypeId.ClassD => "D级人员",
-        RoleTypeId.Scientist => "科学家",
-        RoleTypeId.FacilityGuard => "保安",
-        RoleTypeId.NtfPrivate => "九尾狐-士兵",
-        RoleTypeId.NtfSergeant => "九尾狐-中士",
-        RoleTypeId.NtfCaptain => "九尾狐-指挥官",
-        RoleTypeId.ChaosConscript => "混沌-征召兵",
-        RoleTypeId.ChaosRifleman => "混沌-步枪手",
-        RoleTypeId.ChaosMarauder => "混沌-掠夺者",
-        RoleTypeId.ChaosRepressor => "混沌-镇压者",
-        RoleTypeId.Scp173 => "SCP-173",
-        RoleTypeId.Scp049 => "SCP-049",
-        RoleTypeId.Scp096 => "SCP-096",
-        RoleTypeId.Scp106 => "SCP-106",
-        RoleTypeId.Scp939 => "SCP-939",
-        RoleTypeId.Scp079 => "SCP-079",
-        RoleTypeId.Scp3114 => "SCP-3114",
-        RoleTypeId.Scp0492 => "SCP-049-2",
-        RoleTypeId.Spectator => "观察者",
-        RoleTypeId.Tutorial => "教程",
-        RoleTypeId.None => "未分配",
+    // ★ 映射按枚举成员名查表（Localization），不依赖枚举数值；
+    //   未知职业仍保留改造前的 "未知(数字)" 兜底，便于定位缺失的 RoleTypeId。
+    private static string GetRoleText(RoleTypeId role) =>
+        Localization.DataRoleText(role.ToString(), (int)role);
 
-        // ★ 诊断用：如果仍然出现未知职业，HTTP 返回值会显示 "未知(数字)"
-        // 把这个数字告诉开发者，就能知道是哪个 RoleTypeId 枚举值缺失了
-        _ => $"未知({(int)role})"
-    };
-
-    private static string GetTeamCN(Team team) => team switch
-    {
-        Team.SCPs => "SCP",
-        Team.FoundationForces => "基金会",
-        Team.ClassD => "D级",
-        Team.ChaosInsurgency => "混沌",
-        Team.Dead => "观察者",
-        Team.OtherAlive => "其他", // ★ 修复1：Tutorial 等非标准职业会落入此枚举值
-        _ => "未知"
-    };
+    private static string GetTeamText(Team team) =>
+        Localization.TeamText(team.ToString());
 }

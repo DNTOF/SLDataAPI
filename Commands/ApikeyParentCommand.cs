@@ -28,7 +28,8 @@ public sealed class ApikeyParentCommand : ParentCommand
     {
         if (ApikeyCommandGuard.Reject(sender, out response))
             return false;
-        response = "用法:\n  sldataapi apikey create <id> <duty|admin> [note]\n  sldataapi apikey revoke <id>\n  sldataapi apikey list";
+        response = "用法:\n  sldataapi apikey create <id> <duty|admin> [note]\n  sldataapi apikey revoke <id>\n  sldataapi apikey list\n" +
+                   SldataapiParentCommand.I18nHint;
         return false;
     }
 }

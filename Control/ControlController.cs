@@ -103,7 +103,7 @@ public static partial class ControlController
                 "/control/files/write_chunk" => FilesBetaAction(body, "write_chunk", actor),
                 // [内测] beta_adapted_plugin_actions：适配插件写 / 动作路由
                 _ when path.StartsWith(AdaptedActionPrefix, StringComparison.Ordinal) => AdaptedPluginAction(path, body, actor),
-                _ => (404, Json(false, "未知控制端点（2.6 已移除旧路径别名，请使用 RA 对齐新路径）")),
+                _ => (404, Json(false, Localization.T("未知控制端点（2.6 已移除旧路径别名，请使用 RA 对齐新路径）", "Unknown control endpoint (legacy path aliases were removed in 2.6; use the RA-aligned paths)"), code: Localization.CodeNotFound)),
             };
 
             // ★ 最终兜底：任何端点漏检查主线程派发错误而泄漏 (0, null) 时，
@@ -111,8 +111,11 @@ public static partial class ControlController
             if (status <= 0 || string.IsNullOrEmpty(json))
             {
                 Log.Error($"[SLDataAPI][Control] 端点 {path} 返回了无效结果 (status={status})——内部错误未正确传播，已兜底为 500");
-                return (500, Json(false, "内部错误"));
+                return (500, Json(false, Localization.InternalError, code: Localization.CodeInternalError));
             }
+
+            // 统一补齐错误 code（未显式指定时按状态码 + 文案推断），保证所有错误响应都有稳定机器码。
+            json = ErrorCodeEnvelope.EnsureErrorCode(status, json);
 
             // 控制操作审计日志（v2.5.5-preview 推出，代号 Everest C1）：只记录主动侵入性操作（排除只读/自动化流程），
             // 不计 IP，只记时间 + 端点 + 请求体 + 结果。HTTP 与 WS call 通道都汇聚到这里，自动全覆盖
@@ -130,7 +133,7 @@ public static partial class ControlController
         {
             Log.Error($"[SLDataAPI][Control] 顶层异常: {ex}");
             // 不向客户端回显异常细节（可能含服务器路径等敏感信息），细节只进服务器日志
-            return (500, Json(false, "内部错误"));
+            return (500, Json(false, Localization.InternalError, code: Localization.CodeInternalError));
         }
     }
 
@@ -195,7 +198,7 @@ public static partial class ControlController
     {
         var req = Parse<WaveRequest>(body);
         if (req == null || string.IsNullOrWhiteSpace(req.action))
-            return (400, Json(false, "缺少 action 字段"));
+            return (400, Json(false, Localization.T("缺少 action 字段", "Missing action field"), code: Localization.CodeInvalidArgument));
 
         var (status, json) = MainThreadExecutor.RunOnMainThread(() =>
         {
@@ -203,10 +206,12 @@ public static partial class ControlController
             {
                 "mtf" => LabApi.Features.Wrappers.RespawnWaves.PrimaryMtfWave,
                 "chaos" => LabApi.Features.Wrappers.RespawnWaves.PrimaryChaosWave,
-                _ => throw new InvalidOperationException($"未知阵营: {req.faction}（支持 mtf / chaos）"),
+                _ => throw new InvalidOperationException(Localization.F("未知阵营: {0}（支持 mtf / chaos）",
+                    "Unknown faction: {0} (supported: mtf / chaos)", req.faction)),
             };
             if (wave == null)
-                throw new InvalidOperationException("该阵营当前没有待生成的波次");
+                throw new InvalidOperationException(Localization.T("该阵营当前没有待生成的波次",
+                    "No pending respawn wave for this faction"));
 
             string action = req.action.Trim().ToLowerInvariant();
             switch (action)
@@ -220,7 +225,8 @@ public static partial class ControlController
                 case "status":
                     break;
                 default:
-                    throw new InvalidOperationException($"未知 action: {req.action}（支持 instant / set / status）");
+                    throw new InvalidOperationException(Localization.F("未知 action: {0}（支持 instant / set / status）",
+                        "Unknown action: {0} (supported: instant / set / status)", req.action));
             }
 
             var payload = new Dictionary<string, object?>
@@ -249,7 +255,8 @@ public static partial class ControlController
     {
         var req = Parse<ReportRequest>(body);
         if (req == null || string.IsNullOrWhiteSpace(req.action))
-            return (400, Json(false, "缺少 action 字段（支持 list / handle）"));
+            return (400, Json(false, Localization.T("缺少 action 字段（支持 list / handle）",
+                "Missing action field (supported: list / handle)"), code: Localization.CodeInvalidArgument));
 
         switch (req.action.Trim().ToLowerInvariant())
         {
@@ -257,12 +264,15 @@ public static partial class ControlController
                 return (200, Json(true, "ok", ReportService.ListPending()));
             case "handle":
                 if (string.IsNullOrWhiteSpace(req.id))
-                    return (400, Json(false, "缺少 id 字段（举报记录 id）"));
+                    return (400, Json(false, Localization.T("缺少 id 字段（举报记录 id）",
+                    "Missing id field (report record id)"), code: Localization.CodeInvalidArgument));
                 return ReportService.MarkHandled(req.id.Trim())
-                    ? (200, Json(true, "已标记为已处理"))
-                    : (404, Json(false, "未找到该记录或该记录已处理"));
+                    ? (200, Json(true, Localization.T("已标记为已处理", "Marked as handled")))
+                    : (404, Json(false, Localization.T("未找到该记录或该记录已处理",
+                        "Record not found or already handled"), code: Localization.CodeNotFound));
             default:
-                return (400, Json(false, $"未知 action: {req.action}（支持 list / handle）"));
+                return (400, Json(false, Localization.F("未知 action: {0}（支持 list / handle）",
+                    "Unknown action: {0} (supported: list / handle)", req.action), code: Localization.CodeInvalidArgument));
         }
     }
 
@@ -276,7 +286,7 @@ public static partial class ControlController
     {
         var req = Parse<CommandRequest>(body);
         if (req == null || string.IsNullOrWhiteSpace(req.command))
-            return (400, Json(false, "缺少 command 字段"));
+            return (400, Json(false, Localization.T("缺少 command 字段", "Missing command field"), code: Localization.CodeInvalidArgument));
 
         // SLDataAPI 自身的管理 CLI 一律不经远程控制通道执行（所有子命令，不只 apikey）。
         // 远程通道只能证明"持有某把 Key"，无法证明操作者身份；放行等于任何拿到 console 授权的 Key
@@ -305,7 +315,7 @@ public static partial class ControlController
             if (err != null)
             {
                 Log.Error($"[SLDataAPI][Control] 命令执行失败（{sw.ElapsedMilliseconds}ms）: {err.GetType().Name}: {err.Message}");
-                return (500, Json(false, $"命令执行失败: {err.Message}"));
+                return (500, Json(false, Localization.F("命令执行失败: {0}", "Command execution failed: {0}", err.Message), code: Localization.CodeOperationFailed));
             }
         }
         finally
@@ -317,7 +327,7 @@ public static partial class ControlController
         // 全链路诊断（不受 debug 开关限制——控制台回显是核心功能，问题要能一眼定位）
         Log.Info($"[SLDataAPI][Control] 命令完成（{sw.ElapsedMilliseconds}ms）：output 长度 {output?.Length ?? 0}，console 长度 {consoleOutput?.Length ?? 0}");
 
-        return (200, Json(true, "已执行", new { output, console = consoleOutput }));
+        return (200, Json(true, Localization.T("已执行", "Executed"), new { output, console = consoleOutput }));
     }
 
     private static readonly char[] SpaceSeparator = { ' ' };
@@ -355,14 +365,15 @@ public static partial class ControlController
 
         string[] array = trimmed.Substring(1).Trim().Split(SpaceSeparator, StringSplitOptions.RemoveEmptyEntries);
         if (array.Length == 0)
-            return "命令为空";
+            return Localization.T("命令为空", "Command is empty");
 
         bool found = QueryProcessor.DotCommandHandler.TryGetCommand(array[0], out var dotCommand);
         var arguments = new ArraySegment<string>(array, 1, array.Length - 1);
 
         // 原生玩家路径以玩家身份执行（大量插件命令会取 sender.Player），专用服用主机玩家等效代替
         if (!ReferenceHub.TryGetLocalHub(out var hub) || hub == null)
-            return "主机玩家不存在，无法以玩家身份执行点命令";
+            return Localization.T("主机玩家不存在，无法以玩家身份执行点命令",
+                "The host player does not exist; cannot execute dot commands as a player");
         var sender = new PlayerCommandSender(hub);
 
         // 与原生路径一致：触发 LabAPI 命令事件（监听/审计命令的插件可见）
@@ -429,31 +440,35 @@ public static partial class ControlController
     {
         var req = Parse<PlayerActionRequest>(body);
         if (req == null || string.IsNullOrWhiteSpace(req.target))
-            return (400, Json(false, "缺少 target 字段"));
+            return (400, Json(false, Localization.T("缺少 target 字段", "Missing target field"), code: Localization.CodeInvalidArgument));
 
         MainThreadExecutor.RunOnMainThread(() =>
         {
             var player = FindPlayer(req.target);
             if (player == null)
-                throw new InvalidOperationException($"找不到玩家: {req.target}");
+                throw new InvalidOperationException(Localization.F("找不到玩家: {0}", "Player not found: {0}", req.target));
 
             switch (kind)
             {
                 case "kick":
-                    player.Kick(string.IsNullOrWhiteSpace(req.reason) ? "由管理端踢出" : req.reason);
+                    player.Kick(string.IsNullOrWhiteSpace(req.reason)
+                        ? Localization.T("由管理端踢出", "Kicked by the administration")
+                        : req.reason);
                     break;
 
                 case "ban":
                     // 请求单位是分钟；LabAPI 的 Ban 按秒计，0 = 永久。
                     // X-08：负数 duration 语义未定义，钳制为 0（永久）
                     player.Ban(
-                        string.IsNullOrWhiteSpace(req.reason) ? "由管理端封禁" : req.reason,
+                        string.IsNullOrWhiteSpace(req.reason)
+                            ? Localization.T("由管理端封禁", "Banned by the administration")
+                            : req.reason,
                         (long)Math.Max(0, req.duration) * 60);
                     break;
 
                 case "role":
                     if (!Enum.TryParse<RoleTypeId>(req.role, true, out var roleId))
-                        throw new InvalidOperationException($"无效角色名: {req.role}");
+                        throw new InvalidOperationException(Localization.F("无效角色名: {0}", "Invalid role name: {0}", req.role));
                     player.SetRole(roleId);
                     break;
 
@@ -464,7 +479,8 @@ public static partial class ControlController
                 case "mute":
                 {
                     if (req.mute == null)
-                        throw new InvalidOperationException("缺少 mute 字段（true=语音禁言 / false=解除）");
+                        throw new InvalidOperationException(Localization.T("缺少 mute 字段（true=语音禁言 / false=解除）",
+                            "Missing mute field (true = mute voice / false = unmute)"));
 
                     // 四档化（v2.5.4-preview 推出，代号 ENIGMA；v2.5.4 正式版，代号 GIS,GNSS,RS!）：
                     // voice（全局语音）/ intercom（对讲机）× persistent（持久写入本地静音存储）
@@ -486,7 +502,7 @@ public static partial class ControlController
 
                 case "msg":
                     if (string.IsNullOrWhiteSpace(req.message))
-                        throw new InvalidOperationException("缺少 message 字段");
+                        throw new InvalidOperationException(Localization.T("缺少 message 字段", "Missing message field"));
                     float dur = ControlMessageValidation.ClampDurationSeconds(req.duration_seconds);
                     if (req.msg_type == "broadcast")
                         player.SendBroadcast(req.message, (ushort)Math.Ceiling(dur));
@@ -496,9 +512,10 @@ public static partial class ControlController
 
                 case "effect":
                     if (req.effect_intensity < 0 || req.effect_intensity > 255)
-                        throw new InvalidOperationException($"effect_intensity 超出范围: {req.effect_intensity}（0-255，0=关闭）");
+                        throw new InvalidOperationException(Localization.F("effect_intensity 超出范围: {0}（0-255，0=关闭）",
+                            "effect_intensity is out of range: {0} (0-255; 0 disables the effect)", req.effect_intensity));
                     if (!TryEnableEffect(player, req.effect, Math.Max(0.1f, req.effect_duration), (byte)req.effect_intensity))
-                        throw new InvalidOperationException($"无效效果名: {req.effect}");
+                        throw new InvalidOperationException(Localization.F("无效效果名: {0}", "Invalid effect name: {0}", req.effect));
                     break;
 
                 case "state":
@@ -520,7 +537,7 @@ public static partial class ControlController
             return (400, Json(false, err.Message));
 
         Log.Info($"[SLDataAPI][Control] player/{kind} target={req.target}");
-        return (200, Json(true, "操作完成"));
+        return (200, Json(true, Localization.T("操作完成", "Operation completed")));
     }
 
     // 效果名别名：旧 EXILED EffectType 枚举名 → base-game 效果类名（大小写不敏感匹配）
@@ -606,11 +623,13 @@ public static partial class ControlController
         {
             var module = player.VoiceModule;
             if (module == null)
-                throw new InvalidOperationException("玩家语音模块未初始化");
+                throw new InvalidOperationException(Localization.T("玩家语音模块未初始化",
+                    "Player voice module is not initialized"));
             var prop = typeof(PlayerRoles.Voice.VoiceModuleBase)
                 .GetProperty("CurrentChannel", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
             if (prop == null || !prop.CanWrite)
-                throw new InvalidOperationException("CurrentChannel 属性不可写");
+                throw new InvalidOperationException(Localization.T("CurrentChannel 属性不可写",
+                    "The CurrentChannel property is not writable"));
             prop.SetValue(module, channel);
         }
         catch (InvalidOperationException)
@@ -619,7 +638,8 @@ public static partial class ControlController
         }
         catch (Exception ex)
         {
-            throw new InvalidOperationException($"切换语音通道失败: {ex.Message}");
+            throw new InvalidOperationException(Localization.F("切换语音通道失败: {0}",
+                "Failed to switch voice channel: {0}", ex.Message));
         }
     }
 
@@ -647,7 +667,8 @@ public static partial class ControlController
             return (400, Json(false, err.Message));
 
         Log.Info($"[SLDataAPI][Control] broadcast duration={seconds} clear={clear}");
-        return (200, Json(true, "全服广播已发送", new { duration_seconds = seconds, clear_previous = clear }));
+        return (200, Json(true, Localization.T("全服广播已发送", "Server-wide broadcast sent"),
+            new { duration_seconds = seconds, clear_previous = clear }));
     }
 
     // ------------------------------------------------------------------
@@ -665,7 +686,8 @@ public static partial class ControlController
         MainThreadExecutor.RunOnMainThread(() =>
         {
             if (Server.Host == null)
-                throw new InvalidOperationException("服务器主机未就绪，无法发送管理聊天");
+                throw new InvalidOperationException(Localization.T("服务器主机未就绪，无法发送管理聊天",
+                    "Server host is not ready; admin chat cannot be sent"));
 
             // LabAPI 1.1.7：SendAdminChatMessage 过滤 ReadyList 中具备 AdminChat 权限的玩家，
             // 走 EncryptedChannel.AdminChat（RA Staff Chat）。isSilent=true 时不附带屏幕广播提示。
@@ -676,7 +698,7 @@ public static partial class ControlController
             return (400, Json(false, err.Message));
 
         Log.Info($"[SLDataAPI][Control] staffchat silent={silent}");
-        return (200, Json(true, "管理聊天已发送", new { is_silent = silent }));
+        return (200, Json(true, Localization.T("管理聊天已发送", "Admin chat sent"), new { is_silent = silent }));
     }
 
     // ------------------------------------------------------------------
@@ -686,7 +708,7 @@ public static partial class ControlController
     {
         var req = Parse<RoundActionRequest>(body);
         if (req == null || string.IsNullOrWhiteSpace(req.action))
-            return (400, Json(false, "缺少 action 字段"));
+            return (400, Json(false, Localization.T("缺少 action 字段", "Missing action field"), code: Localization.CodeInvalidArgument));
 
         MainThreadExecutor.RunOnMainThread(() =>
         {
@@ -702,7 +724,8 @@ public static partial class ControlController
                     Round.Start();
                     break;
                 default:
-                    throw new InvalidOperationException($"未知 action: {req.action}（支持 restart / end / start）");
+                    throw new InvalidOperationException(Localization.F("未知 action: {0}（支持 restart / end / start）",
+                        "Unknown action: {0} (supported: restart / end / start)", req.action));
             }
         }, out var err);
 
@@ -710,7 +733,7 @@ public static partial class ControlController
             return (400, Json(false, err.Message));
 
         Log.Info($"[SLDataAPI][Control] round action={req.action}");
-        return (200, Json(true, "回合操作完成"));
+        return (200, Json(true, Localization.T("回合操作完成", "Round operation completed")));
     }
 
     // ------------------------------------------------------------------
@@ -720,9 +743,10 @@ public static partial class ControlController
     {
         var req = Parse<CassieRequest>(body);
         if (req == null || string.IsNullOrWhiteSpace(req.message))
-            return (400, Json(false, "缺少 message 字段"));
+            return (400, Json(false, Localization.T("缺少 message 字段", "Missing message field"), code: Localization.CodeInvalidArgument));
         if (req.message.Length > 500)
-            return (400, Json(false, $"message 过长（{req.message.Length} 字符，上限 500）"));
+            return (400, Json(false, Localization.F("message 过长（{0} 字符，上限 500）",
+                "message is too long ({0} characters; limit 500)", req.message.Length), code: Localization.CodeInvalidArgument));
 
         MainThreadExecutor.RunOnMainThread(() =>
         {
@@ -743,7 +767,7 @@ public static partial class ControlController
         if (err != null)
             return (400, Json(false, err.Message));
 
-        return (200, Json(true, "CASSIE 播报已触发"));
+        return (200, Json(true, Localization.T("CASSIE 播报已触发", "CASSIE announcement triggered")));
     }
 
     // ------------------------------------------------------------------
@@ -753,7 +777,7 @@ public static partial class ControlController
     {
         var req = Parse<WarheadActionRequest>(body);
         if (req == null || string.IsNullOrWhiteSpace(req.action))
-            return (400, Json(false, "缺少 action 字段"));
+            return (400, Json(false, Localization.T("缺少 action 字段", "Missing action field"), code: Localization.CodeInvalidArgument));
 
         MainThreadExecutor.RunOnMainThread(() =>
         {
@@ -769,7 +793,8 @@ public static partial class ControlController
                     Warhead.Detonate();
                     break;
                 default:
-                    throw new InvalidOperationException($"未知 action: {req.action}（支持 start / stop / detonate）");
+                    throw new InvalidOperationException(Localization.F("未知 action: {0}（支持 start / stop / detonate）",
+                        "Unknown action: {0} (supported: start / stop / detonate)", req.action));
             }
         }, out var err);
 
@@ -777,7 +802,7 @@ public static partial class ControlController
             return (400, Json(false, err.Message));
 
         Log.Info($"[SLDataAPI][Control] warhead action={req.action}");
-        return (200, Json(true, "核弹操作完成"));
+        return (200, Json(true, Localization.T("核弹操作完成", "Warhead operation completed")));
     }
 
     // ------------------------------------------------------------------
@@ -787,7 +812,8 @@ public static partial class ControlController
     {
         var req = Parse<SlPlayerRequest>(body);
         if (req == null || string.IsNullOrWhiteSpace(req.action))
-            return (400, Json(false, "缺少 action 字段"));
+            return (400, Json(false, Localization.T("缺少 action 字段", "Missing action field"),
+                code: Localization.CodeInvalidArgument));
 
         string action = req.action.ToLowerInvariant();
 
@@ -796,20 +822,22 @@ public static partial class ControlController
         if (action == "fetch")
         {
             if (string.IsNullOrWhiteSpace(req.url))
-                return (400, Json(false, "缺少 url 字段"));
+                return (400, Json(false, Localization.T("缺少 url 字段", "Missing url field"), code: Localization.CodeInvalidArgument));
             // 防命令注入：URL 会拼进控制台命令，必须是合法 http(s) 绝对地址，
             // 且不含任何空白/控制字符（空格、换行等可被控制台解析成多条命令或参数）
             string url = req.url.Trim();
             if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
                 (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
-                return (400, Json(false, "url 必须是合法的 http:// 或 https:// 绝对地址"));
+                return (400, Json(false, Localization.T("url 必须是合法的 http:// 或 https:// 绝对地址",
+                    "url must be a valid absolute http:// or https:// address"), code: Localization.CodeInvalidArgument));
             foreach (char c in url)
             {
                 if (char.IsWhiteSpace(c) || char.IsControl(c))
-                    return (400, Json(false, "url 不能包含空白或控制字符"));
+                    return (400, Json(false, Localization.T("url 不能包含空白或控制字符",
+                    "url cannot contain whitespace or control characters"), code: Localization.CodeInvalidArgument));
             }
 
-            return RunConsoleCommand($".m fetch {url}", "正在拉取云端歌单...");
+            return RunConsoleCommand($".m fetch {url}", Localization.T("正在拉取云端歌单...", "Fetching remote playlist..."));
         }
 
         var (slStatus, slJson) = MainThreadExecutor.RunOnMainThread(() =>
@@ -826,7 +854,7 @@ public static partial class ControlController
 
                 case "play":
                     if (req.index < 0)
-                        return (400, Json(false, "缺少 index 字段"));
+                        return (400, Json(false, Localization.T("缺少 index 字段", "Missing index field"), code: Localization.CodeInvalidArgument));
                     return (200, Json(true, SlPlayerController.Play(controller, req.index)));
 
                 case "next":
@@ -837,7 +865,8 @@ public static partial class ControlController
 
                 case "volume":
                     if (req.volume < 0 || req.volume > 100)
-                        return (400, Json(false, "volume 需在 0-100 之间"));
+                        return (400, Json(false, Localization.T("volume 需在 0-100 之间", "volume must be between 0 and 100"),
+                            code: Localization.CodeInvalidArgument));
                     return (200, Json(true, SlPlayerController.SetVolume(controller, req.volume)));
 
                 case "shuffle":
@@ -847,7 +876,9 @@ public static partial class ControlController
                     return (200, Json(true, SlPlayerController.Reload(controller)));
 
                 default:
-                    return (404, Json(false, $"未知 action: {req.action}（支持 status/list/play/next/stop/volume/shuffle/reload/fetch）"));
+                    return (404, Json(false, Localization.F("未知 action: {0}（支持 status/list/play/next/stop/volume/shuffle/reload/fetch）",
+                        "Unknown action: {0} (supported: status/list/play/next/stop/volume/shuffle/reload/fetch)", req.action),
+                        code: Localization.CodeNotFound));
             }
         }, out var err);
 
@@ -870,7 +901,8 @@ public static partial class ControlController
                 out var err);
 
             if (err != null)
-                return (500, Json(false, $"命令执行失败: {err.Message}"));
+                return (500, Json(false, Localization.F("命令执行失败: {0}", "Command execution failed: {0}", err.Message),
+                    code: Localization.CodeOperationFailed));
 
             return (200, Json(true, okText, new { output }));
         }
@@ -925,29 +957,34 @@ public static partial class ControlController
                     try { p.LoadConfigs(); count++; }
                     catch { /* 单个插件失败不影响其余 */ }
                 }
-                return Json(true, $"已热重载 {count} 个插件的配置（插件本体与启停状态需重启服务器生效）");
+                return Json(true, Localization.F("已热重载 {0} 个插件的配置（插件本体与启停状态需重启服务器生效）",
+                    "Reloaded configs for {0} plugin(s) (plugin assemblies and enabled state require a server restart)", count));
             }
 
             if (req?.action == "stage")
             {
                 if (string.IsNullOrWhiteSpace(req.name))
-                    throw new InvalidOperationException("缺少 name 字段");
+                    throw new InvalidOperationException(Localization.T("缺少 name 字段", "Missing name field"));
                 bool found = FindLabPlugin(req.name) != null || ExiledInterop.FindPlugin(req.name) != null;
                 if (!found)
-                    throw new InvalidOperationException($"未找到插件: {req.name}");
+                    throw new InvalidOperationException(Localization.F("未找到插件: {0}", "Plugin not found: {0}", req.name));
                 var labSelf = FindLabPlugin(req.name);
                 if (labSelf != null && IsSelfPlugin(labSelf))
-                    throw new InvalidOperationException("禁止禁用 SLDataAPI 自身");
+                    throw new InvalidOperationException(Localization.T("禁止禁用 SLDataAPI 自身", "SLDataAPI itself cannot be disabled"));
                 PluginStaged[req.name.Trim()] = req.enabled;
+                string stagedAction = req.enabled
+                    ? Localization.T("启用", "enable")
+                    : Localization.T("禁用", "disable");
                 return Json(true,
-                    $"已暂存{(req.enabled ? "启用" : "禁用")}插件 {req.name.Trim()}（点\"保存并重载\"统一生效）",
+                    Localization.F("已暂存{0}插件 {1}（点\"保存并重载\"统一生效）",
+                        "Staged {0} for plugin {1} (apply with \"Save and reload\")", stagedAction, req.name.Trim()),
                     new { staged = StagedSnapshot() });
             }
 
             if (req?.action == "clear")
             {
                 PluginStaged.Clear();
-                return Json(true, "已清空暂存", new { staged = StagedSnapshot() });
+                return Json(true, Localization.T("已清空暂存", "Staged changes cleared"), new { staged = StagedSnapshot() });
             }
 
             if (req?.action == "apply")
@@ -962,13 +999,14 @@ public static partial class ControlController
                     {
                         if (IsSelfPlugin(labPlugin))
                         {
-                            failed.Add(new { name = kv.Key, reason = "禁止禁用 SLDataAPI 自身" });
+                            failed.Add(new { name = kv.Key, reason = Localization.T("禁止禁用 SLDataAPI 自身", "SLDataAPI itself cannot be disabled") });
                             continue;
                         }
                         try
                         {
                             WriteLabPluginEnabled(labPlugin, kv.Value);
-                            applied.Add(new { name = kv.Key, enabled = kv.Value, note = "重启服务器后生效" });
+                            applied.Add(new { name = kv.Key, enabled = kv.Value,
+                                note = Localization.T("重启服务器后生效", "Takes effect after a server restart") });
                         }
                         catch (Exception ex)
                         {
@@ -983,7 +1021,8 @@ public static partial class ControlController
                         string? errReason = ExiledInterop.SetPluginEnabled(exiledPlugin, kv.Value);
                         if (errReason == null)
                         {
-                            applied.Add(new { name = kv.Key, enabled = kv.Value, note = "EXILED 插件已重载生效" });
+                            applied.Add(new { name = kv.Key, enabled = kv.Value,
+                                note = Localization.T("EXILED 插件已重载生效", "EXILED plugin reloaded and applied") });
                             exiledTouched = true;
                         }
                         else
@@ -993,7 +1032,7 @@ public static partial class ControlController
                         continue;
                     }
 
-                    failed.Add(new { name = kv.Key, reason = "插件不存在" });
+                    failed.Add(new { name = kv.Key, reason = Localization.T("插件不存在", "Plugin does not exist") });
                 }
                 PluginStaged.Clear();
 
@@ -1001,13 +1040,17 @@ public static partial class ControlController
                     ExiledInterop.ReloadPlugins();
 
                 return Json(true,
-                    $"已保存 {applied.Count} 个插件的启停设置" + (failed.Count > 0 ? $"（{failed.Count} 个失败）" : "") +
-                    "。LabAPI 插件需重启服务器生效。",
+                    Localization.F("已保存 {0} 个插件的启停设置", "Saved enabled state for {0} plugin(s)", applied.Count) +
+                    (failed.Count > 0
+                        ? Localization.F("（{0} 个失败）", " ({0} failed)", failed.Count)
+                        : "") +
+                    Localization.T("。LabAPI 插件需重启服务器生效。",
+                        ". LabAPI plugins require a server restart."),
                     new { applied, failed });
             }
 
             if (req != null && !string.IsNullOrEmpty(req.action) && req.action != "list")
-                throw new InvalidOperationException($"未知 action: {req.action}");
+                throw new InvalidOperationException(Localization.F("未知 action: {0}", "Unknown action: {0}", req.action));
 
             // 列表：enabled 读【配置文件】（LabAPI properties.yml / EXILED is_enabled），
             // 而非运行时状态 —— 运行时可能被全局禁用/重载中，不代表配置文件里的启停设置
@@ -1052,7 +1095,8 @@ public static partial class ControlController
         }, out var err);
 
         if (err != null)
-            return (500, Json(false, $"插件操作失败: {err.Message}"));
+            return (500, Json(false, Localization.F("插件操作失败: {0}", "Plugin operation failed: {0}", err.Message),
+                code: Localization.CodeOperationFailed));
 
         return (200, json);
     }
@@ -1090,7 +1134,8 @@ public static partial class ControlController
         }, out var err);
 
         if (err != null)
-            return (500, Json(false, $"封禁列表读取失败: {err.Message}"));
+            return (500, Json(false, Localization.F("封禁列表读取失败: {0}", "Failed to read ban list: {0}", err.Message),
+                code: Localization.CodeOperationFailed));
 
         return (200, json);
     }
@@ -1117,7 +1162,8 @@ public static partial class ControlController
     {
         var req = Parse<BanRevokeRequest>(body);
         if (req == null || string.IsNullOrWhiteSpace(req.user_id))
-            return (400, Json(false, "缺少 user_id 字段"));
+            return (400, Json(false, Localization.T("缺少 user_id 字段", "Missing user_id field"),
+                code: Localization.CodeInvalidArgument));
 
         bool ok = MainThreadExecutor.RunOnMainThread(() =>
         {
@@ -1131,13 +1177,15 @@ public static partial class ControlController
         }, out var err);
 
         if (err != null)
-            return (500, Json(false, $"解除封禁失败: {err.Message}"));
+            return (500, Json(false, Localization.F("解除封禁失败: {0}", "Failed to revoke ban: {0}", err.Message),
+                code: Localization.CodeOperationFailed));
 
         if (!ok)
-            return (404, Json(false, $"未找到该封禁记录: {req.user_id}"));
+            return (404, Json(false, Localization.F("未找到该封禁记录: {0}", "Ban record not found: {0}", req.user_id),
+                code: Localization.CodeNotFound));
 
         Log.Info($"[SLDataAPI][Control] 解除封禁 user_id={req.user_id}");
-        return (200, Json(true, "已解除封禁"));
+        return (200, Json(true, Localization.T("已解除封禁", "Ban revoked")));
     }
 
     // ------------------------------------------------------------------
@@ -1147,7 +1195,8 @@ public static partial class ControlController
     {
         var req = Parse<BanAddRequest>(body);
         if (req == null || string.IsNullOrWhiteSpace(req.user_id))
-            return (400, Json(false, "缺少 user_id 字段"));
+            return (400, Json(false, Localization.T("缺少 user_id 字段", "Missing user_id field"),
+                code: Localization.CodeInvalidArgument));
 
         string userId = req.user_id.Trim();
         GameBanType bt = req.ban_type == "ip" ? GameBanType.IP : GameBanType.UserId;
@@ -1170,13 +1219,15 @@ public static partial class ControlController
         }, out var err);
 
         if (err != null)
-            return (500, Json(false, $"封禁失败: {err.Message}"));
+            return (500, Json(false, Localization.F("封禁失败: {0}", "Ban failed: {0}", err.Message),
+                code: Localization.CodeOperationFailed));
 
         if (!ok)
-            return (400, Json(false, "封禁写入失败（IssueBan 返回 false）"));
+            return (400, Json(false, Localization.T("封禁写入失败（IssueBan 返回 false）",
+                    "Failed to write ban (IssueBan returned false)"), code: Localization.CodeOperationFailed));
 
         Log.Info($"[SLDataAPI][Control] 新增封禁 user_id={userId} type={req.ban_type} duration={req.duration}min");
-        return (200, Json(true, "已封禁"));
+        return (200, Json(true, Localization.T("已封禁", "Banned")));
     }
 
     // ------------------------------------------------------------------
@@ -1213,7 +1264,7 @@ public static partial class ControlController
         var req = Parse<FilesRequest>(body);
         string root = Plugin.Instance?.Config.FileRoot ?? "";
         if (!FileService.IsEnabled(root))
-            return (404, Json(false, "文件端点未启用（服务器未配置 FileRoot）"));
+            return (404, Json(false, Localization.FileRootNotConfigured, code: Localization.CodeServiceUnavailable));
 
         try
         {
@@ -1222,7 +1273,7 @@ public static partial class ControlController
                 "list" => FileService.List(root, req?.path ?? ""),
                 "read" => FileService.Read(root, req?.path ?? ""),
                 "write" => FileService.Write(root, req?.path ?? "", req?.content ?? ""),
-                _ => throw new InvalidOperationException("未知文件操作")
+                _ => throw new InvalidOperationException(Localization.T("未知文件操作", "Unknown file operation"))
             };
             return (200, Json(true, "ok", data));
         }
@@ -1245,15 +1296,17 @@ public static partial class ControlController
     private static (int, string) FilesBetaAction(string body, string kind, string? actor)
     {
         if (Plugin.Instance?.Config.BetaFileRootWs != true)
-            return (404, Json(false, "内测端点未开启（config: beta_file_root_ws: false）"));
+            return (404, Json(false, Localization.T("内测端点未开启（config: beta_file_root_ws: false）",
+                    "Beta endpoint is disabled (config: beta_file_root_ws: false)"), code: Localization.CodeNotFound));
 
         string root = Plugin.Instance?.Config.FileRoot ?? "";
         if (!FileService.IsEnabled(root))
-            return (404, Json(false, "文件端点未启用（服务器未配置 FileRoot）"));
+            return (404, Json(false, Localization.FileRootNotConfigured, code: Localization.CodeServiceUnavailable));
 
         JObject req;
         try { req = string.IsNullOrWhiteSpace(body) ? new JObject() : JObject.Parse(body); }
-        catch { return (400, Json(false, "请求体不是合法 JSON 对象")); }
+        catch { return (400, Json(false, Localization.T("请求体不是合法 JSON 对象", "Request body is not a valid JSON object"),
+                code: Localization.CodeInvalidArgument)); }
         string relPath = req["path"]?.ToString() ?? "";
         string who = actor ?? "";
 
@@ -1279,22 +1332,29 @@ public static partial class ControlController
                     if (action == "abort")
                     {
                         bool removed = FileUploads.Abort(uploadId, who);
-                        return (200, Json(true, removed ? "已取消上传" : "会话不存在或已过期", new { upload_id = uploadId, aborted = removed }));
+                        return (200, Json(true, removed
+                            ? Localization.T("已取消上传", "Upload cancelled")
+                            : Localization.T("会话不存在或已过期", "Session does not exist or has expired"),
+                        new { upload_id = uploadId, aborted = removed }));
                     }
                     if (action != "append")
-                        return (400, Json(false, $"未知 action: {action}（支持 append / abort）"));
+                        return (400, Json(false, Localization.F("未知 action: {0}（支持 append / abort）",
+                        "Unknown action: {0} (supported: append / abort)", action), code: Localization.CodeInvalidArgument));
 
                     long offset = req["offset"]?.Value<long?>() ?? 0;
                     bool final = req["final"]?.Value<bool?>() ?? false;
                     string? sha = req["sha256"]?.ToString();
                     byte[] chunk;
                     try { chunk = Convert.FromBase64String(req["data"]?.ToString() ?? ""); }
-                    catch { return (400, Json(false, "data 不是合法 base64")); }
+                    catch { return (400, Json(false, Localization.T("data 不是合法 base64", "data is not valid base64"),
+                    code: Localization.CodeInvalidArgument)); }
 
                     if (string.IsNullOrEmpty(uploadId))
                     {
                         if (offset != 0)
-                            return (400, Json(false, "新上传必须从 offset 0 开始（或携带 upload_id 续传）"));
+                            return (400, Json(false, Localization.T("新上传必须从 offset 0 开始（或携带 upload_id 续传）",
+                                "A new upload must start at offset 0 (or include upload_id to resume)"),
+                                code: Localization.CodeInvalidArgument));
                         FileService.PreflightWrite(root, relPath); // 开会话前就跑完全部写入防线，越界/受保护路径立即拒绝
                         uploadId = FileUploads.Begin(who, relPath);
                     }
@@ -1305,11 +1365,12 @@ public static partial class ControlController
 
                     byte[] all = FileUploads.Complete(uploadId, who, relPath, sha);
                     object written = FileService.WriteBytes(root, relPath, all);
-                    return (200, Json(true, "已写入", new { upload_id = uploadId, received, committed = true, file = written }));
+                    return (200, Json(true, Localization.T("已写入", "Written"),
+                        new { upload_id = uploadId, received, committed = true, file = written }));
                 }
 
                 default:
-                    return (400, Json(false, "未知文件操作"));
+                    return (400, Json(false, Localization.T("未知文件操作", "Unknown file operation"), code: Localization.CodeInvalidArgument));
             }
         }
         catch (Exception ex) when (ex is ArgumentException || ex is InvalidOperationException || ex is IOException ||
@@ -1351,22 +1412,25 @@ public static partial class ControlController
     private static (int, string) AdaptedPluginAction(string path, string body, string? actor)
     {
         if (Plugin.Instance?.Config.BetaAdaptedPluginActions != true)
-            return (404, Json(false, "内测端点未开启（config: beta_adapted_plugin_actions: false）"));
+            return (404, Json(false, Localization.T("内测端点未开启（config: beta_adapted_plugin_actions: false）",
+                "Beta endpoint is disabled (config: beta_adapted_plugin_actions: false)"), code: Localization.CodeNotFound));
 
         string rest = path.Substring(AdaptedActionPrefix.Length);
         string[] segs = rest.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
         if (segs.Length != 2)
-            return (404, Json(false, "路径不存在（需要 /control/adapted/<plugin_id>/<action>）"));
+            return (404, Json(false, Localization.T("路径不存在（需要 /control/adapted/<plugin_id>/<action>）",
+                "Path not found (expected /control/adapted/<plugin_id>/<action>)"), code: Localization.CodeNotFound));
 
         string pluginId = segs[0];
         string actionPath = segs[1];
         if (pluginId.Contains("..") || actionPath.Contains(".."))
-            return (400, Json(false, "invalid path"));
+            return (400, Json(false, Localization.T("invalid path", "invalid path"), code: Localization.CodeInvalidArgument));
 
         if (!string.IsNullOrWhiteSpace(body))
         {
             try { JToken.Parse(body); }
-            catch { return (400, Json(false, "请求体不是合法 JSON")); }
+            catch { return (400, Json(false, Localization.T("请求体不是合法 JSON", "Request body is not valid JSON"),
+                code: Localization.CodeInvalidArgument)); }
         }
 
         string transport = Plugin.Instance?.Config.ControlTransport ?? "http";
@@ -1378,7 +1442,8 @@ public static partial class ControlController
         if (err != null)
         {
             Log.Warn($"[SLDataAPI][Control] adapted action dispatch failed {pluginId}/{actionPath}: {err.Message}");
-            return (504, Json(false, "动作超时或派发失败"));
+            return (504, Json(false, Localization.T("动作超时或派发失败", "Action timed out or dispatch failed"),
+                code: Localization.CodeTimeout));
         }
 
         if (st >= 200 && st < 300)
@@ -1392,29 +1457,30 @@ public static partial class ControlController
         }
 
         // 插件 / 注册表返回的错误体形如 {"success":false,"message":...}，统一转成 ControlResponse
-        string msg = "动作失败";
+        string msg = Localization.T("动作失败", "Action failed");
         try { msg = JObject.Parse(data ?? "{}")["message"]?.ToString() ?? msg; } catch { /* 留默认 */ }
-        return (st <= 0 ? 500 : st, Json(false, msg));
+        return (st <= 0 ? 500 : st, Json(false, msg, code: Localization.ErrorCodeFor(st <= 0 ? 500 : st, msg)));
     }
 
     // ------------------------------------------------------------------
     // 2.6 辅助：占位 / 玩家档案只读 / 审计列表 / 地图路径拆分
     // ------------------------------------------------------------------
     private static (int, string) Stub501(string name) =>
-        (501, Json(false, $"端点尚未实现: {name}"));
+        (501, Json(false, Localization.F("端点尚未实现: {0}", "Endpoint not implemented: {0}", name),
+            code: Localization.CodeNotImplemented));
 
     private static (int, string) PlayerDataAction(string body)
     {
         var req = Parse<PlayerActionRequest>(body);
         if (req == null || string.IsNullOrWhiteSpace(req.target))
-            return (400, Json(false, "缺少 target 字段"));
+            return (400, Json(false, Localization.T("缺少 target 字段", "Missing target field"), code: Localization.CodeInvalidArgument));
 
         var (status, json) = MainThreadExecutor.RunOnMainThread(() =>
         {
             // 不按 IP 匹配：UserId 精确 → PlayerId → UserId（忽略大小写）→ 昵称精确 → 昵称模糊
             var p = Player.Get(req.target) ?? FindPlayerWithoutIp(req.target);
             if (p == null)
-                throw new InvalidOperationException($"未找到玩家: {req.target}");
+                throw new InvalidOperationException(Localization.F("未找到玩家: {0}", "Player not found: {0}", req.target));
             // 14.2.8：PlayerEffectsController.EnabledEffects（旧版自动回落），效果可提供开门权限（TemporaryBypass）
             var enabled = HolidayFeatures.EnabledEffects(p.ReferenceHub);
             var effectDoor = Interactables.Interobjects.DoorUtils.DoorPermissionFlags.None;
@@ -1504,11 +1570,14 @@ public static partial class ControlController
     {
         var req = Parse<MapControlRequest>(body);
         if (req == null || string.IsNullOrWhiteSpace(req.action))
-            return (400, Json(false, "缺少 action 字段（doors / elevators / lights）"));
+            return (400, Json(false, Localization.T("缺少 action 字段（doors / elevators / lights）",
+                "Missing action field (doors / elevators / lights)"), code: Localization.CodeInvalidArgument));
 
         string action = req.action.ToLowerInvariant();
         if (action is "layout" or "seed")
-            return (400, Json(false, "layout/seed 请分别调用 /control/map/layout 与 /control/map/seed"));
+            return (400, Json(false, Localization.T("layout/seed 请分别调用 /control/map/layout 与 /control/map/seed",
+                "Call /control/map/layout and /control/map/seed separately for layout/seed"),
+                code: Localization.CodeInvalidArgument));
 
         // lights 新参数预校验（color / flicker_seconds），非法值直接 400，不进主线程
         float lr = 0f, lg = 0f, lb = 0f, la = 0f, flicker = 0f;
@@ -1517,9 +1586,12 @@ public static partial class ControlController
         {
             if (req.color != null &&
                 !FeatureInputRules.TryParseColor(req.color, out lr, out lg, out lb, out la, out colorReset))
-                return (400, Json(false, $"无效颜色: {req.color}（#RGB / #RRGGBB / #RRGGBBAA / reset）", new { code = "invalid_color" }));
+                return (400, Json(false, Localization.F("无效颜色: {0}（#RGB / #RRGGBB / #RRGGBBAA / reset）",
+                    "Invalid color: {0} (#RGB / #RRGGBB / #RRGGBBAA / reset)", req.color),
+                    new { code = "invalid_color" }, code: "invalid_color"));
             if (req.flicker_seconds.HasValue && !FeatureInputRules.TryClampFlicker(req.flicker_seconds.Value, out flicker))
-                return (400, Json(false, "无效 flicker_seconds", new { code = "invalid_flicker" }));
+                return (400, Json(false, Localization.T("无效 flicker_seconds", "Invalid flicker_seconds"),
+                    new { code = "invalid_flicker" }, code: "invalid_flicker"));
         }
 
         var (mapStatus, mapJson) = MainThreadExecutor.RunOnMainThread(() =>
@@ -1547,13 +1619,15 @@ public static partial class ControlController
                     {
                         Door? door = FindDoor(req.door_type);
                         if (door == null)
-                            throw new InvalidOperationException($"未找到门: {req.door_type}");
+                            throw new InvalidOperationException(Localization.F("未找到门: {0}", "Door not found: {0}", req.door_type));
                         targets = new List<Door> { door };
                     }
 
                     if (targets.Count == 0)
                         throw new InvalidOperationException(
-                            scope == "type" ? $"未找到门: {req.door_type}" : "未找到任何符合条件的门");
+                            scope == "type"
+                                ? Localization.F("未找到门: {0}", "Door not found: {0}", req.door_type)
+                                : Localization.T("未找到任何符合条件的门", "No matching doors found"));
 
                     // 逐门操作并防御：单门失败（已销毁/网络同步异常）不中断整批
                     int locked = 0, unlocked = 0, opened = 0, closed = 0, failed = 0;
@@ -1577,7 +1651,9 @@ public static partial class ControlController
                     }
 
                     return (200, Json(true,
-                        $"已处理 {targets.Count} 扇门（锁定 {locked}/解锁 {unlocked}/开 {opened}/关 {closed}/失败 {failed}）",
+                        Localization.F("已处理 {0} 扇门（锁定 {1}/解锁 {2}/开 {3}/关 {4}/失败 {5}）",
+                            "Processed {0} door(s) (locked {1}/unlocked {2}/opened {3}/closed {4}/failed {5})",
+                            targets.Count, locked, unlocked, opened, closed, failed),
                         new
                         {
                             scope,
@@ -1606,7 +1682,7 @@ public static partial class ControlController
                     else
                     {
                         if (string.IsNullOrWhiteSpace(req.elevator_type))
-                            throw new InvalidOperationException("缺少 elevator_type 字段");
+                            throw new InvalidOperationException(Localization.T("缺少 elevator_type 字段", "Missing elevator_type field"));
 
                         string typeKey = req.elevator_type.Trim();
                         // 1) 当前 ElevatorGroup 枚举名直接匹配（如 Nuke01/LczA01/GateA01——单轿厢粒度）
@@ -1615,19 +1691,21 @@ public static partial class ControlController
                         bool asAlias = ElevatorAliases.TryGetValue(typeKey, out var aliasGroups);
 
                         if (!asGroup && !asAlias)
-                            throw new InvalidOperationException(
-                                $"未知电梯类型: {req.elevator_type}（支持当前 ElevatorGroup 名如 Nuke01/LczA01/GateA01，或旧名 Nuke/GateA/GateB/Scp049/LczA/LczB/ServerRoom）");
+                            throw new InvalidOperationException(Localization.F(
+                                "未知电梯类型: {0}（支持当前 ElevatorGroup 名如 Nuke01/LczA01/GateA01，或旧名 Nuke/GateA/GateB/Scp049/LczA/LczB/ServerRoom）",
+                                "Unknown elevator type: {0} (use a current ElevatorGroup name such as Nuke01/LczA01/GateA01, or a legacy name such as Nuke/GateA/GateB/Scp049/LczA/LczB/ServerRoom)",
+                                req.elevator_type));
 
                         targets = Elevator.List
                             .Where(e => (asGroup && e.Group == group) ||
                                         (asAlias && aliasGroups!.Contains(e.Group)))
                             .ToList();
                         if (targets.Count == 0)
-                            throw new InvalidOperationException($"未找到电梯: {req.elevator_type}");
+                            throw new InvalidOperationException(Localization.F("未找到电梯: {0}", "Elevator not found: {0}", req.elevator_type));
                     }
 
                     if (targets.Count == 0)
-                        throw new InvalidOperationException("未找到任何电梯");
+                        throw new InvalidOperationException(Localization.T("未找到任何电梯", "No elevators found"));
 
                     string cmd = (req.command ?? "").Trim().ToLowerInvariant();
                     bool sendMode = cmd == "send";
@@ -1636,10 +1714,12 @@ public static partial class ControlController
                         "up" => 1,
                         "down" => -1,
                         "send" => 0,
-                        _ => throw new InvalidOperationException($"未知 command: {req.command}（支持 up / down / send）"),
+                        _ => throw new InvalidOperationException(Localization.F("未知 command: {0}（支持 up / down / send）",
+                            "Unknown command: {0} (supported: up / down / send)", req.command)),
                     };
                     if (sendMode && req.level < 0)
-                        throw new InvalidOperationException("command=send 需要 level 字段（非负整数目标楼层）");
+                        throw new InvalidOperationException(Localization.T("command=send 需要 level 字段（非负整数目标楼层）",
+                        "command=send requires the level field (a non-negative target floor)"));
 
                     int moved = 0, invalid = 0;
                     foreach (var el in targets)
@@ -1678,7 +1758,12 @@ public static partial class ControlController
                     }
 
                     return (200, Json(true,
-                        $"已向 {moved}/{targets.Count} 部电梯发送 {(sendMode ? $"直达 {req.level} 层" : cmd)} 指令",
+                        Localization.F("已向 {0}/{1} 部电梯发送 {2} 指令",
+                            "Sent {2} command to {0}/{1} elevator(s)",
+                            moved, targets.Count,
+                            sendMode
+                                ? Localization.F("直达 {0} 层", "direct to floor {0}", req.level)
+                                : cmd),
                         new
                         {
                             scope = escope,
@@ -1703,12 +1788,12 @@ public static partial class ControlController
                     else
                     {
                         if (!Enum.TryParse<MapGeneration.RoomName>(req.room_type, true, out var roomName))
-                            throw new InvalidOperationException($"无效房间类型: {req.room_type}");
+                            throw new InvalidOperationException(Localization.F("无效房间类型: {0}", "Invalid room type: {0}", req.room_type));
                         // ★ N-05：同名房间可能有多处（Room.Get 返回集合），统一全部处理（此前只处理第一间）
                         rooms = Room.Get(roomName).ToList();
                     }
                     if (rooms.Count == 0)
-                        throw new InvalidOperationException($"未找到房间: {req.room_type}");
+                        throw new InvalidOperationException(Localization.F("未找到房间: {0}", "Room not found: {0}", req.room_type));
 
                     bool hasColor = req.color != null;
                     bool hasFlicker = req.flicker_seconds.HasValue;
@@ -1742,7 +1827,9 @@ public static partial class ControlController
                 }
 
                 default:
-                    return (404, Json(false, $"未知 action: {req.action}（支持 layout/doors/elevators/lights）"));
+                    return (404, Json(false, Localization.F("未知 action: {0}（支持 layout/doors/elevators/lights）",
+                        "Unknown action: {0} (supported: layout/doors/elevators/lights)", req.action),
+                        code: Localization.CodeNotFound));
             }
         }, out var err);
 
@@ -1811,12 +1898,14 @@ public static partial class ControlController
             }
             catch (Exception ex)
             {
-                return Json(false, $"导出失败: {ex.Message}");
+                return Json(false, Localization.F("导出失败: {0}", "Export failed: {0}", ex.Message),
+                    code: Localization.CodeOperationFailed);
             }
         }, out var err);
 
         if (err != null)
-            return (500, Json(false, $"导出失败: {err.Message}"));
+            return (500, Json(false, Localization.F("导出失败: {0}", "Export failed: {0}", err.Message),
+                code: Localization.CodeOperationFailed));
 
         return (200, json);
     }
@@ -1834,8 +1923,14 @@ public static partial class ControlController
         }
     }
 
-    private static string Json(bool success, string message, object data = null!) =>
-        JsonConvert.SerializeObject(new ControlResponse { success = success, message = message, data = data });
+    private static string Json(bool success, string message, object data = null!, string? code = null) =>
+        JsonConvert.SerializeObject(new ControlResponse
+        {
+            success = success,
+            message = message,
+            data = data,
+            code = success ? null : code,
+        });
 
     /// <summary>清空插件启停暂存（插件重载时调用，X-05）。</summary>
     public static void ClearPluginStaged() => PluginStaged.Clear();

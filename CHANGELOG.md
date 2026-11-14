@@ -1,5 +1,19 @@
 # Changelog
 
+## 未发布 / Unreleased
+
+### 多语言（i18n）
+
+- 新增 `language` 配置（`zh-CN` 默认 / `en`）；`zh-CN` 下既有字段名、字段顺序与中文文本保持不变，新增字段只追加在既有字段之后
+- `get_sl_data` 新增 `phase_code` / `warhead_code`，玩家项新增 `role_code` / `team_code`；控制面错误新增稳定 `code`；所有插件生成的 JSON 根对象新增 `lang`
+- `error.code` 推断在 en 下先还原为中文文本，再复用 zh-CN 的同一套规则，避免中英文推断结果不一致
+- 语音 `/status` 与 speaker 帧新增 `role_code`，语音角色名按语言本地化；`zh-CN` 输出不变
+- 新增纯逻辑本地化类与回归测试，覆盖 `zh-CN` 逐字回归、`en` 输出、code 与语言无关、非法值回退
+
+### 许可证
+
+- 由 **GPL-3.0-only** 变更为 **Apache-2.0**（允许闭源使用；须保留版权 / SPDX 头、NOTICE，并注明来自 DNTOF/SLDataAPI；禁止删改署名后换皮发布）。语音转发 / 录音仍标注为本项目原创。详见 `LICENSE`、`NOTICE`、README「许可证」。
+
 ## 2.6.2-patch Holiday26
 
 SLDataAPI **2.6.2-patch Holiday26**（相对 2.6.2 Holiday26）。版本号仍为 **2.6.2**，仅在 `InformationalVersion` / Release 标签增加 `-patch` 后缀。以 GitHub **正式版（Latest）**发布；原先的 `v2.6.2_Holiday26` 仍保留为上一正式版。本 patch 合入安全加固与 `/control/dummies` 实现，并对正式包恢复强名称签名。
@@ -18,12 +32,6 @@ SLDataAPI **2.6.2-patch Holiday26**（相对 2.6.2 Holiday26）。版本号仍�
 ### 控制面
 
 - `/control/dummies` 由 501 占位改为实现：`spawn` / `list`（只读，不写审计）/ `remove`。同时硬上限 5；超限返回 409 `dummy_limit`；`remove` 缺 target 返回 400，目标不存在返回 404 `dummy_not_found`；目标可为 PlayerId / 昵称 / `all`。`spawn` 支持可选 `nickname`（默认 Dummy，最长 32）与 `role`（RoleTypeId）。游戏版本缺少 `DummyUtils` 时返回 501 `feature_unavailable`，不抛 500
-
-## Unreleased
-
-### 许可证
-
-- 由 **GPL-3.0-only** 变更为 **Apache-2.0**（允许闭源使用；须保留版权 / SPDX 头、NOTICE，并注明来自 DNTOF/SLDataAPI；禁止删改署名后换皮发布）。语音转发 / 录音仍标注为本项目原创。详见 `LICENSE`、`NOTICE`、README「许可证」。
 
 ## 2.6.2 Holiday26
 

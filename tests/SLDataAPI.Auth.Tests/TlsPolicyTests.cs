@@ -90,7 +90,9 @@ public class TlsPolicyTests
         Assert.False(root.GetProperty("success").GetBoolean());
         Assert.False(string.IsNullOrWhiteSpace(root.GetProperty("message").GetString()));
         Assert.Equal("tls_required", root.GetProperty("data").GetProperty("code").GetString());
-        Assert.Equal(3, root.EnumerateObject().Count());
+        Assert.Equal("tls_required", root.GetProperty("code").GetString());
+        Assert.Contains(root.GetProperty("lang").GetString(), new[] { "zh-CN", "en" });
+        Assert.Equal(5, root.EnumerateObject().Count());
         Assert.Single(root.GetProperty("data").EnumerateObject());
     }
 

@@ -18,6 +18,12 @@ public class PlayerInfo
     public float x { get; set; }
     public float y { get; set; }
     public float z { get; set; }
+
+    /// <summary>角色稳定代码：RoleTypeId 枚举成员名（不随 language 变化）。</summary>
+    public string role_code { get; set; } = "";
+
+    /// <summary>阵营稳定代码：Team 枚举成员名（不随 language 变化）。</summary>
+    public string team_code { get; set; } = "";
 }
 
 public class ServerData
@@ -57,6 +63,15 @@ public class ServerData
     /// (including DNT_OF wrappers and third-party plugins). No allowlist.
     /// </summary>
     public List<AdaptedPluginInfo> adapted_plugins { get; set; } = new();
+
+    /// <summary>回合阶段稳定代码：waiting / in_progress / ended（不随 language 变化）。</summary>
+    public string phase_code { get; set; } = "";
+
+    /// <summary>核弹状态稳定代码：inactive / armed / detonating / detonated（不随 language 变化）。</summary>
+    public string warhead_code { get; set; } = "";
+
+    /// <summary>当前输出语言：zh-CN / en。</summary>
+    public string lang { get; set; } = "zh-CN";
 }
 
 /// <summary>Discovery entry for one adapted plugin (get_sl_data + /plugins/adapted).</summary>

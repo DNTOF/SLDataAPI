@@ -110,8 +110,9 @@ public static class ServerLogService
         if (string.IsNullOrWhiteSpace(path))
         {
             file = FindLatestLogFile()
-                ?? throw new InvalidOperationException(
-                    "找不到服务器日志文件（已探测 %AppData%/SCP Secret Laboratory/ServerLogs 与 SCPSL_Data/Logs）");
+                ?? throw new InvalidOperationException(Localization.T(
+                    "找不到服务器日志文件（已探测 %AppData%/SCP Secret Laboratory/ServerLogs 与 SCPSL_Data/Logs）",
+                    "No server log file found (checked %AppData%/SCP Secret Laboratory/ServerLogs and SCPSL_Data/Logs)"));
         }
         else
         {
@@ -120,19 +121,21 @@ public static class ServerLogService
             {
                 string? resolved = ResolveRelativeLogPath(path);
                 if (resolved == null)
-                    throw new ArgumentException("日志路径不在服务器日志目录内，拒绝读取");
+                    throw new ArgumentException(Localization.T("日志路径不在服务器日志目录内，拒绝读取",
+                    "Log path is outside the server log directory; read refused"));
                 path = resolved;
             }
 
             // 安全校验：规范化后必须位于候选日志目录内 + 扩展名白名单（.log/.txt）
             string full;
             try { full = Path.GetFullPath(path); }
-            catch { throw new ArgumentException("日志路径非法"); }
+            catch { throw new ArgumentException(Localization.T("日志路径非法", "Invalid log path")); }
 
             string ext = Path.GetExtension(full);
             if (!string.Equals(ext, ".log", StringComparison.OrdinalIgnoreCase) &&
                 !string.Equals(ext, ".txt", StringComparison.OrdinalIgnoreCase))
-                throw new ArgumentException($"日志接口只允许读取 .log/.txt 文件（收到 {ext}）");
+                throw new ArgumentException(Localization.F("日志接口只允许读取 .log/.txt 文件（收到 {0}）",
+                    "The log endpoint only reads .log/.txt files (got {0})", ext));
 
             bool inside = GetLogDirs().Any(dir =>
             {
@@ -142,10 +145,11 @@ public static class ServerLogService
                 return full.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
             });
             if (!inside)
-                throw new ArgumentException("日志路径不在服务器日志目录内，拒绝读取");
+                throw new ArgumentException(Localization.T("日志路径不在服务器日志目录内，拒绝读取",
+                    "Log path is outside the server log directory; read refused"));
 
             if (!File.Exists(full))
-                throw new ArgumentException($"日志文件不存在: {path}");
+                throw new ArgumentException(Localization.F("日志文件不存在: {0}", "Log file does not exist: {0}", path));
             file = full;
         }
 

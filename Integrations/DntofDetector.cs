@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System.Linq;
 using LabApi.Loader;
 using SLDataAPI.Data;
+using SLDataAPI.Services;
 
 namespace SLDataAPI.Integrations;
 
@@ -159,7 +160,7 @@ public static class DntofDetector
 
                 result.coin_holders.Add(new CoinHolderInfo
                 {
-                    nickname = nickname ?? "未知",
+                    nickname = nickname ?? Localization.T("未知", "Unknown"),
                     count = valCount is int c ? c : 0,
                     position = FormatPosition(positionObj) ?? ""
                 });

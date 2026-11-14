@@ -142,6 +142,7 @@ curl -H "Authorization: Bearer <verify_token>" http://<host>:8081/get_sl_data
 
 ```yaml
 debug: false
+language: "zh-CN"                   # zh-CN（默认）| en：接口文本语言；zh-CN 下既有输出逐字不变
 verify_token: "your_secret_token"   # 必须改成强随机值；默认/弱口令会 fail-closed 关闭数据口
 http_port: 8081
 push_interval_seconds: 8
@@ -172,6 +173,18 @@ control_log_enabled: true
 </details>
 
 完整字段、YAML 常见坑、token 写法见 Wiki [Configuration](https://github.com/DNTOF/SLDataAPI/wiki/Configuration)。
+
+### 多语言与稳定 code / Language & stable codes
+
+- `language`：`"zh-CN"`（默认）或 `"en"`。非法值回退 `zh-CN` 并在启动日志告警。仅影响插件生成的 HTTP / WebSocket 文本；玩家昵称、控制台回显、封禁 / 踢出 / 解封原因等外部内容原样透传。
+- 稳定 code 与语言无关（`language` 切换时值不变）。错误文本经 `Localization.T/F` 生成时，en 结果会在有界缓存中记录“英文结果 → 中文结果”映射；`error.code` 推断先还原成中文文本，再复用 zh-CN 的同一套规则，zh-CN 路径与既有结果完全一致：
+  - `role_code`：`RoleTypeId` 枚举成员名（如 `Spectator` / `Tutorial` / `NtfCaptain`）
+  - `team_code`：`Team` 枚举成员名（如 `ClassD` / `ChaosInsurgency` / `FoundationForces` / `SCPs` / `Dead` / `OtherAlive`）
+  - `phase_code`：`waiting` / `in_progress` / `ended`
+  - `warhead_code`：`inactive` / `armed` / `detonating` / `detonated`
+  - `error.code`（控制面错误对象的 `code` 字段）：snake_case，至少包含 `timeout` / `symlink_forbidden` / `unauthorized` / `forbidden` / `not_found` / `invalid_argument`
+- 所有插件生成的 JSON 根对象新增 `lang`（`"zh-CN"` / `"en"`）。新字段只追加在既有字段之后。
+- English: set `language: "en"` to switch plugin-generated HTTP/WebSocket text to English. Stable codes and `lang` do not change with language; player nicknames, console output, and ban/kick/revoke reasons are passed through unchanged.
 
 ## 🔐 鉴权与安全
 

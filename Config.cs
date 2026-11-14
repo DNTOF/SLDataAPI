@@ -14,6 +14,14 @@ public class Config
     public bool Debug { get; set; } = false;
 
     /// <summary>
+    /// 接口输出语言：<c>zh-CN</c>（默认）或 <c>en</c>。
+    /// 仅影响本插件生成的 HTTP / WebSocket 文本；游戏昵称、控制台回显、封禁 / 踢出原因等外部内容原样透传。
+    /// 默认 <c>zh-CN</c> 时所有既有中文字段与文案保持不变；非法值回退 <c>zh-CN</c> 并在启动日志告警。
+    /// 稳定 code 字段（role_code / team_code / phase_code / warhead_code / error.code）不随语言变化。
+    /// </summary>
+    public string Language { get; set; } = "zh-CN";
+
+    /// <summary>
     /// 只读数据口（/get_sl_data、/plugins/adapted 等）的共享口令。
     /// 出厂默认 <c>your_secret_token</c>、空、或未通过强度校验（长度≥8 且同时含大写/小写/数字/特殊符号）
     /// 时 Enable 会 fail-closed：不对外提供数据口；若控制面也未启用则不绑定 HTTP 端口。

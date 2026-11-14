@@ -1,5 +1,47 @@
 # Changelog
 
+## 2.6.3 Saluton
+
+SLDataAPI **2.6.3 Saluton**（相对 2.6.2-patch Holiday26），发布日期 **2026-11-15**。以 GitHub **正式版（Latest）**发布，程序集版本 **2.6.3** / **2.6.3.0**，强名称签名（公钥令牌 `3ec73bb20070fa9c`）。本版本主题为接口输出多语言（中文 / 英文）与稳定机器码；默认 `zh-CN` 下既有输出逐字不变，旧版客户端无需改动。本版本按 **14.2.x / LabApi 1.1.7** 编译，不包含任何游戏 15.0 专有内容。
+
+### 多语言（i18n）
+
+- 新增配置项 `language`：`zh-CN`（默认）或 `en`；大小写与首尾空白不敏感，非法值回退 `zh-CN` 并在启动日志告警；在插件启用时读取，修改后需重启服务器或重载插件
+- `zh-CN` 下所有 HTTP / WebSocket 输出与 2.6.2-patch 逐字一致：既有字段名、字段顺序、中文文本均不变，新增字段只追加在既有字段之后
+- `en` 下本插件生成的文本（回合阶段、核弹状态、阵营 / 角色名、控制面与语音提示、错误信息、控制台提示）输出英文
+- 玩家昵称、控制台回显、封禁 / 踢出 / 解封原因、日志内容、第三方插件返回内容等外部内容原样透传，不翻译
+
+### 稳定 code 字段（不随语言变化）
+
+- `get_sl_data` 根对象：`phase_code`（`waiting` / `in_progress` / `ended`）、`warhead_code`（`inactive` / `armed` / `detonating` / `detonated`）
+- `get_sl_data` 玩家项：`role_code`（`RoleTypeId` 枚举成员名，如 `Spectator` / `Tutorial` / `NtfCaptain`）、`team_code`（`Team` 枚举成员名，如 `ClassD` / `ChaosInsurgency` / `FoundationForces` / `SCPs` / `Dead` / `OtherAlive`）
+- 语音 `/status` 的 speaker 项与 WS `speaker` 帧：`role_code`
+- 错误响应顶层 `code`（snake_case）：`timeout` / `symlink_forbidden` / `unauthorized` / `forbidden` / `not_found` / `invalid_argument` / `bad_request` / `method_not_allowed` / `payload_too_large` / `request_header_too_large` / `conflict` / `internal_error` / `not_implemented` / `service_unavailable` / `too_many_requests` / `operation_failed` / `auth_locked` / `token_not_configured` / `empty_response`；既有 `data.code` 机器码（如 `tls_required` / `transport_mismatch` / `holiday_inactive` / `feature_unavailable` / `dummy_limit` 等）原值提升为顶层 `code`
+- 所有插件生成的 JSON 根对象新增 `lang`（`zh-CN` / `en`）
+- `en` 下错误码推断先还原为中文文本再复用 `zh-CN` 规则，保证中英文 code 一致；错误响应补 `code` 时只在末尾追加，不重新序列化既有字段
+- 兼容说明：`zh-CN` 下回合结束仍显示「等待开始」（`phase_code` = `ended`），核弹拉杆已拉起但未倒计时仍显示「未激活」（`warhead_code` = `armed`）
+
+### 其他
+
+- 控制台 `sldataapi` / `sldataapi apikey` 用法提示补充 `language` 与 code 字段说明；README 新增「多语言与稳定 code」章节（中英文）
+- 新增本地化与错误码纯逻辑类及回归测试（`zh-CN` 逐字锁定、`en` 输出、全仓中英文文案对 code 一致性扫描、错误码追加不改既有字段），功能测试共 410 项全部通过
+
+### 许可证
+
+- 由 **GPL-3.0-only** 变更为 **Apache-2.0**（允许闭源使用；须保留版权 / SPDX 头、NOTICE，并注明来自 DNTOF/SLDataAPI；禁止删改署名后换皮发布）。语音转发 / 录音仍标注为本项目原创。详见 `LICENSE`、`NOTICE`、README「许可证」。
+
+### English
+
+SLDataAPI **2.6.3 Saluton** (since 2.6.2-patch Holiday26), released **2026-11-15** as the GitHub **Latest** release. Assembly version **2.6.3** / **2.6.3.0**, strong-name signed (public key token `3ec73bb20070fa9c`). Built against **14.2.x / LabApi 1.1.7**; contains no game-15.0-specific content.
+
+- **Language setting**: new `language` config, `zh-CN` (default) or `en`. Invalid values fall back to `zh-CN` with a startup warning. Read when the plugin is enabled; restart the server or reload the plugin after changing it.
+- **Backward compatible**: with `zh-CN`, every HTTP / WebSocket output is byte-for-byte identical to 2.6.2-patch (same field names, field order and Chinese text). New fields are only appended after existing ones.
+- **English output**: with `en`, plugin-generated text (round phase, warhead status, team / role names, control and voice messages, errors, console hints) is in English. Player nicknames, console output, ban / kick / unban reasons, log contents and third-party plugin responses are passed through unchanged.
+- **Stable codes** (independent of language): `phase_code`, `warhead_code` on the `get_sl_data` root; `role_code`, `team_code` on each player (enum member names); `role_code` on voice `/status` speakers and WS `speaker` frames; a top-level snake_case `code` on error responses (existing `data.code` values are promoted unchanged); and `lang` on every plugin-generated JSON root object.
+- **Consistent error codes**: in `en`, error-code inference maps the message back to Chinese and reuses the `zh-CN` rules, so codes are identical in both languages. The `code` field is appended without re-serializing existing fields.
+- **Compatibility notes**: in `zh-CN`, an ended round still shows 「等待开始」 (`phase_code` = `ended`), and an armed-but-not-counting-down warhead still shows 「未激活」 (`warhead_code` = `armed`).
+- **Docs & tests**: console usage hints and README (Chinese and English) document `language` and the code fields. New pure-logic localization / error-code classes with regression tests; all 410 functional tests pass.
+- **License**: changed from GPL-3.0-only to Apache-2.0 (attribution required; see `LICENSE`, `NOTICE`).
 ## 2.6.2-patch Holiday26
 
 SLDataAPI **2.6.2-patch Holiday26**（相对 2.6.2 Holiday26）。版本号仍为 **2.6.2**，仅在 `InformationalVersion` / Release 标签增加 `-patch` 后缀。以 GitHub **正式版（Latest）**发布；原先的 `v2.6.2_Holiday26` 仍保留为上一正式版。本 patch 合入安全加固与 `/control/dummies` 实现，并对正式包恢复强名称签名。
@@ -18,12 +60,6 @@ SLDataAPI **2.6.2-patch Holiday26**（相对 2.6.2 Holiday26）。版本号仍�
 ### 控制面
 
 - `/control/dummies` 由 501 占位改为实现：`spawn` / `list`（只读，不写审计）/ `remove`。同时硬上限 5；超限返回 409 `dummy_limit`；`remove` 缺 target 返回 400，目标不存在返回 404 `dummy_not_found`；目标可为 PlayerId / 昵称 / `all`。`spawn` 支持可选 `nickname`（默认 Dummy，最长 32）与 `role`（RoleTypeId）。游戏版本缺少 `DummyUtils` 时返回 501 `feature_unavailable`，不抛 500
-
-## Unreleased
-
-### 许可证
-
-- 由 **GPL-3.0-only** 变更为 **Apache-2.0**（允许闭源使用；须保留版权 / SPDX 头、NOTICE，并注明来自 DNTOF/SLDataAPI；禁止删改署名后换皮发布）。语音转发 / 录音仍标注为本项目原创。详见 `LICENSE`、`NOTICE`、README「许可证」。
 
 ## 2.6.2 Holiday26
 

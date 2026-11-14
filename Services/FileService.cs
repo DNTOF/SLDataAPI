@@ -127,7 +127,8 @@ public static class FileService
     private static void EnsureNotProtected(string fullPath, string action)
     {
         if (IsProtected(fullPath))
-            throw new InvalidOperationException($"受保护目录（SLDataAPI 配置），禁止{action}");
+            throw new InvalidOperationException(Localization.F("受保护目录（SLDataAPI 配置），禁止{0}",
+                "Protected directory (SLDataAPI configuration); {0} is not allowed", action));
     }
 
     /// <summary>
@@ -140,17 +141,19 @@ public static class FileService
     {
         string full = Resolve(root, relPath);
         if (File.Exists(full))
-            throw new ArgumentException($"不是目录: {relPath}");
+            throw new ArgumentException(Localization.F("不是目录: {0}", "Not a directory: {0}", relPath));
         if (!Directory.Exists(full))
-            throw new ArgumentException($"目录不存在: {relPath}");
+            throw new ArgumentException(Localization.F("目录不存在: {0}", "Directory does not exist: {0}", relPath));
         // 顶级防线：受保护配置目录本身不可打开（无论 FileRoot 是否覆盖）
-        EnsureNotProtected(full, "访问");
+        EnsureNotProtected(full, Localization.T("访问", "access"));
         // 同级防线：Windows 系统目录禁止浏览
         if (IsWindowsDir(full))
-            throw new InvalidOperationException("系统目录（Windows）受保护，禁止访问");
+            throw new InvalidOperationException(Localization.T("系统目录（Windows）受保护，禁止访问",
+                "The Windows system directory is protected; access is not allowed"));
         // 同级防线：游戏数据目录（%AppData%/SCP Secret Laboratory）禁止浏览（防篡改游戏配置）
         if (IsGameDataDir(full))
-            throw new InvalidOperationException("游戏数据目录（SCP Secret Laboratory）受保护，禁止访问");
+            throw new InvalidOperationException(Localization.T("游戏数据目录（SCP Secret Laboratory）受保护，禁止访问",
+                "The game data directory (SCP Secret Laboratory) is protected; access is not allowed"));
 
         var entries = new List<object>();
 
@@ -197,7 +200,8 @@ public static class FileService
     {
         var (full, info) = PreflightRead(root, relPath);
         if (info.Length > MaxReadBytes)
-            throw new InvalidOperationException($"文件过大（{info.Length} 字节 > 上限 {MaxReadBytes}），拒绝读取");
+            throw new InvalidOperationException(Localization.F("文件过大（{0} 字节 > 上限 {1}），拒绝读取",
+                "File is too large ({0} bytes > limit {1}); read refused", info.Length, MaxReadBytes));
 
         string content = File.ReadAllText(full);
         return new
@@ -215,18 +219,22 @@ public static class FileService
         string full = Resolve(root, relPath);
         // 同级防线：Windows 系统目录内禁止读取（目录级检查，先于文件存在性）
         if (IsWindowsDir(full))
-            throw new InvalidOperationException("系统目录（Windows）受保护，禁止读取");
+            throw new InvalidOperationException(Localization.T("系统目录（Windows）受保护，禁止读取",
+                "The Windows system directory is protected; reading is not allowed"));
         // 同级防线：游戏数据目录内禁止读取
         if (IsGameDataDir(full))
-            throw new InvalidOperationException("游戏数据目录（SCP Secret Laboratory）受保护，禁止读取");
+            throw new InvalidOperationException(Localization.T("游戏数据目录（SCP Secret Laboratory）受保护，禁止读取",
+                "The game data directory (SCP Secret Laboratory) is protected; reading is not allowed"));
         if (!File.Exists(full))
-            throw new ArgumentException($"文件不存在: {relPath}");
+            throw new ArgumentException(Localization.F("文件不存在: {0}", "File does not exist: {0}", relPath));
         // 顶级防线：受保护配置目录内禁止读取
-        EnsureNotProtected(full, "打开");
+        EnsureNotProtected(full, Localization.T("打开", "opening"));
         // 非配置文件禁止读取（exe/dll 等二进制或可执行文件）
         if (!IsConfigExtension(full))
-            throw new InvalidOperationException(
-                $"非配置文件（{Path.GetExtension(full)}）不允许读取（仅允许配置文件：yml/yaml/txt/json/cfg/ini/conf/config/xml/properties）");
+            throw new InvalidOperationException(Localization.F(
+                "非配置文件（{0}）不允许读取（仅允许配置文件：yml/yaml/txt/json/cfg/ini/conf/config/xml/properties）",
+                "Non-config file ({0}) cannot be read (allowed: yml/yaml/txt/json/cfg/ini/conf/config/xml/properties)",
+                Path.GetExtension(full)));
         return (full, new FileInfo(full));
     }
 
@@ -235,7 +243,8 @@ public static class FileService
         string full = PreflightWrite(root, relPath);
 
         if (content != null && content.Length > MaxWriteBytes)
-            throw new InvalidOperationException($"内容过大（{content.Length} 字符 > 上限 {MaxWriteBytes}），拒绝写入");
+            throw new InvalidOperationException(Localization.F("内容过大（{0} 字符 > 上限 {1}），拒绝写入",
+                "Content is too large ({0} characters > limit {1}); write refused", content.Length, MaxWriteBytes));
 
         string dir = Path.GetDirectoryName(full);
         if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
@@ -258,20 +267,24 @@ public static class FileService
     {
         string full = Resolve(root, relPath);
         if (Directory.Exists(full))
-            throw new ArgumentException($"目标是目录: {relPath}");
+            throw new ArgumentException(Localization.F("目标是目录: {0}", "Target is a directory: {0}", relPath));
         // 顶级防线：受保护配置目录内禁止任何写入（包括新建子路径）
-        EnsureNotProtected(full, "修改");
+        EnsureNotProtected(full, Localization.T("修改", "modification"));
         // 系统目录保护：Windows 目录及其子目录禁止任何写入
         if (IsWindowsDir(full))
-            throw new InvalidOperationException("系统目录（Windows）受保护，禁止修改");
+            throw new InvalidOperationException(Localization.T("系统目录（Windows）受保护，禁止修改",
+                "The Windows system directory is protected; modification is not allowed"));
         // 游戏数据目录保护：禁止写入（防篡改游戏配置/管理员名单）
         if (IsGameDataDir(full))
-            throw new InvalidOperationException("游戏数据目录（SCP Secret Laboratory）受保护，禁止修改");
+            throw new InvalidOperationException(Localization.T("游戏数据目录（SCP Secret Laboratory）受保护，禁止修改",
+                "The game data directory (SCP Secret Laboratory) is protected; modification is not allowed"));
         // 写入白名单：只允许配置文件扩展名（yml/yaml/txt/json/cfg/ini/conf/config/xml/properties）
         string ext = Path.GetExtension(full);
         if (!WritableExtensions.Contains(ext))
-            throw new InvalidOperationException(
-                $"文件类型 {ext} 不允许写入（仅允许配置文件：yml/yaml/txt/json/cfg/ini/conf/config/xml/properties）");
+            throw new InvalidOperationException(Localization.F(
+                "文件类型 {0} 不允许写入（仅允许配置文件：yml/yaml/txt/json/cfg/ini/conf/config/xml/properties）",
+                "File type {0} cannot be written (allowed: yml/yaml/txt/json/cfg/ini/conf/config/xml/properties)",
+                ext));
         return full;
     }
 
@@ -325,9 +338,10 @@ public static class FileService
     {
         var (full, info) = PreflightRead(root, relPath);
         if (info.Length > MaxReadBytes)
-            throw new InvalidOperationException($"文件过大（{info.Length} 字节 > 上限 {MaxReadBytes}），拒绝读取");
+            throw new InvalidOperationException(Localization.F("文件过大（{0} 字节 > 上限 {1}），拒绝读取",
+                "File is too large ({0} bytes > limit {1}); read refused", info.Length, MaxReadBytes));
         if (offset < 0 || offset > info.Length)
-            throw new ArgumentException($"offset 越界（0..{info.Length}）");
+            throw new ArgumentException(Localization.F("offset 越界（0..{0}）", "offset is out of range (0..{0})", info.Length));
         if (length <= 0) length = DefaultChunkBytes;
         if (length > MaxChunkBytes) length = MaxChunkBytes;
 
@@ -369,9 +383,11 @@ public static class FileService
     {
         string full = PreflightWrite(root, relPath);
         if (bytes.Length > MaxWriteBytes)
-            throw new InvalidOperationException($"内容过大（{bytes.Length} 字节 > 上限 {MaxWriteBytes}），拒绝写入");
+            throw new InvalidOperationException(Localization.F("内容过大（{0} 字节 > 上限 {1}），拒绝写入",
+                "Content is too large ({0} bytes > limit {1}); write refused", bytes.Length, MaxWriteBytes));
         try { new System.Text.UTF8Encoding(false, true).GetString(bytes); }
-        catch { throw new InvalidOperationException("内容不是合法 UTF-8 文本（文件端点只允许写入文本配置）"); }
+        catch { throw new InvalidOperationException(Localization.T("内容不是合法 UTF-8 文本（文件端点只允许写入文本配置）",
+                "Content is not valid UTF-8 text (file endpoints only accept text configuration files)")); }
 
         string dir = Path.GetDirectoryName(full);
         if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))

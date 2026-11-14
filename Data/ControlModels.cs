@@ -11,6 +11,13 @@ public class ControlResponse
     public bool success { get; set; }
     public string message { get; set; } = "";
     public object? data { get; set; }
+
+    /// <summary>稳定错误码（snake_case，不随 language 变化）；成功响应不带该字段。</summary>
+    [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+    public string? code { get; set; }
+
+    /// <summary>当前输出语言：zh-CN / en。</summary>
+    public string lang { get; set; } = SLDataAPI.Services.Localization.Language;
 }
 
 /// <summary>POST /control/command</summary>

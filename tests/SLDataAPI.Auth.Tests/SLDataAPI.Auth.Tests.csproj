@@ -27,5 +27,6 @@
     <Compile Include="..\..\Services\FileSandbox.cs" Link="FileSandbox.cs" />
     <Compile Include="..\..\Services\FileUploadSessions.cs" Link="FileUploadSessions.cs" />
     <Compile Include="..\..\Services\TlsPolicy.cs" Link="TlsPolicy.cs" />
+    <Compile Include="..\..\Services\Localization.cs" Link="Localization.cs" />
   </ItemGroup>
 </Project>

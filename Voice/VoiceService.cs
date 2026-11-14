@@ -13,7 +13,6 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using MEC;
-using PlayerRoles;
 using SLDataAPI.Control;
 using SLDataAPI.Services;
 using VoiceChat;
@@ -182,9 +181,14 @@ public static class VoiceService
 
         float now = UnityEngine.Time.time;
 
-        // 说话状态（/status 用）：角色实时读
-        string roleCn = "未知";
-        try { roleCn = GetRoleCN(player.Role); }
+        // 说话状态（/status 用）：角色实时读。role_code 固定为 RoleTypeId 成员名，不随 language 变化。
+        string roleCn = Localization.T("未知", "Unknown");
+        string roleCode = "";
+        try
+        {
+            roleCode = player.Role.ToString();
+            roleCn = Localization.VoiceRoleText(roleCode);
+        }
         catch { /* 忽略 */ }
 
         // 录音取证（可选）：复用解码结果，主线程入队、后台线程写盘
@@ -197,6 +201,7 @@ public static class VoiceService
             Nickname = player.Nickname ?? "?",
             UserId = player.UserId ?? "?",
             Role = roleCn,
+            RoleCode = roleCode,
             Channel = (byte)msg.Channel,
             LastSeen = now
         };
@@ -233,6 +238,7 @@ public static class VoiceService
             Nickname = player.Nickname ?? "?",
             UserId = player.UserId ?? "?",
             Role = roleCn,
+            RoleCode = roleCode,
             NewBurst = newBurst,
             Samples = new float[samples]
         };
@@ -379,9 +385,10 @@ public static class VoiceService
               .Append("\",\"userid\":\"").Append(JsonEscape(kv.Value.UserId))
               .Append("\",\"role\":\"").Append(JsonEscape(kv.Value.Role))
               .Append("\",\"channel\":").Append(kv.Value.Channel)
+              .Append(",\"role_code\":\"").Append(JsonEscape(kv.Value.RoleCode))
               .Append('}');
         }
-        sb.Append("]}");
+        sb.Append("],\"lang\":\"").Append(JsonEscape(Localization.Language)).Append("\"}");
         return sb.ToString();
     }
 
@@ -414,6 +421,7 @@ public static class VoiceService
         public string Nickname = "";
         public string UserId = "";
         public string Role = "";
+        public string RoleCode = "";
         public bool NewBurst;
         public float[] Samples = Array.Empty<float>();
     }
@@ -424,6 +432,7 @@ public static class VoiceService
         public string Nickname = "";
         public string UserId = "";
         public string Role = "";
+        public string RoleCode = "";
         public byte Channel;
         public float LastSeen;
     }
@@ -710,10 +719,10 @@ public static class VoiceService
             string clientIp = "";
             try { clientIp = ((IPEndPoint)_socket.RemoteEndPoint).Address.ToString(); } catch { /* 忽略 */ }
 
-            if (!ApiKeyService.TryAuthenticate(clientIp, key, out var principal, out string authErr) || principal == null)
+            if (!ApiKeyService.TryAuthenticate(clientIp, key, out var principal, out string authErr, out string authCode) || principal == null)
             {
                 Log.Warn($"[SLDataAPI][Voice] 鉴权失败 from {clientIp}: {authErr}");
-                SendHttp("401 Unauthorized", "application/json", "{\"ok\":false,\"error\":\"" + JsonEscape(authErr) + "\"}");
+                SendHttp("401 Unauthorized", "application/json", VoiceErrorJson(authErr, authCode));
                 _state = -1;
                 return;
             }
@@ -727,14 +736,17 @@ public static class VoiceService
             {
                 if (!principal.Allows("voice:/ws", wantWrite: false))
                 {
-                    SendHttp("403 Forbidden", "application/json", "{\"ok\":false,\"error\":\"API Key 未授权 voice:/ws\"}");
+                    SendHttp("403 Forbidden", "application/json",
+                        VoiceErrorJson(Localization.T("API Key 未授权 voice:/ws", "API key is not authorized for voice:/ws"),
+                            Localization.CodeForbidden));
                     _state = -1;
                     return;
                 }
                 if (CountAuthenticated() >= MaxClients)
                 {
                     SendHttp("503 Service Unavailable", "application/json",
-                        "{\"ok\":false,\"error\":\"语音已鉴权监听数已满\"}");
+                        VoiceErrorJson(Localization.T("语音已鉴权监听数已满", "Voice listener limit reached"),
+                            Localization.CodeServiceUnavailable));
                     _state = -1;
                     return;
                 }
@@ -745,7 +757,8 @@ public static class VoiceService
                         ? "null" : "\"" + JsonEscape(TlsCertificateService.Fingerprint) + "\"";
                     SendWsFrame(0x1, Encoding.UTF8.GetBytes(
                         "{\"type\":\"hello\",\"sampleRate\":48000,\"channels\":1,\"format\":\"float32\"," +
-                        "\"tls\":" + (IsTls ? "true" : "false") + ",\"cert_fingerprint\":" + fp + "}"));
+                        "\"tls\":" + (IsTls ? "true" : "false") + ",\"cert_fingerprint\":" + fp +
+                        ",\"lang\":\"" + JsonEscape(Localization.Language) + "\"}"));
                 }
                 else _state = -1;
                 return;
@@ -755,7 +768,9 @@ public static class VoiceService
             {
                 if (!principal.Allows("voice:/status", wantWrite: false))
                 {
-                    SendHttp("403 Forbidden", "application/json", "{\"ok\":false,\"error\":\"API Key 未授权 voice:/status\"}");
+                    SendHttp("403 Forbidden", "application/json",
+                        VoiceErrorJson(Localization.T("API Key 未授权 voice:/status", "API key is not authorized for voice:/status"),
+                            Localization.CodeForbidden));
                     _state = -1;
                     return;
                 }
@@ -764,7 +779,8 @@ public static class VoiceService
                 return;
             }
 
-            SendHttp("404 Not Found", "application/json", "{\"ok\":false,\"error\":\"not found\"}");
+            SendHttp("404 Not Found", "application/json",
+                VoiceErrorJson(Localization.T("not found", "not found"), Localization.CodeNotFound));
             _state = -1;
         }
 
@@ -871,7 +887,7 @@ public static class VoiceService
             string? lastKey;
             if (pkt.NewBurst || !_speakerKeys.TryGetValue(pkt.PlayerId, out lastKey) || lastKey != key)
             {
-                string json = $"{{\"type\":\"speaker\",\"nickname\":\"{JsonEscape(pkt.Nickname)}\",\"userid\":\"{JsonEscape(pkt.UserId)}\",\"playerid\":{pkt.PlayerId},\"role\":\"{JsonEscape(pkt.Role)}\",\"channel\":{pkt.Channel}}}";
+                string json = $"{{\"type\":\"speaker\",\"nickname\":\"{JsonEscape(pkt.Nickname)}\",\"userid\":\"{JsonEscape(pkt.UserId)}\",\"playerid\":{pkt.PlayerId},\"role\":\"{JsonEscape(pkt.Role)}\",\"channel\":{pkt.Channel},\"role_code\":\"{JsonEscape(pkt.RoleCode)}\",\"lang\":\"{JsonEscape(Localization.Language)}\"}}";
                 SendWsFrame(0x1, Encoding.UTF8.GetBytes(json));
                 _speakerKeys[pkt.PlayerId] = key;
             }
@@ -1034,6 +1050,10 @@ public static class VoiceService
         return null;
     }
 
+    private static string VoiceErrorJson(string message, string code) =>
+        "{\"ok\":false,\"error\":\"" + JsonEscape(message) + "\",\"code\":\"" + JsonEscape(code) +
+        "\",\"lang\":\"" + JsonEscape(Localization.Language) + "\"}";
+
     private static string JsonEscape(string s)
     {
         if (string.IsNullOrEmpty(s)) return "";
@@ -1054,36 +1074,5 @@ public static class VoiceService
             }
         }
         return sb.ToString();
-    }
-
-    private static string GetRoleCN(RoleTypeId type)
-    {
-        switch (type)
-        {
-            case RoleTypeId.ClassD: return "D级人员";
-            case RoleTypeId.Scientist: return "科学家";
-            case RoleTypeId.FacilityGuard: return "设施警卫";
-            case RoleTypeId.NtfSpecialist: return "九尾狐-中士";
-            case RoleTypeId.NtfSergeant: return "九尾狐-军士";
-            case RoleTypeId.NtfCaptain: return "九尾狐-队长";
-            case RoleTypeId.NtfPrivate: return "九尾狐-列兵";
-            case RoleTypeId.ChaosConscript: return "混沌分裂者-征召兵";
-            case RoleTypeId.ChaosRifleman: return "混沌分裂者-步枪手";
-            case RoleTypeId.ChaosMarauder: return "混沌分裂者-掠夺者";
-            case RoleTypeId.ChaosRepressor: return "混沌分裂者-镇压者";
-            case RoleTypeId.Scp049: return "SCP-049";
-            case RoleTypeId.Scp0492: return "SCP-049-2";
-            case RoleTypeId.Scp079: return "SCP-079";
-            case RoleTypeId.Scp096: return "SCP-096";
-            case RoleTypeId.Scp106: return "SCP-106";
-            case RoleTypeId.Scp173: return "SCP-173";
-            case RoleTypeId.Scp939: return "SCP-939";
-            case RoleTypeId.Scp3114: return "SCP-3114";
-            case RoleTypeId.Tutorial: return "教程角色";
-            case RoleTypeId.Spectator: return "旁观者";
-            case RoleTypeId.Overwatch: return "观察者";
-            case RoleTypeId.Filmmaker: return "摄影者";
-            default: return type.ToString();
-        }
     }
 }

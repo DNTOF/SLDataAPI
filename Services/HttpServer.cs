@@ -169,13 +169,13 @@ public class HttpServer
                                 if (headEnd >= 0) break;
                                 if (unchecked(Environment.TickCount - startTick) > RequestDeadlineMs)
                                 {
-                                    SendJson(stream, 408, Err("请求超时：头部长时间未收完（Slowloris 防护）"));
+                                    SendJson(stream, 408, Err(Localization.TimeoutRequestHeaders, Localization.CodeTimeout));
                                     return;
                                 }
                             }
                         if (headEnd < 0)
                         {
-                            SendJson(stream, 431, Err("请求头过大或格式非法"));
+                            SendJson(stream, 431, Err(Localization.T("请求头过大或格式非法", "Request headers too large or malformed"), Localization.CodeRequestHeaderTooLarge));
                             return;
                         }
 
@@ -183,7 +183,7 @@ public class HttpServer
                         string[] headLines = headText.Split('\n');
                         if (headLines.Length == 0)
                         {
-                            SendJson(stream, 400, Err("bad request"));
+                            SendJson(stream, 400, Err(Localization.T("bad request", "bad request"), Localization.CodeBadRequest));
                             return;
                         }
 
@@ -191,7 +191,7 @@ public class HttpServer
                         var parts = requestLine.Split(' ');
                         if (parts.Length < 2)
                         {
-                            SendJson(stream, 400, Err("bad request"));
+                            SendJson(stream, 400, Err(Localization.T("bad request", "bad request"), Localization.CodeBadRequest));
                             return;
                         }
 
@@ -232,7 +232,7 @@ public class HttpServer
 
                         if (contentLength > 65536)
                         {
-                            SendJson(stream, 413, Err("payload too large"));
+                            SendJson(stream, 413, Err(Localization.T("payload too large", "payload too large"), Localization.CodePayloadTooLarge));
                             return;
                         }
 
@@ -256,7 +256,7 @@ public class HttpServer
                                 total += n;
                                 if (unchecked(Environment.TickCount - startTick) > RequestDeadlineMs)
                                 {
-                                    SendJson(stream, 408, Err("请求超时：请求体长时间未收完（Slowloris 防护）"));
+                                    SendJson(stream, 408, Err(Localization.TimeoutRequestBody, Localization.CodeTimeout));
                                     return;
                                 }
                             }
@@ -305,7 +305,7 @@ public class HttpServer
             {
                 if (method != "GET")
                 {
-                    SendJson(stream, 405, Err("Method Not Allowed"));
+                    SendJson(stream, 405, Err(Localization.T("Method Not Allowed", "Method Not Allowed"), Localization.CodeMethodNotAllowed));
                     return;
                 }
 
@@ -324,7 +324,7 @@ public class HttpServer
             {
                 if (method != "GET")
                 {
-                    SendJson(stream, 405, Err("Method Not Allowed"));
+                    SendJson(stream, 405, Err(Localization.T("Method Not Allowed", "Method Not Allowed"), Localization.CodeMethodNotAllowed));
                     return;
                 }
 
@@ -337,6 +337,7 @@ public class HttpServer
                 {
                     success = true,
                     adapted_plugins = snapAp,
+                    lang = Localization.Language,
                 }));
                 return;
             }
@@ -346,7 +347,7 @@ public class HttpServer
             {
                 if (method != "GET")
                 {
-                    SendJson(stream, 405, Err("Method Not Allowed"));
+                    SendJson(stream, 405, Err(Localization.T("Method Not Allowed", "Method Not Allowed"), Localization.CodeMethodNotAllowed));
                     return;
                 }
 
@@ -358,7 +359,7 @@ public class HttpServer
                 string[] segs = rest.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
                 if (segs.Length != 2)
                 {
-                    SendJson(stream, 404, Err("路径不存在（需要 /plugins/<plugin_id>/<route>）"));
+                    SendJson(stream, 404, Err(Localization.T("路径不存在（需要 /plugins/<plugin_id>/<route>）", "Path not found (expected /plugins/<plugin_id>/<route>)"), Localization.CodeNotFound));
                     return;
                 }
 
@@ -368,7 +369,7 @@ public class HttpServer
                 // Path traversal / charset guards also inside HandleRouteOnMainThread
                 if (pluginId.Contains("..") || routePath.Contains(".."))
                 {
-                    SendJson(stream, 400, Err("invalid path"));
+                    SendJson(stream, 400, Err(Localization.T("invalid path", "invalid path"), Localization.CodeInvalidArgument));
                     return;
                 }
 
@@ -380,17 +381,19 @@ public class HttpServer
                 if (routeEx != null)
                 {
                     Log.Warn($"[SLDataAPI] adapted route dispatch failed: {routeEx.Message}");
-                    SendJson(stream, 504, Err("route timeout or dispatch failed"));
+                    SendJson(stream, 504, Err(Localization.T("route timeout or dispatch failed", "route timeout or dispatch failed"), Localization.CodeTimeout));
                     return;
                 }
 
                 if (st == 204)
                 {
-                    SendJson(stream, 200, "{}");
+                    SendJson(stream, 200, "{\"lang\":\"" + Localization.Language + "\"}");
                     return;
                 }
 
-                SendJson(stream, st, string.IsNullOrEmpty(routeBody) ? Err("empty") : routeBody);
+                SendJson(stream, st, string.IsNullOrEmpty(routeBody)
+                    ? Err(Localization.T("empty", "empty"), "empty_response")
+                    : EnsureRootLang(routeBody));
                 return;
             }
 
@@ -399,7 +402,7 @@ public class HttpServer
             {
                 if (!_config.ControlEnabled)
                 {
-                    SendJson(stream, 404, Err("控制接口未启用"));
+                    SendJson(stream, 404, Err(Localization.T("控制接口未启用", "Control API is disabled"), Localization.CodeNotFound));
                     return;
                 }
 
@@ -412,24 +415,25 @@ public class HttpServer
                     SendJson(stream, 404, Newtonsoft.Json.JsonConvert.SerializeObject(new ControlResponse
                     {
                         success = false,
-                        message = "控制接口已切换为 WebSocket 模式（control_transport: ws），HTTP /control/* 已禁用",
+                        message = Localization.T("控制接口已切换为 WebSocket 模式（control_transport: ws），HTTP /control/* 已禁用", "Control API switched to WebSocket mode (control_transport: ws); HTTP /control/* is disabled"),
                         data = new { code = "transport_mismatch", use = "ws" },
+                        code = "transport_mismatch",
                     }));
                     return;
                 }
 
                 // v2.6.0 推出，代号 PEAK：控制面 API Key（Bearer / X-SLDataAPI-Key）；不再接受 X-Control-Token / ?token=
                 string? apiKey = SLDataAPI.Auth.ApiKeyService.ExtractKeyFromHeaders(headers);
-                if (!SLDataAPI.Auth.ApiKeyService.TryAuthenticate(remoteIp, apiKey, out var principal, out string authErr))
+                if (!SLDataAPI.Auth.ApiKeyService.TryAuthenticate(remoteIp, apiKey, out var principal, out string authErr, out string authCode))
                 {
                     Log.Warn($"[SLDataAPI][Control] 鉴权失败 from {remoteIp}: {authErr}");
-                    SendJson(stream, 401, Err(authErr));
+                    SendJson(stream, 401, Err(authErr, authCode));
                     return;
                 }
 
                 if (method != "POST")
                 {
-                    SendJson(stream, 405, Err("控制接口仅支持 POST"));
+                    SendJson(stream, 405, Err(Localization.T("控制接口仅支持 POST", "Control API only supports POST"), Localization.CodeMethodNotAllowed));
                     return;
                 }
 
@@ -437,7 +441,7 @@ public class HttpServer
                 if (principal == null || !principal.Allows(path, wantWrite))
                 {
                     Log.Warn($"[SLDataAPI][Control] 端点未授权 key={principal?.Id} path={path} write={wantWrite}");
-                    SendJson(stream, 403, Err("API Key 有效但未授权该端点"));
+                    SendJson(stream, 403, Err(Localization.Forbidden, Localization.CodeForbidden));
                     return;
                 }
 
@@ -446,12 +450,12 @@ public class HttpServer
                 return;
             }
 
-            SendJson(stream, 404, Err("路径不存在"));
+            SendJson(stream, 404, Err(Localization.NotFound, Localization.CodeNotFound));
         }
         catch (Exception ex)
         {
             Log.Error($"[SLDataAPI] 路由处理异常: {ex}");
-            try { SendJson(stream, 500, Err("内部错误")); } catch { }
+            try { SendJson(stream, 500, Err(Localization.InternalError, Localization.CodeInternalError)); } catch { }
         }
     }
 
@@ -465,7 +469,7 @@ public class HttpServer
         if (!ControlAuth.IsAcceptableVerifyToken(_config.VerifyToken))
         {
             SendJson(stream, 503, Err(
-                "数据接口已关闭：verify_token 未设置为强随机值（禁止出厂默认/空/弱口令）。请修改 config.yml 后重启。"));
+                Localization.T("数据接口已关闭：verify_token 未设置为强随机值（禁止出厂默认/空/弱口令）。请修改 config.yml 后重启。", "Data API is disabled: verify_token is not a strong random value (factory default, empty, and weak values are rejected). Update config.yml and restart."), Localization.CodeTokenNotConfigured));
             return false;
         }
 
@@ -480,7 +484,7 @@ public class HttpServer
         if (!ControlAuth.TryAuthenticate(remoteIp, reqToken, _config.VerifyToken ?? "", out string err, highPrivilege: false))
         {
             Log.Warn($"[SLDataAPI] {logTag} 鉴权失败 from {remoteIp}: {err} {ControlAuth.DescribeMismatch(reqToken, _config.VerifyToken)}");
-            SendJson(stream, 403, Err(err));
+            SendJson(stream, 403, Err(err, Localization.ErrorCodeFor(403, err)));
             return false;
         }
 
@@ -528,8 +532,31 @@ public class HttpServer
         }
     }
 
-    private static string Err(string message) =>
-        Newtonsoft.Json.JsonConvert.SerializeObject(new ControlResponse { success = false, message = message });
+    private static string Err(string message, string? code = null) =>
+        Newtonsoft.Json.JsonConvert.SerializeObject(new ControlResponse
+        {
+            success = false,
+            message = message,
+            code = code ?? Localization.ErrorCodeFor(400, message),
+        });
+
+    /// <summary>
+    /// 适配插件路由可能直接返回 JSON 对象；在其根对象追加 lang（已有 lang / 非对象体原样返回）。
+    /// </summary>
+    private static string EnsureRootLang(string json)
+    {
+        try
+        {
+            var token = Newtonsoft.Json.Linq.JToken.Parse(json);
+            if (token is Newtonsoft.Json.Linq.JObject obj && obj["lang"] == null)
+            {
+                obj["lang"] = Localization.Language;
+                return obj.ToString(Newtonsoft.Json.Formatting.None);
+            }
+        }
+        catch { /* 非 JSON 文本：原样透传 */ }
+        return json;
+    }
 
     /// <summary>从 URL 查询串提取首个指定键的值（WsControlService 复用）。</summary>
     internal static string ExtractQueryValue(string query, string key)

@@ -27,14 +27,21 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
     private HttpServer? server;
 
     public override string Name => "SLDataAPI";
-    public override string Description => "通过 HTTP API 向外部（WebUI / 机器人）提供服务器数据采集与远程控制能力（LabAPI 原生插件，v2.6.2-patch，代号 Holiday26）";
+    public override string Description => "通过 HTTP API 向外部（WebUI / 机器人）提供服务器数据采集与远程控制能力（LabAPI 原生插件，v2.6.3，代号 Saluton）";
     public override string Author => "DNT_OF";
-    public override Version Version => new Version(2, 6, 2);
+    public override Version Version => new Version(2, 6, 3);
     public override Version RequiredApiVersion => new Version(1, 1, 7);
 
     public override void Enable()
     {
         Instance = this;
+
+        // 接口输出语言：必须在任何 HTTP / WS 服务启动前生效。
+        // zh-CN（默认）保持所有既有中文字段逐字不变；非法值回退 zh-CN 并告警。
+        if (!Localization.SetLanguage(Config.Language))
+        {
+            Log.Warn($"[SLDataAPI] 配置 language 值非法: \"{Config.Language}\"（仅支持 zh-CN / en），本次按 zh-CN 处理。");
+        }
 
         LabApi.Events.Handlers.ServerEvents.WaitingForPlayers += OnWaitingForPlayers;
         LabApi.Events.Handlers.ServerEvents.RoundStarted    += OnRoundStarted;
@@ -104,7 +111,7 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
             $"control={(Config.ControlEnabled ? $"{Config.ControlTransport} 模式，API Key 鉴权" : "关闭")}，" +
             $"voice={(Config.VoiceEnabled ? $"启用(端口 {Config.VoicePort})" : "关闭")}，" +
             $"录音={(Config.VoiceRecordEnabled ? $"开(保留 {Config.VoiceRecordMaxRounds} 局)" : "关")}，" +
-            $"webdav={(Config.WebdavUploadEnabled ? "开" : "关")}。");
+            $"webdav={(Config.WebdavUploadEnabled ? "开" : "关")}，language={Localization.Language}。");
 
         // 插件配置目录（configs/<port>/SLDataAPI/）：TLS 证书、举报、API Key、审计日志共用
         string reportConfigDir = "";
@@ -165,7 +172,7 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin<Config>
         string httpStatus = server != null
             ? $"HTTP on port {Config.HttpPort}" + (dataPlaneOk ? "" : "（仅控制面，数据口已关闭）")
             : "HTTP 未绑定";
-        Log.Info($"SLDataAPI v{Version} (2.6.2-patch Holiday26 / LabAPI) enabled. {httpStatus}. Control API: {(Config.ControlEnabled ? $"{Config.ControlTransport.ToUpperInvariant()} 模式，API Key" : "关闭")}. Voice: {(Config.VoiceEnabled ? $"启用(端口 {Config.VoicePort})" : "关闭")}. {tlsBanner}.");
+        Log.Info($"SLDataAPI v{Version} (2.6.3 Saluton / LabAPI) enabled. {httpStatus}. Control API: {(Config.ControlEnabled ? $"{Config.ControlTransport.ToUpperInvariant()} 模式，API Key" : "关闭")}. Voice: {(Config.VoiceEnabled ? $"启用(端口 {Config.VoicePort})" : "关闭")}. {tlsBanner}.");
     }
 
     public override void Disable()

@@ -62,9 +62,12 @@ public sealed class FileUploadSessions
             foreach (var s in _sessions.Values)
                 if (string.Equals(s.Actor, actor, StringComparison.Ordinal)) mine++;
             if (mine >= MaxSessionsPerActor)
-                throw new InvalidOperationException($"该 Key 未完成的上传会话过多（上限 {MaxSessionsPerActor}），请先完成或等待 {Ttl.TotalSeconds:F0}s 过期");
+                throw new InvalidOperationException(Localization.F("该 Key 未完成的上传会话过多（上限 {0}），请先完成或等待 {1}s 过期",
+                    "Too many unfinished upload sessions for this key (limit {0}); finish one or wait {1}s for expiry",
+                    MaxSessionsPerActor, Ttl.TotalSeconds.ToString("F0")));
             if (_sessions.Count >= MaxSessions)
-                throw new InvalidOperationException($"服务器未完成的上传会话过多（上限 {MaxSessions}）");
+                throw new InvalidOperationException(Localization.F("服务器未完成的上传会话过多（上限 {0}）",
+                    "Too many unfinished upload sessions on the server (limit {0})", MaxSessions));
 
             string id = NewId();
             _sessions[id] = new Session { Id = id, Actor = actor ?? "", Path = NormalizePath(path), LastTouched = _clock() };
@@ -80,11 +83,13 @@ public sealed class FileUploadSessions
             SweepUnlocked();
             var s = GetOwnedUnlocked(uploadId, actor, path);
             if (offset != s.Data.Length)
-                throw new ArgumentException($"offset 不连续：期望 {s.Data.Length}，收到 {offset}");
+                throw new ArgumentException(Localization.F("offset 不连续：期望 {0}，收到 {1}",
+                    "offset is not contiguous: expected {0}, got {1}", s.Data.Length, offset));
             if (s.Data.Length + chunk.Length > _maxBytes)
             {
                 Remove(uploadId);
-                throw new InvalidOperationException($"上传内容过大（> 上限 {_maxBytes} 字节），会话已作废");
+                throw new InvalidOperationException(Localization.F("上传内容过大（> 上限 {0} 字节），会话已作废",
+                    "Upload content is too large (> limit {0} bytes); the session was invalidated", _maxBytes));
             }
             s.Data.Write(chunk, 0, chunk.Length);
             s.LastTouched = _clock();
@@ -103,7 +108,8 @@ public sealed class FileUploadSessions
             _sessions.Remove(uploadId);
             if (!string.IsNullOrWhiteSpace(expectedSha256) &&
                 !string.Equals(Sha256Hex(bytes), expectedSha256!.Trim(), StringComparison.OrdinalIgnoreCase))
-                throw new InvalidOperationException("sha256 校验失败：上传内容与声明不一致，未写入");
+                throw new InvalidOperationException(Localization.T("sha256 校验失败：上传内容与声明不一致，未写入",
+                    "sha256 verification failed: uploaded content does not match the declared hash; nothing was written"));
             return bytes;
         }
     }
@@ -141,11 +147,11 @@ public sealed class FileUploadSessions
     private Session GetOwnedUnlocked(string uploadId, string actor, string path)
     {
         if (string.IsNullOrEmpty(uploadId) || !_sessions.TryGetValue(uploadId, out var s))
-            throw new ArgumentException("upload_id 不存在或已过期");
+            throw new ArgumentException(Localization.T("upload_id 不存在或已过期", "upload_id does not exist or has expired"));
         if (!string.Equals(s.Actor, actor ?? "", StringComparison.Ordinal))
-            throw new ArgumentException("upload_id 不属于当前 Key");
+            throw new ArgumentException(Localization.T("upload_id 不属于当前 Key", "upload_id does not belong to the current key"));
         if (!string.Equals(s.Path, NormalizePath(path), StringComparison.OrdinalIgnoreCase))
-            throw new ArgumentException("upload_id 与 path 不匹配");
+            throw new ArgumentException(Localization.T("upload_id 与 path 不匹配", "upload_id does not match path"));
         return s;
     }
 

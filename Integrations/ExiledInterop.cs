@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using SLDataAPI.Services;
 
 namespace SLDataAPI.Integrations;
 
@@ -154,21 +155,21 @@ public static class ExiledInterop
         {
             var config = GetProp(plugin, "Config");
             if (config == null)
-                return "插件没有配置对象";
+                return Localization.T("插件没有配置对象", "The plugin does not expose a configuration object");
 
             var isEnabled = config.GetType().GetProperty("IsEnabled", BindingFlags.Public | BindingFlags.Instance);
             if (isEnabled == null || !isEnabled.CanWrite)
-                return "配置对象缺少可写的 IsEnabled";
+                return Localization.T("配置对象缺少可写的 IsEnabled", "The configuration object has no writable IsEnabled");
             isEnabled.SetValue(config, enabled);
 
             string? configPath = GetString(plugin, "ConfigPath");
             if (string.IsNullOrWhiteSpace(configPath))
-                return "插件未暴露 ConfigPath";
+                return Localization.T("插件未暴露 ConfigPath", "The plugin does not expose ConfigPath");
 
             Resolve();
             object? serializer = _serializerProp?.GetValue(null);
             if (serializer == null)
-                return "EXILED 序列化器不可用";
+                return Localization.T("EXILED 序列化器不可用", "The EXILED serializer is not available");
 
             // 兼容 Serialize(object) 与 Serialize<T>(T) 两种签名
             var methods = serializer.GetType().GetMethods(BindingFlags.Public | BindingFlags.Instance)
@@ -187,7 +188,7 @@ public static class ExiledInterop
                     serialized = generic.MakeGenericMethod(config.GetType()).Invoke(serializer, new[] { config });
             }
             if (serialized is not string yaml)
-                return "序列化结果不是文本";
+                return Localization.T("序列化结果不是文本", "The serializer did not return text");
 
             File.WriteAllText(configPath, yaml, System.Text.Encoding.UTF8);
             return null;
